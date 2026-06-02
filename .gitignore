@@ -1,0 +1,31 @@
+# Verilator
+obj_dir/
+*.vcd
+*.fst
+*.o
+*.d
+sim/build/
+
+# Vivado (for later FPGA/PPA work)
+*.jou
+*.log
+*.str
+*.cache/
+*.hw/
+*.runs/
+*.sim/
+*.ip_user_files/
+.Xil/
+vivado*.backup.*
+
+# riscv toolchain build artifacts
+*.elf
+*.bin
+kernels/**/*.o
+kernels/**/*.dump
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
