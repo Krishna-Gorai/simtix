@@ -1,0 +1,7 @@
+# Normalize line endings: keep LF in the repo for all text/source so the
+# Linux CI and Windows checkouts agree (avoids CRLF diff churn).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
