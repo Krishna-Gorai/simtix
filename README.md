@@ -1,6 +1,6 @@
 # SIMTiX — a GPU-inspired SIMT accelerator for RISC-V
 
-[![CI](https://github.com/USERNAME/simtix/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/simtix/actions/workflows/ci.yml)
+[![CI](https://github.com/Krishna-Gorai/simtix/actions/workflows/ci.yml/badge.svg)](https://github.com/Krishna-Gorai/simtix/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 **SIMTiX** is an open-source, GPU-inspired **SIMT** (Single-Instruction, Multiple-Threads)
