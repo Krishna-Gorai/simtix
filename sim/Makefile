@@ -12,17 +12,22 @@
 
 VERILATOR ?= verilator
 
-# Accelerator RTL (this project) — linted strictly.
+# Accelerator top + its current children — linted strictly as one design.
+# (lane.sv is linted standalone below until it is integrated into simt_accel in M1.2.)
 ACCEL_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
 	../rtl/accel/simt_accel.sv
 
+LANE_RTL := \
+	../rtl/accel/simtix_pkg.sv \
+	../rtl/accel/lane.sv
+
 # Host CPU RTL (reused, Verilog-2001) — linted permissively (3rd-party style).
 CPU_RTL := $(wildcard ../rtl/cpu/*.v)
 
-TB        := ../tests/tb_simt_accel.sv
-TOP       := tb_simt_accel
+# Package + per-block sources used by the unit testbenches.
+PKG       := ../rtl/accel/simtix_pkg.sv
 
 VFLAGS    := -sv -Wall --timing
 CPU_VFLAGS:= -Wno-lint -Wno-style -Wno-WIDTH
@@ -33,24 +38,37 @@ CPU_VFLAGS:= -Wno-lint -Wno-style -Wno-WIDTH
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-cpu test clean
+.PHONY: lint lint-accel lint-lane lint-cpu test test-handshake test-lane clean
 
-lint: lint-accel lint-cpu
+lint: lint-accel lint-lane lint-cpu
 
 lint-accel:
-	$(VERILATOR) --lint-only $(VFLAGS) $(ACCEL_RTL)
-	@echo "[lint] accelerator RTL OK"
+	$(VERILATOR) --lint-only $(VFLAGS) --top-module simt_accel $(ACCEL_RTL)
+	@echo "[lint] accelerator top OK"
+
+lint-lane:
+	$(VERILATOR) --lint-only $(VFLAGS) --top-module lane $(LANE_RTL)
+	@echo "[lint] lane OK"
 
 lint-cpu:
 	$(VERILATOR) --lint-only $(CPU_VFLAGS) --top-module riscv_soc $(CPU_RTL)
 	@echo "[lint] host CPU OK"
 
-test:
+# Build & run a self-checking testbench.  $(1)=top module, $(2..)=extra sources.
+define run_tb
 	rm -rf $(MDIR)
-	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module $(TOP) \
-		$(ACCEL_RTL) $(TB) -o $(TOP)
-	@echo "[test] running regression..."
-	$(MDIR)/$(TOP)
+	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module $(1) $(2) -o $(1)
+	@echo "[test] running $(1)..."
+	$(MDIR)/$(1)
+endef
+
+test: test-handshake test-lane
+
+test-handshake:
+	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
+
+test-lane:
+	$(call run_tb,tb_lane,$(PKG) ../rtl/accel/lane.sv ../tests/tb_lane.sv)
 
 clean:
 	rm -rf obj_dir $(MDIR)
