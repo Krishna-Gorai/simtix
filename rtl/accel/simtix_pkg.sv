@@ -17,6 +17,16 @@ package simtix_pkg;
   parameter int WARP_SIZE  = 8;    // threads per warp
   parameter int NUM_WARPS  = 4;    // hardware warp slots (M3)
 
+  // ── Coalescing cache line (M4) ───────────────────────────────────────────────
+  // The data port serves a whole line per access; the memory engine groups a
+  // warp's per-lane accesses by line and spends one transaction per distinct
+  // line (a contiguous warp access -> 1 line; a scattered one -> up to NUM_LANES).
+  parameter int LINE_WORDS = NUM_LANES;          // words per line (8 = 32-byte line)
+  parameter int LINE_BITS  = LINE_WORDS * XLEN;  // 256: line read/write data width
+  parameter int LINE_BE    = LINE_WORDS * 4;     // 32 : per-byte write-enable bits
+  parameter int LINE_WOFFW = $clog2(LINE_WORDS); // 3  : word index within a line
+  parameter int LINE_OFF   = LINE_WOFFW + 2;     // 5  : byte offset within a line
+
   // ── Memory map ──────────────────────────────────────────────────────────────
   // The accelerator occupies one 4 KB page in the host physical address space.
   // soc_top.sv routes data-bus accesses with addr >= MMIO_BASE here (M1.3).

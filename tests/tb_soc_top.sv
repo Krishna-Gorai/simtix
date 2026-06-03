@@ -22,11 +22,12 @@ module tb_soc_top
     logic        clk = 0;
     logic        rst;
 
-    logic [31:0] cpu_imem_addr, cpu_imem_data;
-    logic [31:0] accel_imem_addr, accel_imem_data;
-    logic [31:0] accel_dmem_addr, accel_dmem_wdata, accel_dmem_rdata;
-    logic        accel_dmem_we;
-    logic [3:0]  accel_dmem_be;
+    logic [31:0]          cpu_imem_addr, cpu_imem_data;
+    logic [31:0]          accel_imem_addr, accel_imem_data;
+    logic [31:0]          accel_dmem_addr;
+    logic [LINE_BITS-1:0] accel_dmem_wdata, accel_dmem_rdata;
+    logic                 accel_dmem_we;
+    logic [LINE_BE-1:0]   accel_dmem_be;
 
     int unsigned errors = 0;
 
@@ -72,15 +73,25 @@ module tb_soc_top
     localparam int MEM_WORDS = 1024;
     logic [31:0] mem [0:MEM_WORDS-1];
 
-    assign accel_imem_data  = mem[accel_imem_addr[13:2]];
-    assign accel_dmem_rdata = mem[accel_dmem_addr[13:2]];
+    assign accel_imem_data = mem[accel_imem_addr[13:2]];
+
+    // The data port drives a line-aligned byte address; lbase is its word index.
+    logic [31:0] lbase;
+    assign lbase = {20'b0, accel_dmem_addr[13:5], 3'b000};
+
+    always_comb
+        for (int w = 0; w < LINE_WORDS; w++)
+            accel_dmem_rdata[w*32 +: 32] = mem[lbase + w];
+
     always @(posedge clk) begin
-        if (accel_dmem_we) begin
-            if (accel_dmem_be[0]) mem[accel_dmem_addr[13:2]][7:0]   <= accel_dmem_wdata[7:0];
-            if (accel_dmem_be[1]) mem[accel_dmem_addr[13:2]][15:8]  <= accel_dmem_wdata[15:8];
-            if (accel_dmem_be[2]) mem[accel_dmem_addr[13:2]][23:16] <= accel_dmem_wdata[23:16];
-            if (accel_dmem_be[3]) mem[accel_dmem_addr[13:2]][31:24] <= accel_dmem_wdata[31:24];
-        end
+        if (accel_dmem_we)
+            for (int w = 0; w < LINE_WORDS; w++) begin
+                logic [31:0] cur;
+                cur = mem[lbase + w];
+                for (int b = 0; b < 4; b++)
+                    if (accel_dmem_be[w*4 + b]) cur[b*8 +: 8] = accel_dmem_wdata[w*32 + b*8 +: 8];
+                mem[lbase + w] <= cur;
+            end
     end
 
     // Shared-memory map (word indices).

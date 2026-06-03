@@ -30,11 +30,12 @@ module tb_simt_accel
     logic [7:0]  offset;
     logic [31:0] wdata, rdata;
 
-    // Accelerator memory-master wires.
-    logic [31:0] imem_addr, imem_data;
-    logic [31:0] dmem_addr, dmem_wdata, dmem_rdata;
-    logic        dmem_we;
-    logic [3:0]  dmem_be;
+    // Accelerator memory-master wires (data port is line-wide).
+    logic [31:0]          imem_addr, imem_data;
+    logic [31:0]          dmem_addr;
+    logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
+    logic                 dmem_we;
+    logic [LINE_BE-1:0]   dmem_be;
 
     int unsigned errors = 0;
 
@@ -56,16 +57,25 @@ module tb_simt_accel
     localparam int MEM_WORDS = 4096;
     logic [31:0] mem [0:MEM_WORDS-1];
 
-    assign imem_data  = mem[imem_addr[13:2]];
-    assign dmem_rdata = mem[dmem_addr[13:2]];
+    assign imem_data = mem[imem_addr[13:2]];
+
+    // The data port drives a line-aligned byte address; lbase is its word index.
+    logic [31:0] lbase;
+    assign lbase = {20'b0, dmem_addr[13:5], 3'b000};
+
+    always_comb
+        for (int w = 0; w < LINE_WORDS; w++)
+            dmem_rdata[w*32 +: 32] = mem[lbase + w];
 
     always @(posedge clk) begin
-        if (dmem_we) begin
-            if (dmem_be[0]) mem[dmem_addr[13:2]][7:0]   <= dmem_wdata[7:0];
-            if (dmem_be[1]) mem[dmem_addr[13:2]][15:8]  <= dmem_wdata[15:8];
-            if (dmem_be[2]) mem[dmem_addr[13:2]][23:16] <= dmem_wdata[23:16];
-            if (dmem_be[3]) mem[dmem_addr[13:2]][31:24] <= dmem_wdata[31:24];
-        end
+        if (dmem_we)
+            for (int w = 0; w < LINE_WORDS; w++) begin
+                logic [31:0] cur;
+                cur = mem[lbase + w];
+                for (int b = 0; b < 4; b++)
+                    if (dmem_be[w*4 + b]) cur[b*8 +: 8] = dmem_wdata[w*32 + b*8 +: 8];
+                mem[lbase + w] <= cur;
+            end
     end
 
     // ── Memory map for this test ──────────────────────────────────────────────────

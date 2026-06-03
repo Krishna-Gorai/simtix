@@ -32,12 +32,13 @@ module simt_accel
     output logic [31:0] imem_addr,
     input  logic [31:0] imem_data,
 
-    // Data master (async read, synchronous byte-enabled write) into shared memory.
-    output logic [31:0] dmem_addr,
-    output logic [31:0] dmem_wdata,
-    output logic        dmem_we,
-    output logic [3:0]  dmem_be,
-    input  logic [31:0] dmem_rdata
+    // Data master: line-wide (async read, synchronous byte-enabled write) — the
+    // memory engine coalesces a warp's lane accesses into whole-line transfers.
+    output logic [31:0]          dmem_addr,
+    output logic [LINE_BITS-1:0] dmem_wdata,
+    output logic                 dmem_we,
+    output logic [LINE_BE-1:0]   dmem_be,
+    input  logic [LINE_BITS-1:0] dmem_rdata
 );
 
     // ── Command / status registers ──────────────────────────────────────────────
@@ -69,6 +70,7 @@ module simt_accel
     logic        pool_start;
     logic        pool_busy, pool_done;
     logic [31:0] pool_dbg_a0;
+    logic [31:0] pool_dbg_txns;
 
     warp_pool u_pool (
         .clk        (clk),
@@ -88,7 +90,8 @@ module simt_accel
         .dmem_rdata (dmem_rdata),
         .busy       (pool_busy),
         .done       (pool_done),
-        .dbg_retire_a0 (pool_dbg_a0)
+        .dbg_retire_a0 (pool_dbg_a0),
+        .dbg_mem_txns  (pool_dbg_txns)
     );
 
     // ── Dispatcher ────────────────────────────────────────────────────────────────
@@ -142,6 +145,6 @@ module simt_accel
     // Silence unused-signal lint: pool_busy and the debug a0 tap are observability
     // only (the dispatcher sequences on pool_done; results are checked in memory).
     logic _unused;
-    assign _unused = &{1'b0, pool_busy, pool_dbg_a0};
+    assign _unused = &{1'b0, pool_busy, pool_dbg_a0, pool_dbg_txns};
 
 endmodule : simt_accel

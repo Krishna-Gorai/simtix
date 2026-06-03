@@ -31,12 +31,13 @@ module soc_top
     output logic [31:0] accel_imem_addr,
     input  logic [31:0] accel_imem_data,
 
-    // Accelerator shared-memory master: data (async read, byte-enabled write).
-    output logic [31:0] accel_dmem_addr,
-    output logic [31:0] accel_dmem_wdata,
-    output logic        accel_dmem_we,
-    output logic [3:0]  accel_dmem_be,
-    input  logic [31:0] accel_dmem_rdata
+    // Accelerator shared-memory master: data — line-wide for coalesced transfers
+    // (async read, synchronous per-byte-enabled write).
+    output logic [31:0]          accel_dmem_addr,
+    output logic [LINE_BITS-1:0] accel_dmem_wdata,
+    output logic                 accel_dmem_we,
+    output logic [LINE_BE-1:0]   accel_dmem_be,
+    input  logic [LINE_BITS-1:0] accel_dmem_rdata
 );
 
     // ── Host CPU data-bus wires ───────────────────────────────────────────────────

@@ -6,16 +6,22 @@
 // (vrf[warp][lane][reg]) and tail mask, all sharing ONE fetch/decode/ALU
 // datapath and ONE data port. A round-robin scheduler issues one warp per cycle.
 //
-// Why this hides latency:  a memory instruction is SERIALIZED over the lanes —
-// it occupies the single data port for NUM_LANES cycles (the M2 cost). Here that
-// replay runs in a *background* memory engine while the scheduler keeps issuing
-// OTHER warps' compute instructions on the (otherwise idle) fetch/ALU datapath.
-// So a warp's memory cost is overlapped with another warp's useful work — the
-// classic GPU latency-hiding trick. The two resources advance in the same cycle:
-//   * issue engine : 1 warp fetch+decode+execute / cycle (single imem port)
-//   * memory engine : 1 lane of the in-flight load/store replay / cycle (1 dport)
+// Why this hides latency:  a memory instruction's lane accesses run in a
+// *background* memory engine while the scheduler keeps issuing OTHER warps'
+// compute instructions on the (otherwise idle) fetch/ALU datapath. So a warp's
+// memory cost is overlapped with another warp's useful work — the classic GPU
+// latency-hiding trick. The two resources advance in the same cycle:
+//   * issue engine  : 1 warp fetch+decode+execute / cycle (single imem port)
+//   * memory engine : 1 coalesced line transaction / cycle (single line dport)
 // At most one memory instruction is in flight (single data port); a warp that
 // wants memory while the port is busy simply waits its turn in the scheduler.
+//
+// M4 — address coalescing: the data port serves a whole cache line (LINE_WORDS
+// words) per access. Each cycle the memory engine takes the line of the lowest
+// still-pending active lane and services EVERY pending lane sharing that line in
+// one line transaction. A contiguous warp access (A[tid]) is one line -> one
+// transaction (1 cycle); a scattered access costs one transaction per distinct
+// line (up to NUM_LANES). dbg_mem_txns counts transactions to show the win.
 //
 // On GO the engine spawns warps 0,1,2,... covering ceil(n_threads/WARP_SIZE)
 // warps; if there are more warps than slots, a slot is recycled as soon as the
@@ -44,16 +50,17 @@ module warp_pool
     output logic [31:0] imem_addr,
     input  logic [31:0] imem_data,
 
-    // Single data port (all lanes of all warps are serialized onto it).
-    output logic [31:0] dmem_addr,
-    output logic [31:0] dmem_wdata,
-    output logic        dmem_we,
-    output logic [3:0]  dmem_be,
-    input  logic [31:0] dmem_rdata,
+    // Single line-wide data port (coalesced accesses are issued onto it).
+    output logic [31:0]          dmem_addr,    // line-aligned byte address
+    output logic [LINE_BITS-1:0] dmem_wdata,   // one cache line of write data
+    output logic                 dmem_we,
+    output logic [LINE_BE-1:0]   dmem_be,       // per-byte write enable across line
+    input  logic [LINE_BITS-1:0] dmem_rdata,    // one cache line of read data
 
     output logic        busy,
     output logic        done,          // 1-cycle pulse when the whole grid retires
-    output logic [31:0] dbg_retire_a0  // last-retired warp's lane-0 tid (observ.)
+    output logic [31:0] dbg_retire_a0, // last-retired warp's lane-0 tid (observ.)
+    output logic [31:0] dbg_mem_txns   // line transactions since the last launch
 );
 
     localparam int NW    = NUM_WARPS;
@@ -77,14 +84,13 @@ module warp_pool
     logic           running;
     logic [WIDXW-1:0] rr_ptr;        // round-robin issue pointer
 
-    // ── Background memory engine (one in-flight memory instruction) ─────────────────
+    // ── Background memory engine (one in-flight, coalesced memory instruction) ──────
     logic             mem_busy;
     logic [WIDXW-1:0] mem_w;
-    logic [LIDXW-1:0] mem_lane;
+    logic [NL-1:0]    mem_pending;               // active lanes not yet serviced
     logic             mem_is_store;
     logic [2:0]       mem_funct3;
     logic [4:0]       mem_rd;
-    logic [NL-1:0]    mem_active;
     logic [31:0]      mem_next_pc;
     logic [31:0]      mem_addr_lane  [0:NL-1];   // latched per-lane eff. address
     logic [31:0]      mem_sdata_lane [0:NL-1];   // latched per-lane store data
@@ -264,44 +270,90 @@ module warp_pool
         endcase
     end
 
-    // ── Background memory engine drive (uses the LATCHED replay context) ────────────
-    logic [31:0] cur_addr;
-    logic [31:0] cur_sdata;
-    logic [1:0]  cur_b;
-    assign cur_addr  = mem_addr_lane[mem_lane];
-    assign cur_sdata = mem_sdata_lane[mem_lane];
-    assign cur_b     = cur_addr[1:0];
+    // ── Coalescing memory engine (uses the LATCHED replay context) ──────────────────
+    // Pick the line of the lowest still-pending lane, then gather EVERY pending
+    // lane sharing that line into one transaction. grp[l] = lanes serviced now.
+    logic [LIDXW-1:0]   lead;        // lowest-index pending lane (the line leader)
+    logic [31:LINE_OFF] lead_tag;    // its cache-line tag
+    logic [NL-1:0]      grp;         // lanes coalesced into this cycle's line
 
-    logic [7:0]  ld_byte;
-    logic [15:0] ld_half;
-    logic [31:0] cur_load_data;
-    assign ld_byte = dmem_rdata[8*cur_b +: 8];
-    assign ld_half = cur_addr[1] ? dmem_rdata[31:16] : dmem_rdata[15:0];
     always_comb begin
-        unique case (mem_funct3)
-            3'b000:  cur_load_data = {{24{ld_byte[7]}},  ld_byte};
-            3'b001:  cur_load_data = {{16{ld_half[15]}}, ld_half};
-            3'b010:  cur_load_data = dmem_rdata;
-            3'b100:  cur_load_data = {24'b0, ld_byte};
-            3'b101:  cur_load_data = {16'b0, ld_half};
-            default: cur_load_data = dmem_rdata;
-        endcase
+        lead = '0;
+        for (int l = NL-1; l >= 0; l--)        // low-to-... last write wins -> lowest
+            if (mem_pending[l]) lead = l[LIDXW-1:0];
+    end
+    assign lead_tag = mem_addr_lane[lead][31:LINE_OFF];
+
+    always_comb begin
+        for (int l = 0; l < NL; l++)
+            grp[l] = mem_pending[l] &&
+                     (mem_addr_lane[l][31:LINE_OFF] == lead_tag);
     end
 
+    // Per-lane load result, extracted from this cycle's line read.
+    logic [31:0] ld_data [0:NL-1];
+    always_comb begin
+        for (int l = 0; l < NL; l++) begin
+            logic [LINE_WOFFW-1:0] woff;
+            logic [1:0]            bsel;
+            logic [31:0]           word;
+            logic [7:0]            lb;
+            logic [15:0]           lh;
+            woff    = mem_addr_lane[l][LINE_OFF-1:2];
+            bsel    = mem_addr_lane[l][1:0];
+            word    = dmem_rdata[woff*32 +: 32];
+            lb      = word[8*bsel +: 8];
+            lh      = mem_addr_lane[l][1] ? word[31:16] : word[15:0];
+            unique case (mem_funct3)
+                3'b000:  ld_data[l] = {{24{lb[7]}},  lb};
+                3'b001:  ld_data[l] = {{16{lh[15]}}, lh};
+                3'b010:  ld_data[l] = word;
+                3'b100:  ld_data[l] = {24'b0, lb};
+                3'b101:  ld_data[l] = {16'b0, lh};
+                default: ld_data[l] = word;
+            endcase
+        end
+    end
+
+    // Drive the line port: line-aligned address, plus a merged store line.
     always_comb begin
         dmem_addr  = 32'd0;
-        dmem_wdata = 32'd0;
+        dmem_wdata = '0;
         dmem_we    = 1'b0;
-        dmem_be    = 4'b0000;
-        if (mem_busy && mem_active[mem_lane]) begin
-            dmem_addr = cur_addr;
+        dmem_be    = '0;
+        if (mem_busy) begin
+            dmem_addr = {mem_addr_lane[lead][31:LINE_OFF], {LINE_OFF{1'b0}}};
             if (mem_is_store) begin
                 dmem_we = 1'b1;
-                unique case (mem_funct3)
-                    3'b000:  begin dmem_wdata = {4{cur_sdata[7:0]}};  dmem_be = 4'b0001 << cur_b;                end
-                    3'b001:  begin dmem_wdata = {2{cur_sdata[15:0]}}; dmem_be = cur_addr[1] ? 4'b1100 : 4'b0011; end
-                    default: begin dmem_wdata = cur_sdata;            dmem_be = 4'b1111;                          end
-                endcase
+                for (int l = 0; l < NL; l++) begin
+                    if (grp[l]) begin
+                        logic [LINE_WOFFW-1:0] woff;
+                        logic [1:0]            bsel;
+                        logic [31:0]           sd;
+                        woff = mem_addr_lane[l][LINE_OFF-1:2];
+                        bsel = mem_addr_lane[l][1:0];
+                        sd   = mem_sdata_lane[l];
+                        unique case (mem_funct3)
+                            3'b000: begin  // sb
+                                dmem_wdata[woff*32 + bsel*8 +: 8] = sd[7:0];
+                                dmem_be[woff*4 + bsel]            = 1'b1;
+                            end
+                            3'b001: begin  // sh
+                                if (mem_addr_lane[l][1]) begin
+                                    dmem_wdata[woff*32 + 16 +: 16] = sd[15:0];
+                                    dmem_be[woff*4 + 2 +: 2]       = 2'b11;
+                                end else begin
+                                    dmem_wdata[woff*32 +: 16] = sd[15:0];
+                                    dmem_be[woff*4 +: 2]      = 2'b11;
+                                end
+                            end
+                            default: begin  // sw
+                                dmem_wdata[woff*32 +: 32] = sd;
+                                dmem_be[woff*4 +: 4]      = 4'b1111;
+                            end
+                        endcase
+                    end
+                end
             end
         end
     end
@@ -324,7 +376,9 @@ module warp_pool
             total_warps   <= 32'd0;
             rr_ptr        <= '0;
             mem_busy      <= 1'b0;
+            mem_pending   <= '0;
             dbg_retire_a0 <= 32'd0;
+            dbg_mem_txns  <= 32'd0;
             for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
         end else begin
             done <= 1'b0;                         // default: 1-cycle pulse
@@ -337,11 +391,12 @@ module warp_pool
                 arg_n       <= n_threads;
                 arg_pc      <= kernel_pc;
                 total_warps <= (n_threads + WSZ - 1) / WSZ;
-                next_wid    <= 32'd0;
-                rr_ptr      <= '0;
-                mem_busy    <= 1'b0;
-                running     <= 1'b1;
-                busy        <= 1'b1;
+                next_wid     <= 32'd0;
+                rr_ptr       <= '0;
+                mem_busy     <= 1'b0;
+                dbg_mem_txns <= 32'd0;
+                running      <= 1'b1;
+                busy         <= 1'b1;
                 for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
             end else if (running) begin
                 // 1) Spawn step: drop the next warp into a free/retired slot.
@@ -370,14 +425,14 @@ module warp_pool
                         dbg_retire_a0   <= warp_base[issue_w];
                     end else if (is_mem) begin
                         if (!mem_busy) begin
-                            // Hand the lane replay to the background memory engine.
+                            // Hand the coalesced access to the background engine.
+                            // (active!=0 always holds: a spawned warp has >=1 lane.)
                             mem_busy     <= 1'b1;
                             mem_w        <= issue_w;
-                            mem_lane     <= '0;
+                            mem_pending  <= active[issue_w];
                             mem_is_store <= is_store;
                             mem_funct3   <= funct3;
                             mem_rd       <= rd;
-                            mem_active   <= active[issue_w];
                             mem_next_pc  <= next_pc;
                             for (int l = 0; l < NL; l++) begin
                                 mem_addr_lane[l]  <= addr[l];
@@ -394,17 +449,20 @@ module warp_pool
                     rr_ptr <= issue_w + 1'b1;     // round-robin, advance past it
                 end
 
-                // 3) Memory engine step: service one lane of the in-flight op.
+                // 3) Memory engine step: one coalesced line transaction / cycle.
                 if (mem_busy) begin
-                    if (!mem_is_store && mem_active[mem_lane] && (mem_rd != 5'd0))
-                        vrf[mem_w][mem_lane][mem_rd] <= cur_load_data;
+                    if (!mem_is_store && (mem_rd != 5'd0))
+                        for (int l = 0; l < NL; l++)
+                            if (grp[l]) vrf[mem_w][l][mem_rd] <= ld_data[l];
 
-                    if (mem_lane == LIDXW'(NL - 1)) begin
-                        mem_busy        <= 1'b0;
-                        pc[mem_w]       <= mem_next_pc;   // mem ops are not control flow
-                        wstate[mem_w]   <= W_RUN;
+                    dbg_mem_txns <= dbg_mem_txns + 32'd1;
+
+                    if ((mem_pending & ~grp) == '0) begin
+                        mem_busy      <= 1'b0;
+                        pc[mem_w]     <= mem_next_pc;   // mem ops are not control flow
+                        wstate[mem_w] <= W_RUN;
                     end else begin
-                        mem_lane <= mem_lane + 1'b1;
+                        mem_pending <= mem_pending & ~grp;
                     end
                 end
 
