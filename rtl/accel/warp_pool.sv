@@ -1,10 +1,11 @@
 // =============================================================================
-// warp_pool.sv  -  M3 multi-warp SIMT engine with a round-robin scheduler
+// warp_pool.sv  -  M5 multi-warp SIMT engine with per-warp divergence stack
 //
 // This is the M2 single warp (rtl/accel/warp.sv) grown into a *pool*: NUM_WARPS
-// hardware warp slots are resident at once, each with its own PC, banked VRF
-// (vrf[warp][lane][reg]) and tail mask, all sharing ONE fetch/decode/ALU
-// datapath and ONE data port. A round-robin scheduler issues one warp per cycle.
+// hardware warp slots are resident at once, each with its own banked VRF
+// (vrf[warp][lane][reg]) and a private SIMT reconvergence stack, all sharing ONE
+// fetch/decode/ALU datapath and ONE data port. A round-robin scheduler issues
+// one warp per cycle.
 //
 // Why this hides latency:  a memory instruction's lane accesses run in a
 // *background* memory engine while the scheduler keeps issuing OTHER warps'
@@ -17,18 +18,29 @@
 // wants memory while the port is busy simply waits its turn in the scheduler.
 //
 // M4 — address coalescing: the data port serves a whole cache line (LINE_WORDS
-// words) per access. Each cycle the memory engine takes the line of the lowest
-// still-pending active lane and services EVERY pending lane sharing that line in
-// one line transaction. A contiguous warp access (A[tid]) is one line -> one
-// transaction (1 cycle); a scattered access costs one transaction per distinct
-// line (up to NUM_LANES). dbg_mem_txns counts transactions to show the win.
+// words) per access; each cycle the memory engine services every pending lane
+// sharing the lowest pending lane's line in one transaction. dbg_mem_txns counts.
+//
+// M5 — control divergence (TRUE SIMT): each warp slot owns a small SIMT
+// reconvergence stack. The top-of-stack (TOS) frame defines the warp's current
+// PC and *active mask* (which lanes execute). A branch is resolved per lane:
+//   * uniform (all lanes agree)  -> just retarget the TOS PC, no divergence.
+//   * divergent (lanes disagree) -> push a frame so the two lane groups run in
+//     turn and reconverge at a join PC (RPC) stored in the frame.
+// The supported, compiler-free convention is single-sided `if (cond){...}` and
+// divergent loops (one side of the branch falls straight through to the join):
+//   * forward branch  (target>pc): RPC = target;   continue = fall-through lanes.
+//   * backward branch (target<=pc): RPC = pc+4;     continue = taken lanes (loop).
+// The reconv frame holds the *union* mask at RPC; the pushed "continue" frame
+// runs its lanes until their PC reaches RPC, then pops — and the warp reconverges
+// with the full mask. Nesting works (stack depth SDEPTH). General two-sided
+// if/else (both arms non-empty before the join) is out of scope for M5 — write
+// it as two single-sided ifs. dbg_divergences counts divergent branch events.
 //
 // On GO the engine spawns warps 0,1,2,... covering ceil(n_threads/WARP_SIZE)
 // warps; if there are more warps than slots, a slot is recycled as soon as the
-// warp occupying it retires. Convergent control flow only (shared next-PC follows
-// lane 0); per-thread divergence is M5. Coalescing the replay is M4.
-//
-// NUM_WARPS must be a power of two (the round-robin pointer wraps in its width).
+// warp occupying it retires. NUM_WARPS must be a power of two (the round-robin
+// pointer wraps in its width).
 // =============================================================================
 `timescale 1ns/1ps
 
@@ -60,22 +72,33 @@ module warp_pool
     output logic        busy,
     output logic        done,          // 1-cycle pulse when the whole grid retires
     output logic [31:0] dbg_retire_a0, // last-retired warp's lane-0 tid (observ.)
-    output logic [31:0] dbg_mem_txns   // line transactions since the last launch
+    output logic [31:0] dbg_mem_txns,  // line transactions since the last launch
+    output logic [31:0] dbg_divergences// divergent-branch events since last launch
 );
 
-    localparam int NW    = NUM_WARPS;
-    localparam int NL    = NUM_LANES;
-    localparam int WSZ   = WARP_SIZE;
-    localparam int WIDXW = (NW > 1) ? $clog2(NW) : 1;
-    localparam int LIDXW = $clog2(NL);
+    localparam int NW     = NUM_WARPS;
+    localparam int NL     = NUM_LANES;
+    localparam int WSZ    = WARP_SIZE;
+    localparam int WIDXW  = (NW > 1) ? $clog2(NW) : 1;
+    localparam int LIDXW  = $clog2(NL);
+    localparam int SDEPTH = 8;                 // SIMT stack depth (nesting limit)
+    localparam int SPW    = $clog2(SDEPTH);
+
+    localparam logic [31:0] RPC_BOTTOM = 32'hFFFF_FFFF;  // base frame never pops
 
     // ── Per-slot architectural state ──────────────────────────────────────────────
     typedef enum logic [1:0] { W_EMPTY, W_RUN, W_MEM, W_DONE } wstate_e;
     wstate_e        wstate    [0:NW-1];
-    logic [31:0]    pc        [0:NW-1];
     logic [31:0]    vrf       [0:NW-1][0:NL-1][0:31];   // banked, per warp
-    logic [NL-1:0]  active    [0:NW-1];                 // tail mask, per warp
     logic [31:0]    warp_base [0:NW-1];                 // base tid (for tid CSR)
+
+    // Per-warp SIMT reconvergence stack. TOS = sp[w]; the TOS frame gives the
+    // warp's live PC (stk_npc) and active mask (stk_mask); stk_rpc is the join PC
+    // at which a pushed frame pops and reconverges into the frame below.
+    logic [31:0]    stk_npc  [0:NW-1][0:SDEPTH-1];
+    logic [31:0]    stk_rpc  [0:NW-1][0:SDEPTH-1];
+    logic [NL-1:0]  stk_mask [0:NW-1][0:SDEPTH-1];
+    logic [SPW-1:0] sp       [0:NW-1];
 
     // ── Grid bookkeeping ──────────────────────────────────────────────────────────
     logic [31:0]    arg_a, arg_b, arg_c, arg_n, arg_pc;
@@ -125,9 +148,24 @@ module warp_pool
         end
     end
 
-    // ── Shared fetch + decode (for the issuing warp) ───────────────────────────────
-    assign imem_addr = pc[issue_w];
+    // ── Live TOS view of the issuing warp ───────────────────────────────────────────
+    logic [SPW-1:0] cur_sp;
+    logic [31:0]    cur_pc;
+    logic [NL-1:0]  cur_mask;        // active lanes for the issuing warp this cycle
+    assign cur_sp   = sp[issue_w];
+    assign cur_pc   = stk_npc[issue_w][cur_sp];
+    assign cur_mask = stk_mask[issue_w][cur_sp];
 
+    // Shared fetch follows the issuing warp's TOS PC.
+    assign imem_addr = cur_pc;
+
+    // A pushed frame is "spent" (its lanes have reached the join) when its PC
+    // equals its reconvergence PC → pop it next issue instead of executing.
+    logic do_pop;
+    assign do_pop = issue_valid && (cur_sp != '0) &&
+                    (cur_pc == stk_rpc[issue_w][cur_sp]);
+
+    // ── Decode ──────────────────────────────────────────────────────────────────────
     logic [31:0] instr;
     logic [6:0]  opcode;
     logic [4:0]  rd, rs1, rs2;
@@ -190,6 +228,14 @@ module warp_pool
         endcase
     end
 
+    // ── Lowest active lane of the issuing warp (the leader for uniform decisions) ────
+    logic [LIDXW-1:0] first_l;
+    always_comb begin
+        first_l = '0;
+        for (int l = NL-1; l >= 0; l--)        // last write wins -> lowest set lane
+            if (cur_mask[l]) first_l = l[LIDXW-1:0];
+    end
+
     // ── Per-lane datapath of the issuing warp (combinational) ───────────────────────
     logic [31:0] rv1   [0:NL-1];
     logic [31:0] rv2   [0:NL-1];
@@ -211,7 +257,7 @@ module warp_pool
                 OP_LOAD:  begin a = rv1[l]; b = i_imm;  end
                 OP_STORE: begin a = rv1[l]; b = s_imm;  end
                 OP_LUI:   begin a = 32'd0;  b = u_imm;  end
-                OP_AUIPC: begin a = pc[issue_w]; b = u_imm; end
+                OP_AUIPC: begin a = cur_pc; b = u_imm;  end
                 default:  begin a = rv1[l]; b = rv2[l]; end
             endcase
 
@@ -235,40 +281,44 @@ module warp_pool
             wb_val[l] = 32'd0;
             wb_en[l]  = 1'b0;
             unique case (opcode)
-                OP_OP, OP_OPIMM, OP_LUI, OP_AUIPC: begin wb_val[l] = y;             wb_en[l] = 1'b1; end
-                OP_JAL, OP_JALR:                   begin wb_val[l] = pc[issue_w] + 32'd4; wb_en[l] = 1'b1; end
-                OP_SYSTEM: if (is_csr)             begin wb_val[l] = tid_l;          wb_en[l] = 1'b1; end
+                OP_OP, OP_OPIMM, OP_LUI, OP_AUIPC: begin wb_val[l] = y;          wb_en[l] = 1'b1; end
+                OP_JAL, OP_JALR:                   begin wb_val[l] = cur_pc + 32'd4; wb_en[l] = 1'b1; end
+                OP_SYSTEM: if (is_csr)             begin wb_val[l] = tid_l;       wb_en[l] = 1'b1; end
                 default: ;
             endcase
-            if (rd == 5'd0)             wb_en[l] = 1'b0;
-            if (!active[issue_w][l])    wb_en[l] = 1'b0;
+            if (rd == 5'd0)        wb_en[l] = 1'b0;
+            if (!cur_mask[l])      wb_en[l] = 1'b0;   // masked-off lanes do nothing
         end
     end
 
-    // ── Shared next-PC (convergent control flow → follow lane 0) ────────────────────
-    logic branch_taken0;
+    // ── Per-lane branch decision + divergence masks ─────────────────────────────────
+    logic [NL-1:0] btaken;     // active lanes whose branch condition is true
     always_comb begin
-        unique case (funct3)
-            3'b000:  branch_taken0 = (rv1[0] == rv2[0]);
-            3'b001:  branch_taken0 = (rv1[0] != rv2[0]);
-            3'b100:  branch_taken0 = ($signed(rv1[0]) <  $signed(rv2[0]));
-            3'b101:  branch_taken0 = ($signed(rv1[0]) >= $signed(rv2[0]));
-            3'b110:  branch_taken0 = (rv1[0] <  rv2[0]);
-            3'b111:  branch_taken0 = (rv1[0] >= rv2[0]);
-            default: branch_taken0 = 1'b0;
-        endcase
+        for (int l = 0; l < NL; l++) begin
+            logic t;
+            unique case (funct3)
+                3'b000:  t = (rv1[l] == rv2[l]);
+                3'b001:  t = (rv1[l] != rv2[l]);
+                3'b100:  t = ($signed(rv1[l]) <  $signed(rv2[l]));
+                3'b101:  t = ($signed(rv1[l]) >= $signed(rv2[l]));
+                3'b110:  t = (rv1[l] <  rv2[l]);
+                3'b111:  t = (rv1[l] >= rv2[l]);
+                default: t = 1'b0;
+            endcase
+            btaken[l] = cur_mask[l] & t;
+        end
     end
 
-    logic [31:0] next_pc;
-    always_comb begin
-        next_pc = pc[issue_w] + 32'd4;
-        unique case (opcode)
-            OP_JAL:    next_pc = pc[issue_w] + j_imm;
-            OP_JALR:   next_pc = (rv1[0] + i_imm) & ~32'd1;
-            OP_BRANCH: if (branch_taken0) next_pc = pc[issue_w] + b_imm;
-            default: ;
-        endcase
-    end
+    logic [NL-1:0] taken_mask, ntaken_mask;
+    assign taken_mask  = btaken;
+    assign ntaken_mask = cur_mask & ~btaken;
+
+    // Branch/jump targets (relative to the issuing warp's TOS PC).
+    logic [31:0] fallthru, br_target, jal_target, jalr_target;
+    assign fallthru    = cur_pc + 32'd4;
+    assign br_target   = cur_pc + b_imm;
+    assign jal_target  = cur_pc + j_imm;
+    assign jalr_target = (rv1[first_l] + i_imm) & ~32'd1;   // assumed uniform
 
     // ── Coalescing memory engine (uses the LATCHED replay context) ──────────────────
     // Pick the line of the lowest still-pending lane, then gather EVERY pending
@@ -369,16 +419,17 @@ module warp_pool
     // ── Sequential update ───────────────────────────────────────────────────────────
     always_ff @(posedge clk) begin
         if (rst) begin
-            running       <= 1'b0;
-            busy          <= 1'b0;
-            done          <= 1'b0;
-            next_wid      <= 32'd0;
-            total_warps   <= 32'd0;
-            rr_ptr        <= '0;
-            mem_busy      <= 1'b0;
-            mem_pending   <= '0;
-            dbg_retire_a0 <= 32'd0;
-            dbg_mem_txns  <= 32'd0;
+            running        <= 1'b0;
+            busy           <= 1'b0;
+            done           <= 1'b0;
+            next_wid       <= 32'd0;
+            total_warps    <= 32'd0;
+            rr_ptr         <= '0;
+            mem_busy       <= 1'b0;
+            mem_pending    <= '0;
+            dbg_retire_a0  <= 32'd0;
+            dbg_mem_txns   <= 32'd0;
+            dbg_divergences<= 32'd0;
             for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
         end else begin
             done <= 1'b0;                         // default: 1-cycle pulse
@@ -391,17 +442,19 @@ module warp_pool
                 arg_n       <= n_threads;
                 arg_pc      <= kernel_pc;
                 total_warps <= (n_threads + WSZ - 1) / WSZ;
-                next_wid     <= 32'd0;
-                rr_ptr       <= '0;
-                mem_busy     <= 1'b0;
-                dbg_mem_txns <= 32'd0;
-                running      <= 1'b1;
-                busy         <= 1'b1;
+                next_wid       <= 32'd0;
+                rr_ptr         <= '0;
+                mem_busy       <= 1'b0;
+                dbg_mem_txns   <= 32'd0;
+                dbg_divergences<= 32'd0;
+                running        <= 1'b1;
+                busy           <= 1'b1;
                 for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
             end else if (running) begin
                 // 1) Spawn step: drop the next warp into a free/retired slot.
                 if ((next_wid < total_warps) && fill_valid) begin
-                    logic [31:0] sbase;
+                    logic [31:0]   sbase;
+                    logic [NL-1:0] tmask;
                     sbase = next_wid * WSZ;
                     for (int l = 0; l < NL; l++) begin
                         for (int r = 0; r < 32; r++) vrf[fill_w][l][r] <= 32'd0;
@@ -410,30 +463,38 @@ module warp_pool
                         vrf[fill_w][l][ARG_B]   <= arg_b;
                         vrf[fill_w][l][ARG_C]   <= arg_c;
                         vrf[fill_w][l][ARG_N]   <= arg_n;
-                        active[fill_w][l]       <= ((sbase + l[31:0]) < arg_n);
+                        tmask[l] = ((sbase + l[31:0]) < arg_n);   // tail mask
                     end
-                    warp_base[fill_w] <= sbase;
-                    pc[fill_w]        <= arg_pc;
-                    wstate[fill_w]    <= W_RUN;
-                    next_wid          <= next_wid + 32'd1;
+                    warp_base[fill_w]        <= sbase;
+                    // Seed the SIMT stack: base frame = whole warp at kernel_pc.
+                    sp[fill_w]               <= '0;
+                    stk_npc[fill_w][0]       <= arg_pc;
+                    stk_rpc[fill_w][0]       <= RPC_BOTTOM;
+                    stk_mask[fill_w][0]      <= tmask;
+                    wstate[fill_w]           <= W_RUN;
+                    next_wid                 <= next_wid + 32'd1;
                 end
 
                 // 2) Issue step: advance one runnable warp on the shared datapath.
                 if (issue_valid) begin
-                    if (is_ecall) begin
+                    if (do_pop) begin
+                        // Pushed frame reached its join: reconverge into the frame
+                        // below (which already holds the union mask at this PC).
+                        sp[issue_w] <= cur_sp - 1'b1;
+                    end else if (is_ecall) begin
                         wstate[issue_w] <= W_DONE;
                         dbg_retire_a0   <= warp_base[issue_w];
                     end else if (is_mem) begin
                         if (!mem_busy) begin
                             // Hand the coalesced access to the background engine.
-                            // (active!=0 always holds: a spawned warp has >=1 lane.)
+                            // Only the currently-active lanes (cur_mask) participate.
                             mem_busy     <= 1'b1;
                             mem_w        <= issue_w;
-                            mem_pending  <= active[issue_w];
+                            mem_pending  <= cur_mask;
                             mem_is_store <= is_store;
                             mem_funct3   <= funct3;
                             mem_rd       <= rd;
-                            mem_next_pc  <= next_pc;
+                            mem_next_pc  <= fallthru;        // mem is not control flow
                             for (int l = 0; l < NL; l++) begin
                                 mem_addr_lane[l]  <= addr[l];
                                 mem_sdata_lane[l] <= rv2[l];
@@ -442,9 +503,44 @@ module warp_pool
                         end
                         // else: data port busy → warp waits (stays W_RUN).
                     end else begin
+                        // Writeback (masked-off lanes are already gated in wb_en).
                         for (int l = 0; l < NL; l++)
                             if (wb_en[l]) vrf[issue_w][l][rd] <= wb_val[l];
-                        pc[issue_w] <= next_pc;
+
+                        // Control flow / next-PC for the TOS frame.
+                        unique case (opcode)
+                            OP_BRANCH: begin
+                                if (taken_mask == cur_mask) begin
+                                    stk_npc[issue_w][cur_sp] <= br_target;     // uniform taken
+                                end else if (taken_mask == '0) begin
+                                    stk_npc[issue_w][cur_sp] <= fallthru;       // uniform not-taken
+                                end else begin
+                                    // Divergent: push a "continue" frame; the rest
+                                    // of the lanes wait, reconverging at RPC.
+                                    dbg_divergences <= dbg_divergences + 32'd1;
+                                    stk_mask[issue_w][cur_sp]      <= cur_mask;  // union @ join
+                                    if (br_target > cur_pc) begin
+                                        // forward `if`: join = target; run the
+                                        // fall-through (not-taken) lanes first.
+                                        stk_npc [issue_w][cur_sp]       <= br_target;
+                                        stk_npc [issue_w][cur_sp + 1'b1] <= fallthru;
+                                        stk_mask[issue_w][cur_sp + 1'b1] <= ntaken_mask;
+                                        stk_rpc [issue_w][cur_sp + 1'b1] <= br_target;
+                                    end else begin
+                                        // backward loop: join = fall-through (exit);
+                                        // run the taken (still-looping) lanes.
+                                        stk_npc [issue_w][cur_sp]       <= fallthru;
+                                        stk_npc [issue_w][cur_sp + 1'b1] <= br_target;
+                                        stk_mask[issue_w][cur_sp + 1'b1] <= taken_mask;
+                                        stk_rpc [issue_w][cur_sp + 1'b1] <= fallthru;
+                                    end
+                                    sp[issue_w] <= cur_sp + 1'b1;
+                                end
+                            end
+                            OP_JAL:  stk_npc[issue_w][cur_sp] <= jal_target;
+                            OP_JALR: stk_npc[issue_w][cur_sp] <= jalr_target;
+                            default: stk_npc[issue_w][cur_sp] <= fallthru;
+                        endcase
                     end
                     rr_ptr <= issue_w + 1'b1;     // round-robin, advance past it
                 end
@@ -458,9 +554,9 @@ module warp_pool
                     dbg_mem_txns <= dbg_mem_txns + 32'd1;
 
                     if ((mem_pending & ~grp) == '0) begin
-                        mem_busy      <= 1'b0;
-                        pc[mem_w]     <= mem_next_pc;   // mem ops are not control flow
-                        wstate[mem_w] <= W_RUN;
+                        mem_busy                  <= 1'b0;
+                        stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;  // resume after mem
+                        wstate[mem_w]             <= W_RUN;
                     end else begin
                         mem_pending <= mem_pending & ~grp;
                     end

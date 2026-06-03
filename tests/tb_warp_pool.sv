@@ -28,7 +28,7 @@ module tb_warp_pool
     logic                 dmem_we;
     logic [LINE_BE-1:0]   dmem_be;
     logic                 busy, done;
-    logic [31:0]          dbg_retire_a0, dbg_mem_txns;
+    logic [31:0]          dbg_retire_a0, dbg_mem_txns, dbg_divergences;
 
     int unsigned errors = 0;
 
@@ -41,7 +41,8 @@ module tb_warp_pool
         .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata),
         .dmem_we(dmem_we), .dmem_be(dmem_be), .dmem_rdata(dmem_rdata),
         .busy(busy), .done(done),
-        .dbg_retire_a0(dbg_retire_a0), .dbg_mem_txns(dbg_mem_txns)
+        .dbg_retire_a0(dbg_retire_a0), .dbg_mem_txns(dbg_mem_txns),
+        .dbg_divergences(dbg_divergences)
     );
 
     /* verilator lint_off BLKSEQ */
@@ -130,6 +131,26 @@ module tb_warp_pool
         mem[at+8] = 32'h00000073;   // ecall
     endtask
 
+    // Divergent vector-add: C[tid] = A[tid] + B[tid], and odd lanes add 1000.
+    //   a0=tid, a1=&A, a2=&B, a3=&C
+    //   andi t5, a0, 1 ; beq t5,x0,skip ; (odd:) addi t2,t2,1000 ; skip: sw ; ecall
+    // The single-sided `if (tid & 1)` makes lanes diverge inside the warp; they
+    // reconverge at the store. (Even lanes take the forward branch and wait.)
+    task automatic load_div_kernel(input int at);
+        mem[at+0]  = 32'h00251293;   // slli t0, a0, 2
+        mem[at+1]  = 32'h00558333;   // add  t1, a1, t0
+        mem[at+2]  = 32'h00032383;   // lw   t2, 0(t1)
+        mem[at+3]  = 32'h00560e33;   // add  t3, a2, t0
+        mem[at+4]  = 32'h000e2e83;   // lw   t4, 0(t3)
+        mem[at+5]  = 32'h01d383b3;   // add  t2, t2, t4
+        mem[at+6]  = 32'h00157f13;   // andi t5, a0, 1
+        mem[at+7]  = 32'h000f0463;   // beq  t5, x0, +8  (skip the addi)
+        mem[at+8]  = 32'h3e838393;   // addi t2, t2, 1000   <- divergent body
+        mem[at+9]  = 32'h00568fb3;   // add  t6, a3, t0
+        mem[at+10] = 32'h007fa023;   // sw   t2, 0(t6)
+        mem[at+11] = 32'h00000073;   // ecall
+    endtask
+
     int i;
     int unsigned cyc1, cyc4, txn_c, txn_s, dummy;
 
@@ -139,6 +160,7 @@ module tb_warp_pool
 
         load_vadd_kernel(0,  32'd2);   // contiguous kernel @ word 0  (tid*4)
         load_vadd_kernel(16, 32'd5);   // scattered  kernel @ word 16 (tid*32)
+        load_div_kernel(32);           // divergent  kernel @ word 32 (kpc=0x80)
 
         rst = 1; repeat (3) @(posedge clk); rst = 0;
 
@@ -195,6 +217,24 @@ module tb_warp_pool
         end else begin
             $display("  [ ok ] hid %0d cycles (%0d%% of the 4x-serial cost)",
                      4*cyc1 - cyc4, (100*cyc4)/(4*cyc1));
+        end
+
+        // ── Phase 6: control divergence — single-sided if + reconvergence ─────────
+        $display("[tb_warp_pool] phase 6: control divergence (odd lanes branch)");
+        preload(16, 1);
+        run_grid(32'd16, 32'd128, dummy, dummy);     // 2 warps, kpc = word 32
+        for (i = 0; i < 16; i++) begin
+            automatic logic [31:0] exp = (32'd10 + i) + (32'd100 + 2*i)
+                                       + ((i % 2 == 1) ? 32'd1000 : 32'd0);
+            expect_c(i, exp, "diverge");
+        end
+        $display("  divergent-branch events: %0d (expect 2, one per warp)",
+                 dbg_divergences);
+        if (dbg_divergences != 2) begin
+            $display("  [FAIL] expected exactly 2 divergent branches");
+            errors++;
+        end else begin
+            $display("  [ ok ] lanes diverged and reconverged; C correct per lane");
         end
 
         if (errors == 0) begin

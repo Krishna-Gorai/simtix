@@ -11,7 +11,7 @@ CI, so the GitHub history reads as a clean incremental build.
 | **M2** | Widen to 8 SIMT lanes + banked vector register file | Lockstep data-parallel execution within a warp | ✅ done |
 | **M3** | Multiple warps + time-multiplexing + round-robin scheduler | Latency hiding by warp switching | ✅ done |
 | **M4** | LSU + memory loads/stores + address coalescing | Realistic memory behaviour (the part that actually costs) | ✅ done |
-| **M5** | Control divergence: active mask + reconvergence stack | **True SIMT** (per-thread control flow) | ⏳ |
+| **M5** | Control divergence: active mask + reconvergence stack | **True SIMT** (per-thread control flow) | ✅ done |
 | **M6** | Shared-memory scratchpad + Sobel/matmul kernels + benchmark | End-to-end speedup story | ⏳ |
 | **M7** | Divergence-aware lane clock-gating energy study + FPGA/PPA | The novel/research contribution + real numbers | ⏳ |
 

@@ -71,6 +71,7 @@ module simt_accel
     logic        pool_busy, pool_done;
     logic [31:0] pool_dbg_a0;
     logic [31:0] pool_dbg_txns;
+    logic [31:0] pool_dbg_div;
 
     warp_pool u_pool (
         .clk        (clk),
@@ -91,7 +92,8 @@ module simt_accel
         .busy       (pool_busy),
         .done       (pool_done),
         .dbg_retire_a0 (pool_dbg_a0),
-        .dbg_mem_txns  (pool_dbg_txns)
+        .dbg_mem_txns  (pool_dbg_txns),
+        .dbg_divergences (pool_dbg_div)
     );
 
     // ── Dispatcher ────────────────────────────────────────────────────────────────
@@ -145,6 +147,6 @@ module simt_accel
     // Silence unused-signal lint: pool_busy and the debug a0 tap are observability
     // only (the dispatcher sequences on pool_done; results are checked in memory).
     logic _unused;
-    assign _unused = &{1'b0, pool_busy, pool_dbg_a0, pool_dbg_txns};
+    assign _unused = &{1'b0, pool_busy, pool_dbg_a0, pool_dbg_txns, pool_dbg_div};
 
 endmodule : simt_accel
