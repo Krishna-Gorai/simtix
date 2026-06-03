@@ -7,7 +7,7 @@ CI, so the GitHub history reads as a clean incremental build.
 | # | Milestone | Proves | Status |
 |---|-----------|--------|--------|
 | **M0** | Repo scaffold + CI + host CPU lints/builds in Verilator | Tooling works end-to-end | ✅ done |
-| **M1** | MMIO launch handshake + single-lane kernel execution | Offload + done handshake, one thread runs a real kernel | 🚧 in progress |
+| **M1** | MMIO launch handshake + single-lane kernel execution | Offload + done handshake, one thread runs a real kernel | ✅ done |
 | **M2** | Widen to 8 SIMT lanes + banked vector register file | Lockstep data-parallel execution within a warp | ⏳ |
 | **M3** | Multiple warps + time-multiplexing + round-robin scheduler | Latency hiding by warp switching | ⏳ |
 | **M4** | LSU + memory loads/stores + address coalescing | Realistic memory behaviour (the part that actually costs) | ⏳ |

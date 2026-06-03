@@ -26,11 +26,25 @@ LANE_RTL := \
 # Host CPU RTL (reused, Verilog-2001) — linted permissively (3rd-party style).
 CPU_RTL := $(wildcard ../rtl/cpu/*.v)
 
+# Full SoC: accelerator + host CPU core (the FPGA wrapper top.v is excluded —
+# it pulls in Xilinx clocking primitives that the simulator does not model).
+SOC_CPU_RTL := $(filter-out ../rtl/cpu/top.v, $(CPU_RTL))
+SOC_RTL := \
+	../rtl/accel/simtix_pkg.sv \
+	../rtl/accel/mmio_regs.sv \
+	../rtl/accel/lane.sv \
+	../rtl/accel/simt_accel.sv \
+	../rtl/soc/soc_top.sv \
+	$(SOC_CPU_RTL)
+
 # Package + per-block sources used by the unit testbenches.
 PKG       := ../rtl/accel/simtix_pkg.sv
 
 VFLAGS    := -sv -Wall --timing
 CPU_VFLAGS:= -Wno-lint -Wno-style -Wno-WIDTH
+# The SoC mixes strict SV with the permissive Verilog CPU, so lint/build the
+# integrated design with the CPU's relaxed ruleset.
+SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 
 # Verilator's --binary flow shells out to GNU make, which cannot build in a
 # directory containing spaces. This repo's parent ("Verilog Projects") has one,
@@ -38,9 +52,9 @@ CPU_VFLAGS:= -Wno-lint -Wno-style -Wno-WIDTH
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-cpu test test-accel test-lane clean
+.PHONY: lint lint-accel lint-lane lint-cpu lint-soc test test-accel test-lane test-soc clean
 
-lint: lint-accel lint-lane lint-cpu
+lint: lint-accel lint-lane lint-cpu lint-soc
 
 lint-accel:
 	$(VERILATOR) --lint-only $(VFLAGS) --top-module simt_accel $(ACCEL_RTL)
@@ -54,6 +68,10 @@ lint-cpu:
 	$(VERILATOR) --lint-only $(CPU_VFLAGS) --top-module riscv_soc $(CPU_RTL)
 	@echo "[lint] host CPU OK"
 
+lint-soc:
+	$(VERILATOR) --lint-only $(SOC_VFLAGS) --top-module soc_top $(SOC_RTL)
+	@echo "[lint] SoC integration OK"
+
 # Build & run a self-checking testbench.  $(1)=top module, $(2..)=extra sources.
 define run_tb
 	rm -rf $(MDIR)
@@ -62,13 +80,20 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane
+test: test-accel test-lane test-soc
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/lane.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
 
 test-lane:
 	$(call run_tb,tb_lane,$(PKG) ../rtl/accel/lane.sv ../tests/tb_lane.sv)
+
+# The SoC test pulls in the Verilog CPU core, so it builds with SOC_VFLAGS.
+test-soc:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_soc_top $(SOC_RTL) ../tests/tb_soc_top.sv -o tb_soc_top
+	@echo "[test] running tb_soc_top..."
+	$(MDIR)/tb_soc_top
 
 clean:
 	rm -rf obj_dir $(MDIR)
