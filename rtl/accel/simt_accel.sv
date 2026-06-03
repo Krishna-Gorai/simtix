@@ -1,16 +1,17 @@
 // =============================================================================
 // simt_accel.sv  -  SIMTiX accelerator top
 //
-// M2: the engine is one SIMT warp (WARP_SIZE lanes in lockstep over a banked
-// vector register file) driven by a sequential dispatcher. On GO the dispatcher
-// launches warps 0,1,2,... — each covering WARP_SIZE threads — one at a time,
-// seeding each lane with its tid and the argument base pointers, and tallies
-// the kernel runtime in CYCLES. The accelerator is a master onto a shared,
-// async-read memory holding both kernel code (imem port) and data (dmem port).
+// M3: the engine is a multi-warp pool (warp_pool) — NUM_WARPS hardware warp
+// slots resident at once over a round-robin scheduler, hiding one warp's memory
+// replay behind another warp's compute. On GO the dispatcher hands the whole
+// grid (kernel_pc, base pointers, n_threads) to the pool in a single launch; the
+// pool spawns/recycles all warps internally. The dispatcher just waits for the
+// pool to retire the grid and tallies the runtime in CYCLES. The accelerator is
+// a master onto a shared, async-read memory holding both kernel code (imem port)
+// and data (dmem port).
 //
-// Later milestones overlap warps and add coalescing/divergence; the MMIO
-// contract and the memory-master interface below do NOT change as it grows.
-//   M3 warp scheduler    M4 coalescing    M5 divergence
+// The MMIO contract and the memory-master interface below do NOT change as the
+// engine grows.    M4 coalescing    M5 divergence
 // =============================================================================
 `timescale 1ns/1ps
 
@@ -64,17 +65,15 @@ module simt_accel
         .cycles   (cycles)
     );
 
-    // ── One SIMT warp (WARP_SIZE lanes in lockstep) ──────────────────────────────
-    logic        warp_start;
-    logic [31:0] warp_base_tid;
-    logic        warp_busy, warp_done;
-    logic [31:0] warp_dbg_a0;
+    // ── Multi-warp pool (NUM_WARPS slots + round-robin scheduler) ─────────────────
+    logic        pool_start;
+    logic        pool_busy, pool_done;
+    logic [31:0] pool_dbg_a0;
 
-    warp u_warp (
+    warp_pool u_pool (
         .clk        (clk),
         .rst        (rst),
-        .start      (warp_start),
-        .base_tid   (warp_base_tid),
+        .start      (pool_start),
         .base_a     (base_a),
         .base_b     (base_b),
         .base_c     (base_c),
@@ -87,39 +86,29 @@ module simt_accel
         .dmem_we    (dmem_we),
         .dmem_be    (dmem_be),
         .dmem_rdata (dmem_rdata),
-        .busy       (warp_busy),
-        .done       (warp_done),
-        .dbg_retire_a0 (warp_dbg_a0)
+        .busy       (pool_busy),
+        .done       (pool_done),
+        .dbg_retire_a0 (pool_dbg_a0)
     );
 
-    // ── Sequential dispatcher ─────────────────────────────────────────────────────
-    // Launches warps 0,1,2,... — each covering WARP_SIZE threads — one at a time.
-    // D_LAUNCH asserts start for one cycle (the warp is idle and latches it);
-    // D_RUN waits for the warp to retire, then either launches the next warp (if
-    // more threads remain) or finishes. cyc_count tallies the whole kernel.
+    // ── Dispatcher ────────────────────────────────────────────────────────────────
+    // The pool spawns/recycles every warp of the grid internally, so the
+    // dispatcher just launches it once on GO and waits for the grid to retire.
+    // D_LAUNCH pulses start (the pool is idle and latches the grid); D_RUN tallies
+    // cycles until pool_done. An empty grid (n_threads==0) finishes immediately.
     typedef enum logic [1:0] { D_IDLE, D_LAUNCH, D_RUN, D_DONE } dstate_e;
     dstate_e     dstate;
-    logic [31:0] base_tid;            // first tid of the warp in flight
-    logic [31:0] n_latched;
     logic [31:0] cyc_count;
-
-    // True once the warp currently in flight covers the final thread.
-    logic        last_warp;
-    assign last_warp = (base_tid + WARP_SIZE) >= n_latched;
 
     always_ff @(posedge clk) begin
         if (rst) begin
             dstate    <= D_IDLE;
-            base_tid  <= '0;
-            n_latched <= '0;
             cyc_count <= '0;
             cycles    <= '0;
         end else begin
             unique case (dstate)
                 D_IDLE: begin
                     if (go_pulse) begin
-                        base_tid  <= '0;
-                        n_latched <= n_threads;
                         cyc_count <= '0;
                         dstate    <= (n_threads == 0) ? D_DONE : D_LAUNCH;
                     end
@@ -130,20 +119,13 @@ module simt_accel
                 end
                 D_RUN: begin
                     cyc_count <= cyc_count + 32'd1;
-                    if (warp_done) begin
-                        if (last_warp) begin
-                            cycles <= cyc_count + 32'd1;
-                            dstate <= D_DONE;
-                        end else begin
-                            base_tid <= base_tid + WARP_SIZE;
-                            dstate   <= D_LAUNCH;
-                        end
+                    if (pool_done) begin
+                        cycles <= cyc_count + 32'd1;
+                        dstate <= D_DONE;
                     end
                 end
                 D_DONE: begin
                     if (go_pulse) begin
-                        base_tid  <= '0;
-                        n_latched <= n_threads;
                         cyc_count <= '0;
                         dstate    <= (n_threads == 0) ? D_DONE : D_LAUNCH;
                     end
@@ -153,14 +135,13 @@ module simt_accel
         end
     end
 
-    assign warp_start    = (dstate == D_LAUNCH);
-    assign warp_base_tid = base_tid;
-    assign busy          = (dstate == D_LAUNCH) || (dstate == D_RUN);
-    assign done          = (dstate == D_DONE);
+    assign pool_start = (dstate == D_LAUNCH);
+    assign busy       = (dstate == D_LAUNCH) || (dstate == D_RUN);
+    assign done       = (dstate == D_DONE);
 
-    // Silence unused-signal lint: warp_busy and the debug a0 tap are observability
-    // only (the dispatcher sequences on warp_done; results are checked in memory).
+    // Silence unused-signal lint: pool_busy and the debug a0 tap are observability
+    // only (the dispatcher sequences on pool_done; results are checked in memory).
     logic _unused;
-    assign _unused = &{1'b0, warp_busy, warp_dbg_a0};
+    assign _unused = &{1'b0, pool_busy, pool_dbg_a0};
 
 endmodule : simt_accel
