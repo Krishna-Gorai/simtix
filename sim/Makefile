@@ -12,11 +12,11 @@
 
 VERILATOR ?= verilator
 
-# Accelerator top + its current children — linted strictly as one design.
-# (lane.sv is linted standalone below until it is integrated into simt_accel in M1.2.)
+# Accelerator top + its children — linted strictly as one design.
 ACCEL_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
+	../rtl/accel/lane.sv \
 	../rtl/accel/simt_accel.sv
 
 LANE_RTL := \
@@ -38,7 +38,7 @@ CPU_VFLAGS:= -Wno-lint -Wno-style -Wno-WIDTH
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-cpu test test-handshake test-lane clean
+.PHONY: lint lint-accel lint-lane lint-cpu test test-accel test-lane clean
 
 lint: lint-accel lint-lane lint-cpu
 
@@ -62,10 +62,10 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-handshake test-lane
+test: test-accel test-lane
 
-test-handshake:
-	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
+test-accel:
+	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/lane.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
 
 test-lane:
 	$(call run_tb,tb_lane,$(PKG) ../rtl/accel/lane.sv ../tests/tb_lane.sv)

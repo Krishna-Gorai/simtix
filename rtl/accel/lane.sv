@@ -9,8 +9,14 @@
 // Single-cycle: one instruction per clock. The kernel instruction memory is an
 // asynchronous-read ROM (imem_data valid same cycle as imem_addr).
 //
-// M1.1 scope: LUI AUIPC JAL JALR BRANCH OP OP-IMM CSRR(tid) ECALL.
-// Loads/stores (the LOAD/STORE opcodes) are added in M1.2.
+// M1.2 scope: LUI AUIPC JAL JALR BRANCH OP OP-IMM LOAD STORE CSRR(tid) ECALL.
+// A full RV32I integer LSU (lb/lh/lw/lbu/lhu, sb/sh/sw) drives the data port.
+//
+// Memory model: both the instruction fetch (imem) and the data access (dmem)
+// ports are masters onto a shared, asynchronous-read memory that lives outside
+// the lane. A load reads dmem combinationally in the same cycle it executes; a
+// store presents addr/wdata/be with dmem_we high for that one cycle, and the
+// external memory captures it on the clock edge.
 // =============================================================================
 `timescale 1ns/1ps
 
@@ -33,6 +39,13 @@ module lane
     output logic [31:0] imem_addr,
     input  logic [31:0] imem_data,
 
+    // Data memory master (async read, synchronous byte-enabled write).
+    output logic [31:0] dmem_addr,
+    output logic [31:0] dmem_wdata,
+    output logic        dmem_we,
+    output logic [3:0]  dmem_be,
+    input  logic [31:0] dmem_rdata,
+
     output logic        busy,
     output logic        done,          // 1-cycle pulse when thread retires
     output logic [31:0] dbg_retire_a0  // value of a0 at retire (verification)
@@ -53,7 +66,7 @@ module lane
     logic [2:0]  funct3;
     logic        funct7b5;   // instr[30]: distinguishes ADD/SUB, SRL/SRA
     logic [31:0] rv1, rv2;
-    logic [31:0] i_imm, u_imm, b_imm, j_imm;
+    logic [31:0] i_imm, s_imm, u_imm, b_imm, j_imm;
 
     assign instr    = imem_data;
     assign opcode   = instr[6:0];
@@ -68,6 +81,7 @@ module lane
 
     // Immediates.
     assign i_imm = {{20{instr[31]}}, instr[31:20]};
+    assign s_imm = {{20{instr[31]}}, instr[31:25], instr[11:7]};
     assign u_imm = {instr[31:12], 12'b0};
     assign b_imm = {{19{instr[31]}}, instr[31], instr[7], instr[30:25], instr[11:8], 1'b0};
     assign j_imm = {{11{instr[31]}}, instr[31], instr[19:12], instr[20], instr[30:21], 1'b0};
@@ -112,6 +126,8 @@ module lane
         unique case (opcode)
             OP_OP:    begin alu_a = rv1; alu_b = rv2;   end
             OP_OPIMM: begin alu_a = rv1; alu_b = i_imm; end
+            OP_LOAD:  begin alu_a = rv1; alu_b = i_imm; end  // addr = base + i_imm
+            OP_STORE: begin alu_a = rv1; alu_b = s_imm; end  // addr = base + s_imm
             OP_LUI:   begin alu_a = 32'd0; alu_b = u_imm; end
             OP_AUIPC: begin alu_a = pc;  alu_b = u_imm; end
             default:  begin alu_a = rv1; alu_b = rv2;   end
@@ -155,6 +171,46 @@ module lane
     logic [31:0] csr_val;
     assign csr_val = (instr[31:20] == CSR_TID) ? tid : 32'd0;
 
+    // ── Load/store unit ───────────────────────────────────────────────────────────
+    // Effective address is the ALU result (base + offset). The shared memory is
+    // word-organised; sub-word accesses pick the lane from addr[1:0]/addr[1].
+    logic [31:0] addr;
+    logic [1:0]  baddr;
+    assign addr      = alu_y;
+    assign baddr     = addr[1:0];
+    assign dmem_addr = addr;
+
+    // Load: extract + sign/zero-extend the requested width from the read word.
+    logic [7:0]  ld_byte;
+    logic [15:0] ld_half;
+    logic [31:0] load_data;
+    assign ld_byte = dmem_rdata[8*baddr +: 8];
+    assign ld_half = addr[1] ? dmem_rdata[31:16] : dmem_rdata[15:0];
+    always_comb begin
+        unique case (funct3)
+            3'b000:  load_data = {{24{ld_byte[7]}},  ld_byte};   // lb
+            3'b001:  load_data = {{16{ld_half[15]}}, ld_half};   // lh
+            3'b010:  load_data = dmem_rdata;                     // lw
+            3'b100:  load_data = {24'b0, ld_byte};               // lbu
+            3'b101:  load_data = {16'b0, ld_half};               // lhu
+            default: load_data = dmem_rdata;
+        endcase
+    end
+
+    // Store: replicate rv2 across the word and select byte-enables from the width.
+    always_comb begin
+        dmem_wdata = rv2;
+        dmem_be    = 4'b0000;
+        if ((state == S_RUN) && (opcode == OP_STORE)) begin
+            unique case (funct3)
+                3'b000:  begin dmem_wdata = {4{rv2[7:0]}};  dmem_be = 4'b0001 << baddr;        end // sb
+                3'b001:  begin dmem_wdata = {2{rv2[15:0]}}; dmem_be = addr[1] ? 4'b1100 : 4'b0011; end // sh
+                default: begin dmem_wdata = rv2;            dmem_be = 4'b1111;                  end // sw
+            endcase
+        end
+    end
+    assign dmem_we = (state == S_RUN) && (opcode == OP_STORE);
+
     // ── Write-back value + enable, and next PC ────────────────────────────────────
     logic [31:0] wb_val;
     logic        wb_en;
@@ -171,6 +227,10 @@ module lane
             OP_OP, OP_OPIMM, OP_LUI, OP_AUIPC: begin
                 wb_val = alu_y;        wb_en = 1'b1;
             end
+            OP_LOAD: begin
+                wb_val = load_data;    wb_en = 1'b1;
+            end
+            OP_STORE: /* no register write-back */ ;
             OP_JAL: begin
                 wb_val = pc + 32'd4;   wb_en = 1'b1;   next_pc = pc + j_imm;
             end
