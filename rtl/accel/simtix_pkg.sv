@@ -27,6 +27,15 @@ package simtix_pkg;
   parameter int LINE_WOFFW = $clog2(LINE_WORDS); // 3  : word index within a line
   parameter int LINE_OFF   = LINE_WOFFW + 2;     // 5  : byte offset within a line
 
+  // ── Shared-memory scratchpad (M6) ────────────────────────────────────────────
+  // A small, per-warp on-chip scratchpad. Kernel data accesses whose address
+  // falls in the scratchpad aperture (bits[31:30]==2'b01, i.e. SCRATCH_BASE) are
+  // serviced from internal SRAM in a single cycle for the whole warp — they never
+  // reach the global data port, so staging reused data here cuts global traffic.
+  parameter logic [31:0] SCRATCH_BASE  = 32'h4000_0000;
+  parameter int          SCRATCH_WORDS = 64;              // 32-bit words per warp
+  parameter int          SCRATCH_AW    = $clog2(SCRATCH_WORDS);
+
   // ── Memory map ──────────────────────────────────────────────────────────────
   // The accelerator occupies one 4 KB page in the host physical address space.
   // soc_top.sv routes data-bus accesses with addr >= MMIO_BASE here (M1.3).
@@ -73,6 +82,7 @@ package simtix_pkg;
   parameter logic [3:0] ALU_SRL   = 4'b1000;
   parameter logic [3:0] ALU_SRA   = 4'b1001;
   parameter logic [3:0] ALU_PASSB = 4'b1010;
+  parameter logic [3:0] ALU_MUL   = 4'b1011;   // RV32M `mul` (low 32 bits) — M6
 
   // Thread-id CSR (read-only): csrr rd, TID
   parameter logic [11:0] CSR_TID = 12'hCC0;

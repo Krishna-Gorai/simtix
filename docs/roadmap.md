@@ -12,7 +12,7 @@ CI, so the GitHub history reads as a clean incremental build.
 | **M3** | Multiple warps + time-multiplexing + round-robin scheduler | Latency hiding by warp switching | ✅ done |
 | **M4** | LSU + memory loads/stores + address coalescing | Realistic memory behaviour (the part that actually costs) | ✅ done |
 | **M5** | Control divergence: active mask + reconvergence stack | **True SIMT** (per-thread control flow) | ✅ done |
-| **M6** | Shared-memory scratchpad + Sobel/matmul kernels + benchmark | End-to-end speedup story | ⏳ |
+| **M6** | Shared-memory scratchpad + matmul kernel + benchmark | End-to-end speedup story | ✅ done |
 | **M7** | Divergence-aware lane clock-gating energy study + FPGA/PPA | The novel/research contribution + real numbers | ⏳ |
 
 ## Design decisions (locked)

@@ -72,8 +72,9 @@ module warp_pool
     output logic        busy,
     output logic        done,          // 1-cycle pulse when the whole grid retires
     output logic [31:0] dbg_retire_a0, // last-retired warp's lane-0 tid (observ.)
-    output logic [31:0] dbg_mem_txns,  // line transactions since the last launch
-    output logic [31:0] dbg_divergences// divergent-branch events since last launch
+    output logic [31:0] dbg_mem_txns,  // global line transactions since last launch
+    output logic [31:0] dbg_divergences, // divergent-branch events since last launch
+    output logic [31:0] dbg_scratch_txns // scratchpad transactions since last launch
 );
 
     localparam int NW     = NUM_WARPS;
@@ -91,6 +92,11 @@ module warp_pool
     wstate_e        wstate    [0:NW-1];
     logic [31:0]    vrf       [0:NW-1][0:NL-1][0:31];   // banked, per warp
     logic [31:0]    warp_base [0:NW-1];                 // base tid (for tid CSR)
+
+    // Per-warp on-chip scratchpad (M6): one word per address, shared by the
+    // warp's lanes. Accesses in the SCRATCH_BASE aperture are serviced here in a
+    // single cycle and never reach the global data port.
+    logic [31:0]    scratch   [0:NW-1][0:SCRATCH_WORDS-1];
 
     // Per-warp SIMT reconvergence stack. TOS = sp[w]; the TOS frame gives the
     // warp's live PC (stk_npc) and active mask (stk_mask); stk_rpc is the join PC
@@ -112,6 +118,7 @@ module warp_pool
     logic [WIDXW-1:0] mem_w;
     logic [NL-1:0]    mem_pending;               // active lanes not yet serviced
     logic             mem_is_store;
+    logic             mem_is_scratch;            // latched: scratchpad vs global op
     logic [2:0]       mem_funct3;
     logic [4:0]       mem_rd;
     logic [31:0]      mem_next_pc;
@@ -170,7 +177,7 @@ module warp_pool
     logic [6:0]  opcode;
     logic [4:0]  rd, rs1, rs2;
     logic [2:0]  funct3;
-    logic        funct7b5;
+    logic        funct7b5, funct7b0;
     logic [31:0] i_imm, s_imm, u_imm, b_imm, j_imm;
 
     assign instr    = imem_data;
@@ -180,6 +187,7 @@ module warp_pool
     assign rs1      = instr[19:15];
     assign rs2      = instr[24:20];
     assign funct7b5 = instr[30];
+    assign funct7b0 = instr[25];   // RV32M ops set funct7[0] (e.g. mul: 0000001)
 
     assign i_imm = {{20{instr[31]}}, instr[31:20]};
     assign s_imm = {{20{instr[31]}}, instr[31:25], instr[11:7]};
@@ -200,7 +208,8 @@ module warp_pool
         unique case (opcode)
             OP_OP: begin
                 unique case (funct3)
-                    3'b000:  alu_ctrl = funct7b5 ? ALU_SUB : ALU_ADD;
+                    3'b000:  alu_ctrl = funct7b0 ? ALU_MUL
+                                                 : (funct7b5 ? ALU_SUB : ALU_ADD);
                     3'b001:  alu_ctrl = ALU_SLL;
                     3'b010:  alu_ctrl = ALU_SLT;
                     3'b011:  alu_ctrl = ALU_SLTU;
@@ -273,6 +282,7 @@ module warp_pool
                 ALU_SRL:  y = a >> b[4:0];
                 ALU_SRA:  y = $signed(a) >>> b[4:0];
                 ALU_PASSB:y = b;
+                ALU_MUL:  y = a * b;            // RV32M mul: low 32 bits
                 default:  y = 32'd0;
             endcase
 
@@ -319,6 +329,12 @@ module warp_pool
     assign br_target   = cur_pc + b_imm;
     assign jal_target  = cur_pc + j_imm;
     assign jalr_target = (rv1[first_l] + i_imm) & ~32'd1;   // assumed uniform
+
+    // A memory op targets the scratchpad if the leader lane's effective address
+    // is in the SCRATCH_BASE aperture (bits[31:30]==2'b01). A given instruction
+    // is assumed uniformly scratch-or-global across its active lanes.
+    logic issue_is_scratch;
+    assign issue_is_scratch = (addr[first_l][31:30] == 2'b01);
 
     // ── Coalescing memory engine (uses the LATCHED replay context) ──────────────────
     // Pick the line of the lowest still-pending lane, then gather EVERY pending
@@ -371,7 +387,7 @@ module warp_pool
         dmem_wdata = '0;
         dmem_we    = 1'b0;
         dmem_be    = '0;
-        if (mem_busy) begin
+        if (mem_busy && !mem_is_scratch) begin
             dmem_addr = {mem_addr_lane[lead][31:LINE_OFF], {LINE_OFF{1'b0}}};
             if (mem_is_store) begin
                 dmem_we = 1'b1;
@@ -426,10 +442,12 @@ module warp_pool
             total_warps    <= 32'd0;
             rr_ptr         <= '0;
             mem_busy       <= 1'b0;
+            mem_is_scratch <= 1'b0;
             mem_pending    <= '0;
             dbg_retire_a0  <= 32'd0;
             dbg_mem_txns   <= 32'd0;
             dbg_divergences<= 32'd0;
+            dbg_scratch_txns<= 32'd0;
             for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
         end else begin
             done <= 1'b0;                         // default: 1-cycle pulse
@@ -447,6 +465,7 @@ module warp_pool
                 mem_busy       <= 1'b0;
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
+                dbg_scratch_txns<= 32'd0;
                 running        <= 1'b1;
                 busy           <= 1'b1;
                 for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
@@ -492,6 +511,7 @@ module warp_pool
                             mem_w        <= issue_w;
                             mem_pending  <= cur_mask;
                             mem_is_store <= is_store;
+                            mem_is_scratch <= issue_is_scratch;
                             mem_funct3   <= funct3;
                             mem_rd       <= rd;
                             mem_next_pc  <= fallthru;        // mem is not control flow
@@ -545,20 +565,40 @@ module warp_pool
                     rr_ptr <= issue_w + 1'b1;     // round-robin, advance past it
                 end
 
-                // 3) Memory engine step: one coalesced line transaction / cycle.
+                // 3) Memory engine step.
                 if (mem_busy) begin
-                    if (!mem_is_store && (mem_rd != 5'd0))
-                        for (int l = 0; l < NL; l++)
-                            if (grp[l]) vrf[mem_w][l][mem_rd] <= ld_data[l];
-
-                    dbg_mem_txns <= dbg_mem_txns + 32'd1;
-
-                    if ((mem_pending & ~grp) == '0) begin
+                    if (mem_is_scratch) begin
+                        // On-chip scratchpad: serve EVERY pending lane this cycle
+                        // (word access; no global port, no coalescing needed).
+                        for (int l = 0; l < NL; l++) begin
+                            logic [SCRATCH_AW-1:0] sidx;
+                            sidx = mem_addr_lane[l][SCRATCH_AW+1:2];
+                            if (mem_pending[l]) begin
+                                if (mem_is_store)
+                                    scratch[mem_w][sidx] <= mem_sdata_lane[l];
+                                else if (mem_rd != 5'd0)
+                                    vrf[mem_w][l][mem_rd] <= scratch[mem_w][sidx];
+                            end
+                        end
+                        dbg_scratch_txns          <= dbg_scratch_txns + 32'd1;
                         mem_busy                  <= 1'b0;
-                        stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;  // resume after mem
+                        stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;
                         wstate[mem_w]             <= W_RUN;
                     end else begin
-                        mem_pending <= mem_pending & ~grp;
+                        // Global memory: one coalesced line transaction / cycle.
+                        if (!mem_is_store && (mem_rd != 5'd0))
+                            for (int l = 0; l < NL; l++)
+                                if (grp[l]) vrf[mem_w][l][mem_rd] <= ld_data[l];
+
+                        dbg_mem_txns <= dbg_mem_txns + 32'd1;
+
+                        if ((mem_pending & ~grp) == '0) begin
+                            mem_busy                  <= 1'b0;
+                            stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;  // resume after mem
+                            wstate[mem_w]             <= W_RUN;
+                        end else begin
+                            mem_pending <= mem_pending & ~grp;
+                        end
                     end
                 end
 

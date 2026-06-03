@@ -28,7 +28,7 @@ module tb_warp_pool
     logic                 dmem_we;
     logic [LINE_BE-1:0]   dmem_be;
     logic                 busy, done;
-    logic [31:0]          dbg_retire_a0, dbg_mem_txns, dbg_divergences;
+    logic [31:0]          dbg_retire_a0, dbg_mem_txns, dbg_divergences, dbg_scratch_txns;
 
     int unsigned errors = 0;
 
@@ -42,7 +42,7 @@ module tb_warp_pool
         .dmem_we(dmem_we), .dmem_be(dmem_be), .dmem_rdata(dmem_rdata),
         .busy(busy), .done(done),
         .dbg_retire_a0(dbg_retire_a0), .dbg_mem_txns(dbg_mem_txns),
-        .dbg_divergences(dbg_divergences)
+        .dbg_divergences(dbg_divergences), .dbg_scratch_txns(dbg_scratch_txns)
     );
 
     /* verilator lint_off BLKSEQ */
@@ -109,6 +109,22 @@ module tb_warp_pool
         txns = dbg_mem_txns;
     endtask
 
+    // Launch with explicit base pointers (matmul uses its own arrays).
+    task automatic run_bases(input  logic [31:0] n, input logic [31:0] kpc,
+                             input  logic [31:0] ba, input logic [31:0] bb,
+                             input  logic [31:0] bc, output int unsigned cyc);
+        int unsigned guard;
+        @(posedge clk);
+        n_threads = n; kernel_pc = kpc;
+        base_a = ba; base_b = bb; base_c = bc;
+        start = 1;
+        @(posedge clk);
+        start = 0;
+        cyc = 1;
+        guard = 0;
+        while (!done && guard < 20000) begin @(posedge clk); cyc++; guard++; end
+    endtask
+
     task automatic expect_c(input int idx, input logic [31:0] exp, input string tag);
         logic [31:0] got;
         got = mem[widx(BASE_C) + idx];
@@ -151,8 +167,42 @@ module tb_warp_pool
         mem[at+11] = 32'h00000073;   // ecall
     endtask
 
+    // ── Matmul-row kernels (M6, assembled from kernels/matmul/*.S, rv32im) ────────
+    // One warp = 8 lanes = 8 output columns: C[col] = sum_k A_row[k]*B[k*NCOL+col].
+    // a0=col, a1=&A_row, a2=&B, a3=&C_row, a4=NCOL ; K=8 hardcoded.
+    task automatic load_matmul_naive(input int at);   // 19 words; A reread each iter
+        mem[at+0]  = 32'h00000393; mem[at+1]  = 32'h00000293; mem[at+2]  = 32'h00229f93;
+        mem[at+3]  = 32'h01f58fb3; mem[at+4]  = 32'h000fa303; mem[at+5]  = 32'h02e28e33;
+        mem[at+6]  = 32'h00ae0e33; mem[at+7]  = 32'h002e1e13; mem[at+8]  = 32'h01c60eb3;
+        mem[at+9]  = 32'h000eaf03; mem[at+10] = 32'h03e30f33; mem[at+11] = 32'h01e383b3;
+        mem[at+12] = 32'h00128293; mem[at+13] = 32'h00800f93; mem[at+14] = 32'hfdf2c8e3;
+        mem[at+15] = 32'h00251f93; mem[at+16] = 32'h01f68fb3; mem[at+17] = 32'h007fa023;
+        mem[at+18] = 32'h00000073;
+    endtask
+    task automatic load_matmul_smem(input int at);    // 27 words; A staged in scratch
+        mem[at+0]  = 32'h00251f93; mem[at+1]  = 32'h01f58fb3; mem[at+2]  = 32'h000fa303;
+        mem[at+3]  = 32'h40000e37; mem[at+4]  = 32'h00251f93; mem[at+5]  = 32'h01fe0fb3;
+        mem[at+6]  = 32'h006fa023; mem[at+7]  = 32'h00000393; mem[at+8]  = 32'h00000293;
+        mem[at+9]  = 32'h00229f93; mem[at+10] = 32'h40000e37; mem[at+11] = 32'h01fe0fb3;
+        mem[at+12] = 32'h000fa303; mem[at+13] = 32'h02e28e33; mem[at+14] = 32'h00ae0e33;
+        mem[at+15] = 32'h002e1e13; mem[at+16] = 32'h01c60eb3; mem[at+17] = 32'h000eaf03;
+        mem[at+18] = 32'h03e30f33; mem[at+19] = 32'h01e383b3; mem[at+20] = 32'h00128293;
+        mem[at+21] = 32'h00800f93; mem[at+22] = 32'hfdf2c6e3; mem[at+23] = 32'h00251f93;
+        mem[at+24] = 32'h01f68fb3; mem[at+25] = 32'h007fa023; mem[at+26] = 32'h00000073;
+    endtask
+
+    // Matmul layout (word indices well clear of the vadd kernels/arrays above).
+    localparam int          MM_K       = 8;
+    localparam int          MM_NCOL    = 8;
+    localparam logic [31:0] MM_A       = 32'h0000_07D0;   // word 500  (8 words)
+    localparam logic [31:0] MM_B       = 32'h0000_0800;   // word 512  (64 words)
+    localparam logic [31:0] MM_C       = 32'h0000_0960;   // word 600  (8 words)
+    localparam int          MM_NAIVE_W = 400;             // kernel @ word 400
+    localparam int          MM_SMEM_W  = 440;             // kernel @ word 440
+
     int i;
     int unsigned cyc1, cyc4, txn_c, txn_s, dummy;
+    int unsigned mm_cyc_n, mm_cyc_s, mm_g_n, mm_g_s, mm_sc_n, mm_sc_s;
 
     initial begin
         start = 0; n_threads = 0; kernel_pc = 0;
@@ -161,6 +211,8 @@ module tb_warp_pool
         load_vadd_kernel(0,  32'd2);   // contiguous kernel @ word 0  (tid*4)
         load_vadd_kernel(16, 32'd5);   // scattered  kernel @ word 16 (tid*32)
         load_div_kernel(32);           // divergent  kernel @ word 32 (kpc=0x80)
+        load_matmul_naive(MM_NAIVE_W); // matmul naive @ word 400 (kpc=0x640)
+        load_matmul_smem(MM_SMEM_W);   // matmul smem  @ word 440 (kpc=0x6E0)
 
         rst = 1; repeat (3) @(posedge clk); rst = 0;
 
@@ -235,6 +287,55 @@ module tb_warp_pool
             errors++;
         end else begin
             $display("  [ ok ] lanes diverged and reconverged; C correct per lane");
+        end
+
+        // ── Phase 7: shared-memory scratchpad — matmul naive vs staged ────────────
+        // 8x8 matmul row: C[col] = sum_k A_row[k]*B[k*NCOL+col]. A_row is reused by
+        // all 8 lanes; staging it in the scratchpad cuts its global traffic.
+        $display("[tb_warp_pool] phase 7: shared-memory scratchpad (matmul row)");
+        for (i = 0; i < MM_K; i++)    mem[(MM_A>>2) + i] = 32'd2 + i[31:0];   // A[k]=2+k
+        for (int k = 0; k < MM_K; k++)
+            for (int c = 0; c < MM_NCOL; c++)
+                mem[(MM_B>>2) + k*MM_NCOL + c] = 32'd1 + c[31:0] + k[31:0];   // B[k,c]
+
+        // naive (A reloaded from global every iteration)
+        for (i = 0; i < MM_NCOL; i++) mem[(MM_C>>2) + i] = 32'hdead_beef;
+        run_bases(32'd8, MM_NAIVE_W*4, MM_A, MM_B, MM_C, mm_cyc_n);
+        mm_g_n = dbg_mem_txns; mm_sc_n = dbg_scratch_txns;
+
+        // scratchpad-staged (A loaded once into scratch, then reused)
+        for (i = 0; i < MM_NCOL; i++) mem[(MM_C>>2) + i] = 32'hdead_beef;
+        run_bases(32'd8, MM_SMEM_W*4, MM_A, MM_B, MM_C, mm_cyc_s);
+        mm_g_s = dbg_mem_txns; mm_sc_s = dbg_scratch_txns;
+
+        // Both must compute the same correct result.
+        for (i = 0; i < MM_NCOL; i++) begin
+            automatic logic [31:0] exp = 32'd0;
+            automatic logic [31:0] got_s = mem[(MM_C>>2) + i];
+            for (int k = 0; k < MM_K; k++)
+                exp += (32'd2 + k[31:0]) * (32'd1 + i[31:0] + k[31:0]);
+            if (got_s !== exp) begin
+                $display("  [FAIL] smem  C[%0d] got=%0d exp=%0d", i, got_s, exp);
+                errors++;
+            end
+        end
+        $display("  global line txns : naive=%0d  smem=%0d", mm_g_n, mm_g_s);
+        $display("  scratch txns     : naive=%0d  smem=%0d", mm_sc_n, mm_sc_s);
+        $display("  cycles           : naive=%0d  smem=%0d", mm_cyc_n, mm_cyc_s);
+        if (mm_sc_n != 0) begin
+            $display("  [FAIL] naive kernel must not touch the scratchpad");
+            errors++;
+        end
+        if (mm_sc_s == 0) begin
+            $display("  [FAIL] smem kernel did not use the scratchpad");
+            errors++;
+        end
+        if (mm_g_s >= mm_g_n) begin
+            $display("  [FAIL] scratchpad staging did not cut global traffic");
+            errors++;
+        end else begin
+            $display("  [ ok ] scratchpad cut global line txns %0d -> %0d (A reuse on-chip)",
+                     mm_g_n, mm_g_s);
         end
 
         if (errors == 0) begin
