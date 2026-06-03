@@ -16,12 +16,17 @@ VERILATOR ?= verilator
 ACCEL_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
-	../rtl/accel/lane.sv \
+	../rtl/accel/warp.sv \
 	../rtl/accel/simt_accel.sv
 
+# lane.sv is the M1 single-thread reference core, still linted/tested standalone.
 LANE_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/lane.sv
+
+WARP_RTL := \
+	../rtl/accel/simtix_pkg.sv \
+	../rtl/accel/warp.sv
 
 # Host CPU RTL (reused, Verilog-2001) — linted permissively (3rd-party style).
 CPU_RTL := $(wildcard ../rtl/cpu/*.v)
@@ -32,7 +37,7 @@ SOC_CPU_RTL := $(filter-out ../rtl/cpu/top.v, $(CPU_RTL))
 SOC_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
-	../rtl/accel/lane.sv \
+	../rtl/accel/warp.sv \
 	../rtl/accel/simt_accel.sv \
 	../rtl/soc/soc_top.sv \
 	$(SOC_CPU_RTL)
@@ -52,9 +57,9 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-cpu lint-soc test test-accel test-lane test-soc clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-cpu lint-soc test test-accel test-lane test-warp test-soc clean
 
-lint: lint-accel lint-lane lint-cpu lint-soc
+lint: lint-accel lint-lane lint-warp lint-cpu lint-soc
 
 lint-accel:
 	$(VERILATOR) --lint-only $(VFLAGS) --top-module simt_accel $(ACCEL_RTL)
@@ -63,6 +68,10 @@ lint-accel:
 lint-lane:
 	$(VERILATOR) --lint-only $(VFLAGS) --top-module lane $(LANE_RTL)
 	@echo "[lint] lane OK"
+
+lint-warp:
+	$(VERILATOR) --lint-only $(VFLAGS) --top-module warp $(WARP_RTL)
+	@echo "[lint] warp OK"
 
 lint-cpu:
 	$(VERILATOR) --lint-only $(CPU_VFLAGS) --top-module riscv_soc $(CPU_RTL)
@@ -80,13 +89,16 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-soc
+test: test-accel test-lane test-warp test-soc
 
 test-accel:
-	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/lane.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
+	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/warp.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
 
 test-lane:
 	$(call run_tb,tb_lane,$(PKG) ../rtl/accel/lane.sv ../tests/tb_lane.sv)
+
+test-warp:
+	$(call run_tb,tb_warp,$(PKG) ../rtl/accel/warp.sv ../tests/tb_warp.sv)
 
 # The SoC test pulls in the Verilog CPU core, so it builds with SOC_VFLAGS.
 test-soc:

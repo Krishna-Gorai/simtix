@@ -73,7 +73,7 @@ module tb_simt_accel
     localparam logic [31:0] BASE_A = 32'h0000_0100;
     localparam logic [31:0] BASE_B = 32'h0000_0140;
     localparam logic [31:0] BASE_C = 32'h0000_0180;
-    localparam int          N      = 8;
+    localparam int          N      = 16;   // 2 warps of WARP_SIZE=8 (multi-warp dispatch)
 
     function automatic int unsigned widx(input logic [31:0] byte_addr);
         widx = {20'b0, byte_addr[13:2]};

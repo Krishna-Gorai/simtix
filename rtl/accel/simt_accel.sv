@@ -1,16 +1,16 @@
 // =============================================================================
 // simt_accel.sv  -  SIMTiX accelerator top
 //
-// M1.2: the placeholder engine is replaced by a real datapath — one SIMT lane
-// (a single-cycle RV32I core) driven by a sequential dispatcher. On GO the
-// dispatcher launches threads 0..N-1 on the lane one at a time, seeding each
-// with its tid and the argument base pointers, and tallies the kernel runtime
-// in CYCLES. The accelerator is a master onto a shared, async-read memory that
-// holds both the kernel code (imem port) and the data arrays (dmem port).
+// M2: the engine is one SIMT warp (WARP_SIZE lanes in lockstep over a banked
+// vector register file) driven by a sequential dispatcher. On GO the dispatcher
+// launches warps 0,1,2,... — each covering WARP_SIZE threads — one at a time,
+// seeding each lane with its tid and the argument base pointers, and tallies
+// the kernel runtime in CYCLES. The accelerator is a master onto a shared,
+// async-read memory holding both kernel code (imem port) and data (dmem port).
 //
-// Later milestones widen the lane count and add warp scheduling; the MMIO
+// Later milestones overlap warps and add coalescing/divergence; the MMIO
 // contract and the memory-master interface below do NOT change as it grows.
-//   M2 8 lanes + VRF    M3 warp scheduler    M4 coalescing    M5 divergence
+//   M3 warp scheduler    M4 coalescing    M5 divergence
 // =============================================================================
 `timescale 1ns/1ps
 
@@ -64,17 +64,17 @@ module simt_accel
         .cycles   (cycles)
     );
 
-    // ── One SIMT lane ─────────────────────────────────────────────────────────────
-    logic        lane_start;
-    logic [31:0] lane_tid;
-    logic        lane_busy, lane_done;
-    logic [31:0] lane_dbg_a0;
+    // ── One SIMT warp (WARP_SIZE lanes in lockstep) ──────────────────────────────
+    logic        warp_start;
+    logic [31:0] warp_base_tid;
+    logic        warp_busy, warp_done;
+    logic [31:0] warp_dbg_a0;
 
-    lane u_lane (
+    warp u_warp (
         .clk        (clk),
         .rst        (rst),
-        .start      (lane_start),
-        .tid        (lane_tid),
+        .start      (warp_start),
+        .base_tid   (warp_base_tid),
         .base_a     (base_a),
         .base_b     (base_b),
         .base_c     (base_c),
@@ -87,25 +87,30 @@ module simt_accel
         .dmem_we    (dmem_we),
         .dmem_be    (dmem_be),
         .dmem_rdata (dmem_rdata),
-        .busy       (lane_busy),
-        .done       (lane_done),
-        .dbg_retire_a0 (lane_dbg_a0)
+        .busy       (warp_busy),
+        .done       (warp_done),
+        .dbg_retire_a0 (warp_dbg_a0)
     );
 
     // ── Sequential dispatcher ─────────────────────────────────────────────────────
-    // D_LAUNCH asserts start for one cycle (the lane is idle and latches it);
-    // D_RUN waits for the lane to retire, then either advances to the next tid or
-    // finishes. cyc_count tallies every cycle the engine is occupied.
+    // Launches warps 0,1,2,... — each covering WARP_SIZE threads — one at a time.
+    // D_LAUNCH asserts start for one cycle (the warp is idle and latches it);
+    // D_RUN waits for the warp to retire, then either launches the next warp (if
+    // more threads remain) or finishes. cyc_count tallies the whole kernel.
     typedef enum logic [1:0] { D_IDLE, D_LAUNCH, D_RUN, D_DONE } dstate_e;
     dstate_e     dstate;
-    logic [31:0] tid_ctr;
+    logic [31:0] base_tid;            // first tid of the warp in flight
     logic [31:0] n_latched;
     logic [31:0] cyc_count;
+
+    // True once the warp currently in flight covers the final thread.
+    logic        last_warp;
+    assign last_warp = (base_tid + WARP_SIZE) >= n_latched;
 
     always_ff @(posedge clk) begin
         if (rst) begin
             dstate    <= D_IDLE;
-            tid_ctr   <= '0;
+            base_tid  <= '0;
             n_latched <= '0;
             cyc_count <= '0;
             cycles    <= '0;
@@ -113,7 +118,7 @@ module simt_accel
             unique case (dstate)
                 D_IDLE: begin
                     if (go_pulse) begin
-                        tid_ctr   <= '0;
+                        base_tid  <= '0;
                         n_latched <= n_threads;
                         cyc_count <= '0;
                         dstate    <= (n_threads == 0) ? D_DONE : D_LAUNCH;
@@ -125,19 +130,19 @@ module simt_accel
                 end
                 D_RUN: begin
                     cyc_count <= cyc_count + 32'd1;
-                    if (lane_done) begin
-                        if (tid_ctr >= n_latched - 32'd1) begin
+                    if (warp_done) begin
+                        if (last_warp) begin
                             cycles <= cyc_count + 32'd1;
                             dstate <= D_DONE;
                         end else begin
-                            tid_ctr <= tid_ctr + 32'd1;
-                            dstate  <= D_LAUNCH;
+                            base_tid <= base_tid + WARP_SIZE;
+                            dstate   <= D_LAUNCH;
                         end
                     end
                 end
                 D_DONE: begin
                     if (go_pulse) begin
-                        tid_ctr   <= '0;
+                        base_tid  <= '0;
                         n_latched <= n_threads;
                         cyc_count <= '0;
                         dstate    <= (n_threads == 0) ? D_DONE : D_LAUNCH;
@@ -148,14 +153,14 @@ module simt_accel
         end
     end
 
-    assign lane_start = (dstate == D_LAUNCH);
-    assign lane_tid   = tid_ctr;
-    assign busy       = (dstate == D_LAUNCH) || (dstate == D_RUN);
-    assign done       = (dstate == D_DONE);
+    assign warp_start    = (dstate == D_LAUNCH);
+    assign warp_base_tid = base_tid;
+    assign busy          = (dstate == D_LAUNCH) || (dstate == D_RUN);
+    assign done          = (dstate == D_DONE);
 
-    // Silence unused-signal lint: lane_busy and the debug a0 tap are observability
-    // only (the dispatcher sequences on lane_done; results are checked in memory).
+    // Silence unused-signal lint: warp_busy and the debug a0 tap are observability
+    // only (the dispatcher sequences on warp_done; results are checked in memory).
     logic _unused;
-    assign _unused = &{1'b0, lane_busy, lane_dbg_a0};
+    assign _unused = &{1'b0, warp_busy, warp_dbg_a0};
 
 endmodule : simt_accel
