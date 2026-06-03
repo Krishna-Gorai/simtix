@@ -74,7 +74,12 @@ module warp_pool
     output logic [31:0] dbg_retire_a0, // last-retired warp's lane-0 tid (observ.)
     output logic [31:0] dbg_mem_txns,  // global line transactions since last launch
     output logic [31:0] dbg_divergences, // divergent-branch events since last launch
-    output logic [31:0] dbg_scratch_txns // scratchpad transactions since last launch
+    output logic [31:0] dbg_scratch_txns, // scratchpad transactions since last launch
+    // M7 energy study — divergence-aware lane clock-gating accounting.
+    output logic [31:0] dbg_issued_insns, // datapath instructions issued (lane-slots
+                                          // = NUM_LANES * this if never gated)
+    output logic [31:0] dbg_active_lanes  // Σ active lanes per issued instruction
+                                          // (lane-cycles a gated design actually clocks)
 );
 
     localparam int NW     = NUM_WARPS;
@@ -171,6 +176,24 @@ module warp_pool
     logic do_pop;
     assign do_pop = issue_valid && (cur_sp != '0) &&
                     (cur_pc == stk_rpc[issue_w][cur_sp]);
+
+    // ── M7: divergence-aware lane clock-gating control ──────────────────────────────
+    // The TOS active mask IS the per-lane clock-enable: a lane masked off by
+    // divergence does no architectural work (its wb_en is already gated below), yet
+    // in the baseline design its datapath registers still toggle every cycle. With
+    // lane clock-gating, cur_mask[l] drives an integrated clock-gate (ICG) on lane
+    // l's pipeline registers, so only the active lanes are clocked. `lane_ce` is
+    // that enable vector (synthesis maps each bit to an ICG); the counters below
+    // measure the dynamic energy a gated design saves versus clocking all NL lanes.
+    logic [NL-1:0]    lane_ce;
+    logic [LIDXW:0]   n_active;     // popcount(cur_mask): lanes a gated design clocks
+    assign lane_ce  = cur_mask;
+    assign n_active = lane_ce_count(lane_ce);
+
+    function automatic logic [LIDXW:0] lane_ce_count(input logic [NL-1:0] m);
+        lane_ce_count = '0;
+        for (int l = 0; l < NL; l++) lane_ce_count += {{LIDXW{1'b0}}, m[l]};
+    endfunction
 
     // ── Decode ──────────────────────────────────────────────────────────────────────
     logic [31:0] instr;
@@ -448,6 +471,8 @@ module warp_pool
             dbg_mem_txns   <= 32'd0;
             dbg_divergences<= 32'd0;
             dbg_scratch_txns<= 32'd0;
+            dbg_issued_insns<= 32'd0;
+            dbg_active_lanes<= 32'd0;
             for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
         end else begin
             done <= 1'b0;                         // default: 1-cycle pulse
@@ -466,6 +491,8 @@ module warp_pool
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
                 dbg_scratch_txns<= 32'd0;
+                dbg_issued_insns<= 32'd0;
+                dbg_active_lanes<= 32'd0;
                 running        <= 1'b1;
                 busy           <= 1'b1;
                 for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
@@ -496,6 +523,15 @@ module warp_pool
 
                 // 2) Issue step: advance one runnable warp on the shared datapath.
                 if (issue_valid) begin
+                    // M7 energy accounting: a committed datapath instruction clocks
+                    // n_active lanes under gating vs all NL lanes ungated. A pop is
+                    // bookkeeping (no datapath), and a memory op that finds the port
+                    // busy re-attempts later (don't double-count the stall).
+                    if (!do_pop && !(is_mem && mem_busy)) begin
+                        dbg_issued_insns <= dbg_issued_insns + 32'd1;
+                        dbg_active_lanes <= dbg_active_lanes +
+                                            {{(31-LIDXW){1'b0}}, n_active};
+                    end
                     if (do_pop) begin
                         // Pushed frame reached its join: reconverge into the frame
                         // below (which already holds the union mask at this PC).

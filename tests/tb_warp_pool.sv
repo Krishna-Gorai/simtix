@@ -29,6 +29,7 @@ module tb_warp_pool
     logic [LINE_BE-1:0]   dmem_be;
     logic                 busy, done;
     logic [31:0]          dbg_retire_a0, dbg_mem_txns, dbg_divergences, dbg_scratch_txns;
+    logic [31:0]          dbg_issued_insns, dbg_active_lanes;
 
     int unsigned errors = 0;
 
@@ -42,7 +43,8 @@ module tb_warp_pool
         .dmem_we(dmem_we), .dmem_be(dmem_be), .dmem_rdata(dmem_rdata),
         .busy(busy), .done(done),
         .dbg_retire_a0(dbg_retire_a0), .dbg_mem_txns(dbg_mem_txns),
-        .dbg_divergences(dbg_divergences), .dbg_scratch_txns(dbg_scratch_txns)
+        .dbg_divergences(dbg_divergences), .dbg_scratch_txns(dbg_scratch_txns),
+        .dbg_issued_insns(dbg_issued_insns), .dbg_active_lanes(dbg_active_lanes)
     );
 
     /* verilator lint_off BLKSEQ */
@@ -191,6 +193,19 @@ module tb_warp_pool
         mem[at+24] = 32'h01f68fb3; mem[at+25] = 32'h007fa023; mem[at+26] = 32'h00000073;
     endtask
 
+    // Heavy-divergence kernel (M7 energy study, kernels/divergence/heavy_div.S):
+    // three single-sided ifs keyed on tid bits, each a 3-instr body -> many masked
+    // lane-cycles.  C[tid] = 33*(tid&1) + 66*((tid>>1)&1) + 132*((tid>>2)&1).
+    task automatic load_heavy_div(input int at);     // 20 words; a0=tid, a3=&C
+        mem[at+0]  = 32'h00000393; mem[at+1]  = 32'h00157f13; mem[at+2]  = 32'h000f0863;
+        mem[at+3]  = 32'h00b38393; mem[at+4]  = 32'h00b38393; mem[at+5]  = 32'h00b38393;
+        mem[at+6]  = 32'h00257f13; mem[at+7]  = 32'h000f0863; mem[at+8]  = 32'h01638393;
+        mem[at+9]  = 32'h01638393; mem[at+10] = 32'h01638393; mem[at+11] = 32'h00457f13;
+        mem[at+12] = 32'h000f0863; mem[at+13] = 32'h02c38393; mem[at+14] = 32'h02c38393;
+        mem[at+15] = 32'h02c38393; mem[at+16] = 32'h00251f93; mem[at+17] = 32'h01f68fb3;
+        mem[at+18] = 32'h007fa023; mem[at+19] = 32'h00000073;
+    endtask
+
     // Matmul layout (word indices well clear of the vadd kernels/arrays above).
     localparam int          MM_K       = 8;
     localparam int          MM_NCOL    = 8;
@@ -199,10 +214,24 @@ module tb_warp_pool
     localparam logic [31:0] MM_C       = 32'h0000_0960;   // word 600  (8 words)
     localparam int          MM_NAIVE_W = 400;             // kernel @ word 400
     localparam int          MM_SMEM_W  = 440;             // kernel @ word 440
+    localparam int          HEAVY_W    = 700;             // heavy-div kernel @ word 700
 
     int i;
     int unsigned cyc1, cyc4, txn_c, txn_s, dummy;
     int unsigned mm_cyc_n, mm_cyc_s, mm_g_n, mm_g_s, mm_sc_n, mm_sc_s;
+    // M7 energy sweep: per-kernel (issued lane-slots, active lanes, util ‰).
+    int unsigned en_insn_c, en_act_c, en_util_c;   // convergent (no divergence)
+    int unsigned en_insn_l, en_act_l, en_util_l;   // light divergence
+    int unsigned en_insn_h, en_act_h, en_util_h;   // heavy divergence
+
+    // Lane utilisation in parts-per-thousand = 1000 * active / (NUM_LANES * insns).
+    // A divergence-aware gated design clocks `active` lanes; an ungated design
+    // clocks all NUM_LANES every instruction, so (1000-util) ‰ is the lane-datapath
+    // dynamic energy a gated design saves on this kernel.
+    function automatic int unsigned util_pm(input int unsigned insns,
+                                            input int unsigned active);
+        util_pm = (insns == 0) ? 1000 : (1000 * active) / (NUM_LANES * insns);
+    endfunction
 
     initial begin
         start = 0; n_threads = 0; kernel_pc = 0;
@@ -213,6 +242,7 @@ module tb_warp_pool
         load_div_kernel(32);           // divergent  kernel @ word 32 (kpc=0x80)
         load_matmul_naive(MM_NAIVE_W); // matmul naive @ word 400 (kpc=0x640)
         load_matmul_smem(MM_SMEM_W);   // matmul smem  @ word 440 (kpc=0x6E0)
+        load_heavy_div(HEAVY_W);       // heavy-div    @ word 700 (kpc=0xAF0)
 
         rst = 1; repeat (3) @(posedge clk); rst = 0;
 
@@ -336,6 +366,63 @@ module tb_warp_pool
         end else begin
             $display("  [ ok ] scratchpad cut global line txns %0d -> %0d (A reuse on-chip)",
                      mm_g_n, mm_g_s);
+        end
+
+        // ── Phase 8: divergence-aware lane clock-gating energy study (M7) ─────────
+        // Sweep three kernels of increasing divergence intensity over one full warp
+        // (N=8). For each, the engine reports issued datapath instructions and the
+        // sum of active lanes; lane utilisation = active / (NUM_LANES*insns). The
+        // gap below 100% is the lane-datapath dynamic energy a gating design saves.
+        $display("[tb_warp_pool] phase 8: divergence-aware lane-gating energy study");
+
+        // (a) convergent — vector add, no divergence: every lane active every instr.
+        preload(8, 1);
+        run_grid(32'd8, 32'd0, dummy, dummy);              // vadd @ word 0
+        en_insn_c = dbg_issued_insns; en_act_c = dbg_active_lanes;
+        en_util_c = util_pm(en_insn_c, en_act_c);
+
+        // (b) light divergence — one single-sided `if` (odd lanes), 1-instr body.
+        preload(8, 1);
+        run_grid(32'd8, 32'd128, dummy, dummy);            // div kernel @ word 32
+        en_insn_l = dbg_issued_insns; en_act_l = dbg_active_lanes;
+        en_util_l = util_pm(en_insn_l, en_act_l);
+
+        // (c) heavy divergence — three single-sided ifs, 3-instr bodies each.
+        for (i = 0; i < 8; i++) mem[(BASE_C>>2) + i] = 32'hdead_beef;
+        run_grid(32'd8, HEAVY_W*4, dummy, dummy);          // heavy_div @ word 700
+        en_insn_h = dbg_issued_insns; en_act_h = dbg_active_lanes;
+        en_util_h = util_pm(en_insn_h, en_act_h);
+        for (i = 0; i < 8; i++) begin
+            automatic logic [31:0] exp = 32'd33  * (i & 1)
+                                       + 32'd66  * ((i >> 1) & 1)
+                                       + 32'd132 * ((i >> 2) & 1);
+            expect_c(i, exp, "heavy");
+        end
+
+        $display("  kernel       insns  active  lane-util   gated-energy-saved");
+        $display("  convergent   %5d  %5d   %2d.%01d%%        %2d.%01d%%",
+                 en_insn_c, en_act_c, en_util_c/10, en_util_c%10,
+                 (1000-en_util_c)/10, (1000-en_util_c)%10);
+        $display("  light-div    %5d  %5d   %2d.%01d%%        %2d.%01d%%",
+                 en_insn_l, en_act_l, en_util_l/10, en_util_l%10,
+                 (1000-en_util_l)/10, (1000-en_util_l)%10);
+        $display("  heavy-div    %5d  %5d   %2d.%01d%%        %2d.%01d%%",
+                 en_insn_h, en_act_h, en_util_h/10, en_util_h%10,
+                 (1000-en_util_h)/10, (1000-en_util_h)%10);
+
+        // The convergent kernel must clock every lane (100% util, nothing to gate);
+        // utilisation must fall monotonically as divergence intensity rises, i.e. a
+        // gated design saves strictly more energy on the more-divergent kernels.
+        if (en_util_c != 1000) begin
+            $display("  [FAIL] convergent kernel should be 100%% lane-utilised");
+            errors++;
+        end
+        if (!(en_util_h < en_util_l && en_util_l < en_util_c)) begin
+            $display("  [FAIL] lane utilisation not monotonic in divergence intensity");
+            errors++;
+        end else begin
+            $display("  [ ok ] gating saves 0%% (convergent) -> %0d.%01d%% (heavy) of lane energy",
+                     (1000-en_util_h)/10, (1000-en_util_h)%10);
         end
 
         if (errors == 0) begin

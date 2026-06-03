@@ -73,6 +73,8 @@ module simt_accel
     logic [31:0] pool_dbg_txns;
     logic [31:0] pool_dbg_div;
     logic [31:0] pool_dbg_scratch;
+    logic [31:0] pool_dbg_insns;
+    logic [31:0] pool_dbg_active;
 
     warp_pool u_pool (
         .clk        (clk),
@@ -95,7 +97,9 @@ module simt_accel
         .dbg_retire_a0 (pool_dbg_a0),
         .dbg_mem_txns  (pool_dbg_txns),
         .dbg_divergences (pool_dbg_div),
-        .dbg_scratch_txns (pool_dbg_scratch)
+        .dbg_scratch_txns (pool_dbg_scratch),
+        .dbg_issued_insns (pool_dbg_insns),
+        .dbg_active_lanes (pool_dbg_active)
     );
 
     // ── Dispatcher ────────────────────────────────────────────────────────────────
@@ -150,6 +154,6 @@ module simt_accel
     // only (the dispatcher sequences on pool_done; results are checked in memory).
     logic _unused;
     assign _unused = &{1'b0, pool_busy, pool_dbg_a0, pool_dbg_txns, pool_dbg_div,
-                       pool_dbg_scratch};
+                       pool_dbg_scratch, pool_dbg_insns, pool_dbg_active};
 
 endmodule : simt_accel
