@@ -50,14 +50,25 @@ report_timing_summary   -max_paths 10 -file $out_dir/post_synth_timing.rpt
 report_power            -file $out_dir/post_synth_power.rpt
 
 # ── Console summary (also captured in vivado.log) ───────────────────────────────
-set clk_period 5.000
+set clk_period 10.000
 set paths [get_timing_paths -max_paths 1 -nworst 1 -setup]
 puts "================ M7b PPA SUMMARY (xczu7ev / ZCU104) ================"
 if {[llength $paths] > 0} {
     set wns  [get_property SLACK $paths]
-    set fmax [expr {1000.0 / ($clk_period - $wns)}]
-    puts [format "  Setup WNS at 200 MHz : %.3f ns" $wns]
-    puts [format "  Estimated Fmax       : %.1f MHz" $fmax]
+    set raw  [expr {$clk_period - $wns}]
+    set fmax [expr {1000.0 / $raw}]
+    puts [format "  Constrained period   : %.3f ns (%.1f MHz)" $clk_period [expr {1000.0/$clk_period}]]
+    puts [format "  Setup WNS            : %+.3f ns  (%s)" $wns [expr {$wns >= 0 ? "MET" : "VIOLATED"}]]
+    puts [format "  Critical-path delay  : %.3f ns" $raw]
+    puts [format "  Max Fmax             : %.1f MHz" $fmax]
+    # Non-timing-driven => the raw path is constant, so WNS at any target period is
+    # just (period - raw). Table shows where the design meets without re-synthesis.
+    puts "  WNS vs target period:"
+    foreach p {10.0 9.0 8.0 7.0 6.0 5.0} {
+        puts [format "    %4.1f ns (%5.1f MHz) -> WNS %+.3f ns  %s" \
+              $p [expr {1000.0/$p}] [expr {$p - $raw}] \
+              [expr {($p-$raw) >= 0 ? "MET" : "violated"}]]
+    }
 } else {
     puts "  (no timing path returned — see post_synth_timing.rpt)"
 }

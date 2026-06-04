@@ -89,13 +89,34 @@ module warp_pool
     localparam int LIDXW  = $clog2(NL);
     localparam int SDEPTH = 8;                 // SIMT stack depth (nesting limit)
     localparam int SPW    = $clog2(SDEPTH);
+    // VRF address = {warp, reg5}. NW is a power of two, so depth = NW*32.
+    localparam int VAW    = WIDXW + 5;
+    localparam int VDEPTH = (1 << VAW);
 
     localparam logic [31:0] RPC_BOTTOM = 32'hFFFF_FFFF;  // base frame never pops
 
     // ── Per-slot architectural state ──────────────────────────────────────────────
     typedef enum logic [1:0] { W_EMPTY, W_RUN, W_MEM, W_DONE } wstate_e;
     wstate_e        wstate    [0:NW-1];
-    logic [31:0]    vrf       [0:NW-1][0:NL-1][0:31];   // banked, per warp
+
+    // Vector register file — one independent distributed-RAM (LUTRAM) bank per lane,
+    // each VDEPTH×32 addressed by {warp,reg}, with ONE synchronous write port and two
+    // async read ports (rs1/rs2). The banks are declared per-lane in the generate
+    // block below: a single 1D array per lane is what Vivado reliably infers as
+    // LUTRAM, whereas a 2D vrf[lane][addr] written in a for-loop is misread as a
+    // 3D-RAM and dissolves to 32 768 registers ([Synth 8-11357]). To preserve the
+    // single write port we (a) never zero the file on spawn — see reg_written — and
+    // (b) arbitrate issue- vs. memory-writeback so only one source drives a lane's
+    // port per cycle (see the write arbiter below).
+    logic [31:0]    vrf_rd1 [0:NL-1];                   // async read port 1 (rs1)
+    logic [31:0]    vrf_rd2 [0:NL-1];                   // async read port 2 (rs2)
+
+    // Per-(warp,lane,reg) "has been written this grid" bit. An unwritten register
+    // reads its spawn seed (a0=tid, a1..a4=args, else 0) instead of RAM, which
+    // reproduces the old "zero the VRF on spawn then seed" behaviour bit-for-bit
+    // without the 1-cycle 32-register clear that blocked RAM inference.
+    logic           reg_written [0:NW-1][0:NL-1][0:31];
+
     logic [31:0]    warp_base [0:NW-1];                 // base tid (for tid CSR)
 
     // Per-warp on-chip scratchpad (M6): one word per address, shared by the
@@ -195,6 +216,27 @@ module warp_pool
         for (int l = 0; l < NL; l++) lane_ce_count += {{LIDXW{1'b0}}, m[l]};
     endfunction
 
+    // VRF bank address from {warp, reg}.
+    function automatic logic [VAW-1:0] vaddr(input logic [WIDXW-1:0] w,
+                                             input logic [4:0]       r);
+        vaddr = {w, r};
+    endfunction
+
+    // Spawn-seed value of a register that has not yet been written this grid.
+    // Mirrors the old spawn writes: a0=tid (warp_base+lane), a1..a4=args, else 0.
+    function automatic logic [31:0] seed_val(input logic [WIDXW-1:0] w,
+                                             input logic [LIDXW-1:0] l,
+                                             input logic [4:0]       r);
+        case (r)
+            ARG_TID[4:0]: seed_val = warp_base[w] + {{(32-LIDXW){1'b0}}, l};
+            ARG_A[4:0]:   seed_val = arg_a;
+            ARG_B[4:0]:   seed_val = arg_b;
+            ARG_C[4:0]:   seed_val = arg_c;
+            ARG_N[4:0]:   seed_val = arg_n;
+            default:      seed_val = 32'd0;
+        endcase
+    endfunction
+
     // ── Decode ──────────────────────────────────────────────────────────────────────
     logic [31:0] instr;
     logic [6:0]  opcode;
@@ -279,8 +321,12 @@ module warp_pool
         for (int l = 0; l < NL; l++) begin
             logic [31:0] a, b, y;
             logic [31:0] tid_l;
-            rv1[l] = (rs1 == 5'd0) ? 32'd0 : vrf[issue_w][l][rs1];
-            rv2[l] = (rs2 == 5'd0) ? 32'd0 : vrf[issue_w][l][rs2];
+            rv1[l] = (rs1 == 5'd0) ? 32'd0 :
+                     (reg_written[issue_w][l][rs1] ? vrf_rd1[l]
+                                                   : seed_val(issue_w, l[LIDXW-1:0], rs1));
+            rv2[l] = (rs2 == 5'd0) ? 32'd0 :
+                     (reg_written[issue_w][l][rs2] ? vrf_rd2[l]
+                                                   : seed_val(issue_w, l[LIDXW-1:0], rs2));
             tid_l  = warp_base[issue_w] + l[31:0];
 
             unique case (opcode)
@@ -455,6 +501,84 @@ module warp_pool
             if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM)) any_busy = 1'b1;
     end
 
+    // ── VRF write arbiter (one write port per lane bank) ────────────────────────────
+    // Two producers may target the file in the same cycle: the issue stage's compute
+    // writeback (warp issue_w) and the memory engine's load result (warp mem_w). A
+    // LUTRAM bank has ONE write port, so the memory writeback wins and the compute
+    // writeback is squashed that cycle — the instruction simply re-issues next cycle
+    // (it is idempotent: same VRF in → same result out). Stores and rd==x0 never
+    // write the file.
+    logic             mem_wb_act;             // memory engine writes the VRF this cycle
+    logic [NL-1:0]    mem_wb_lane;            // per-lane: memory writeback fires
+    logic [31:0]      mem_wb_data [0:NL-1];
+    logic             do_compute;             // issue is a committing compute instr
+    logic             squash_wb;              // its writeback is squashed by a mem write
+
+    logic             v_we [0:NL-1];          // per-lane VRF write enable
+    logic [VAW-1:0]   v_wa [0:NL-1];          // …address {warp,reg}
+    logic [31:0]      v_wd [0:NL-1];          // …data
+    logic [WIDXW-1:0] v_ww [0:NL-1];          // …warp (for the valid bit)
+    logic [4:0]       v_wr [0:NL-1];          // …reg  (for the valid bit)
+
+    always_comb begin
+        for (int l = 0; l < NL; l++) begin
+            logic [SCRATCH_AW-1:0] sidx;
+            sidx           = mem_addr_lane[l][SCRATCH_AW+1:2];
+            mem_wb_lane[l] = 1'b0;
+            mem_wb_data[l] = 32'd0;
+            if (mem_busy && !mem_is_store && (mem_rd != 5'd0)) begin
+                if (mem_is_scratch && mem_pending[l]) begin
+                    mem_wb_lane[l] = 1'b1;
+                    mem_wb_data[l] = scratch[mem_w][sidx];
+                end else if (!mem_is_scratch && grp[l]) begin
+                    mem_wb_lane[l] = 1'b1;
+                    mem_wb_data[l] = ld_data[l];
+                end
+            end
+        end
+    end
+    assign mem_wb_act = |mem_wb_lane;
+    assign do_compute = issue_valid && !do_pop && !is_ecall && !is_mem;
+    assign squash_wb  = do_compute && mem_wb_act;
+
+    always_comb begin
+        for (int l = 0; l < NL; l++) begin
+            v_we[l] = 1'b0;
+            v_wa[l] = '0;
+            v_wd[l] = 32'd0;
+            v_ww[l] = '0;
+            v_wr[l] = 5'd0;
+            if (mem_wb_lane[l]) begin                                  // memory writeback
+                v_we[l] = 1'b1;
+                v_ww[l] = mem_w;
+                v_wr[l] = mem_rd;
+                v_wa[l] = vaddr(mem_w, mem_rd);
+                v_wd[l] = mem_wb_data[l];
+            end else if (do_compute && !mem_wb_act && wb_en[l]) begin   // compute writeback
+                v_we[l] = 1'b1;
+                v_ww[l] = issue_w;
+                v_wr[l] = rd;
+                v_wa[l] = vaddr(issue_w, rd);
+                v_wd[l] = wb_val[l];
+            end
+        end
+    end
+
+    // ── Per-lane VRF banks (distributed RAM) ────────────────────────────────────────
+    // One 1D array per lane: a single sync write port + two async read ports. This is
+    // the canonical LUTRAM pattern; the ram_style attribute pins it to distributed RAM.
+    genvar gl;
+    generate
+        for (gl = 0; gl < NL; gl++) begin : g_vrf
+            (* ram_style = "distributed" *)
+            logic [31:0] bank [0:VDEPTH-1];
+            always_ff @(posedge clk)
+                if (v_we[gl]) bank[v_wa[gl]] <= v_wd[gl];
+            assign vrf_rd1[gl] = bank[vaddr(issue_w, rs1)];
+            assign vrf_rd2[gl] = bank[vaddr(issue_w, rs2)];
+        end
+    endgenerate
+
     // ── Sequential update ───────────────────────────────────────────────────────────
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -474,6 +598,9 @@ module warp_pool
             dbg_issued_insns<= 32'd0;
             dbg_active_lanes<= 32'd0;
             for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
+            for (int k = 0; k < NW; k++)
+                for (int l = 0; l < NL; l++)
+                    for (int r = 0; r < 32; r++) reg_written[k][l][r] <= 1'b0;
         end else begin
             done <= 1'b0;                         // default: 1-cycle pulse
 
@@ -502,13 +629,11 @@ module warp_pool
                     logic [31:0]   sbase;
                     logic [NL-1:0] tmask;
                     sbase = next_wid * WSZ;
+                    // No VRF clear here (that 1-cycle 32-register write blocked RAM
+                    // inference). Instead mark every register unwritten so reads
+                    // return their spawn seed (a0=tid, a1..a4=args, else 0).
                     for (int l = 0; l < NL; l++) begin
-                        for (int r = 0; r < 32; r++) vrf[fill_w][l][r] <= 32'd0;
-                        vrf[fill_w][l][ARG_TID] <= sbase + l[31:0];
-                        vrf[fill_w][l][ARG_A]   <= arg_a;
-                        vrf[fill_w][l][ARG_B]   <= arg_b;
-                        vrf[fill_w][l][ARG_C]   <= arg_c;
-                        vrf[fill_w][l][ARG_N]   <= arg_n;
+                        for (int r = 0; r < 32; r++) reg_written[fill_w][l][r] <= 1'b0;
                         tmask[l] = ((sbase + l[31:0]) < arg_n);   // tail mask
                     end
                     warp_base[fill_w]        <= sbase;
@@ -527,7 +652,7 @@ module warp_pool
                     // n_active lanes under gating vs all NL lanes ungated. A pop is
                     // bookkeeping (no datapath), and a memory op that finds the port
                     // busy re-attempts later (don't double-count the stall).
-                    if (!do_pop && !(is_mem && mem_busy)) begin
+                    if (!do_pop && !(is_mem && mem_busy) && !squash_wb) begin
                         dbg_issued_insns <= dbg_issued_insns + 32'd1;
                         dbg_active_lanes <= dbg_active_lanes +
                                             {{(31-LIDXW){1'b0}}, n_active};
@@ -558,11 +683,10 @@ module warp_pool
                             wstate[issue_w] <= W_MEM;
                         end
                         // else: data port busy → warp waits (stays W_RUN).
-                    end else begin
-                        // Writeback (masked-off lanes are already gated in wb_en).
-                        for (int l = 0; l < NL; l++)
-                            if (wb_en[l]) vrf[issue_w][l][rd] <= wb_val[l];
-
+                    end else if (!squash_wb) begin
+                        // Compute commit. The register writeback is performed by the
+                        // central VRF write arbiter below (a memory writeback this
+                        // cycle would have set squash_wb and deferred us instead).
                         // Control flow / next-PC for the TOS frame.
                         unique case (opcode)
                             OP_BRANCH: begin
@@ -605,27 +729,22 @@ module warp_pool
                 if (mem_busy) begin
                     if (mem_is_scratch) begin
                         // On-chip scratchpad: serve EVERY pending lane this cycle
-                        // (word access; no global port, no coalescing needed).
-                        for (int l = 0; l < NL; l++) begin
-                            logic [SCRATCH_AW-1:0] sidx;
-                            sidx = mem_addr_lane[l][SCRATCH_AW+1:2];
-                            if (mem_pending[l]) begin
-                                if (mem_is_store)
-                                    scratch[mem_w][sidx] <= mem_sdata_lane[l];
-                                else if (mem_rd != 5'd0)
-                                    vrf[mem_w][l][mem_rd] <= scratch[mem_w][sidx];
+                        // (word access; no global port, no coalescing needed). Scratch
+                        // LOADS write the VRF via the central arbiter; here we only
+                        // commit scratch STORES into the scratchpad SRAM.
+                        if (mem_is_store)
+                            for (int l = 0; l < NL; l++) begin
+                                logic [SCRATCH_AW-1:0] sidx;
+                                sidx = mem_addr_lane[l][SCRATCH_AW+1:2];
+                                if (mem_pending[l]) scratch[mem_w][sidx] <= mem_sdata_lane[l];
                             end
-                        end
                         dbg_scratch_txns          <= dbg_scratch_txns + 32'd1;
                         mem_busy                  <= 1'b0;
                         stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;
                         wstate[mem_w]             <= W_RUN;
                     end else begin
-                        // Global memory: one coalesced line transaction / cycle.
-                        if (!mem_is_store && (mem_rd != 5'd0))
-                            for (int l = 0; l < NL; l++)
-                                if (grp[l]) vrf[mem_w][l][mem_rd] <= ld_data[l];
-
+                        // Global memory: one coalesced line transaction / cycle. The
+                        // load result is written to the VRF by the central arbiter.
                         dbg_mem_txns <= dbg_mem_txns + 32'd1;
 
                         if ((mem_pending & ~grp) == '0) begin
@@ -637,6 +756,12 @@ module warp_pool
                         end
                     end
                 end
+
+                // 3b) Mark written registers valid. The VRF data write itself happens
+                //     in the per-lane distributed-RAM banks (see the generate block);
+                //     here we only record that the register is no longer at its seed.
+                for (int l = 0; l < NL; l++)
+                    if (v_we[l]) reg_written[v_ww[l]][l][v_wr[l]] <= 1'b1;
 
                 // 4) Completion: nothing left to spawn and no slot running.
                 if (!any_busy) begin

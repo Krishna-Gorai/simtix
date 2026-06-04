@@ -15,6 +15,7 @@ CI, so the GitHub history reads as a clean incremental build.
 | **M6** | Shared-memory scratchpad + matmul kernel + benchmark | End-to-end speedup story | ✅ done |
 | **M7a** | Divergence-aware lane clock-gating **energy study** ([docs/m7_energy.md](m7_energy.md)) | The novel/research contribution: gating saves 0%→22.5% lane energy as divergence rises | ✅ done |
 | **M7b** | FPGA / PPA: OOC Vivado synth of `simt_accel` (area, Fmax, power) on ZCU104 ([docs/m7_energy.md](m7_energy.md#m7b--fpga--ppa-silicon-cost-numbers)) | Real silicon-cost numbers: 170.9k LUT (74%) / 44.1k FF / 24 DSP, Fmax ≈122 MHz, 1.67 W on xczu7ev | ✅ done |
+| **M8** | Register file in distributed RAM (LUTRAM) + timing closure ([docs/m8_lutram.md](m8_lutram.md)) | Banking the VRF into LUTRAM cuts LUTs −55% (170.9k→77.0k) and FFs −70% (44.1k→13.3k), and the design now **meets timing** (+2.7 ns @ 100 MHz, ceiling 137 MHz) | ✅ done |
 
 ## Design decisions (locked)
 
