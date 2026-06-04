@@ -14,7 +14,7 @@ CI, so the GitHub history reads as a clean incremental build.
 | **M5** | Control divergence: active mask + reconvergence stack | **True SIMT** (per-thread control flow) | ✅ done |
 | **M6** | Shared-memory scratchpad + matmul kernel + benchmark | End-to-end speedup story | ✅ done |
 | **M7a** | Divergence-aware lane clock-gating **energy study** ([docs/m7_energy.md](m7_energy.md)) | The novel/research contribution: gating saves 0%→22.5% lane energy as divergence rises | ✅ done |
-| **M7b** | FPGA / PPA: OOC Vivado synth of `simt_accel` (area, Fmax, power) | Real silicon-cost numbers | ⏳ |
+| **M7b** | FPGA / PPA: OOC Vivado synth of `simt_accel` (area, Fmax, power) on ZCU104 ([docs/m7_energy.md](m7_energy.md#m7b--fpga--ppa-silicon-cost-numbers)) | Real silicon-cost numbers: 170.9k LUT (74%) / 44.1k FF / 24 DSP, Fmax ≈122 MHz, 1.67 W on xczu7ev | ✅ done |
 
 ## Design decisions (locked)
 

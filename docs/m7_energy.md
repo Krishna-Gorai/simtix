@@ -78,12 +78,47 @@ make -C sim test-pool      # phase 8 prints the table and asserts monotonicity
 The kernels live in `kernels/divergence/` (assembled with rv32i GCC; the hex is
 embedded in the testbench so CI stays toolchain-free).
 
-## Next: M7b — FPGA / PPA
+## M7b — FPGA / PPA (silicon-cost numbers)
 
-Out of scope for this pass (deferred): an out-of-context Vivado synthesis of
-`simt_accel` for real area (LUT/FF), Fmax, and a vendor power estimate, with the
-clock-gating enabled so the ICGs are inserted and the modelled saving can be
-cross-checked against the tool's switching-activity power report.
+Out-of-context synthesis of `simt_accel` on the ZCU104's Zynq UltraScale+
+**xczu7ev-ffvc1156-2-e** (Vivado 2025.1, 200 MHz / 5.0 ns target clock). The flow
+and constraints live in `fpga/` (`synth_ooc.tcl`, `constr/simt_accel_ooc.xdc`);
+the raw reports are `fpga/reports/post_synth_{util,timing,power}.rpt`.
+
+| Metric | Value | Device share |
+|---|---:|---:|
+| CLB LUTs            | 170,868 (170,848 logic + 20 LUTRAM) | 74.16% of 230,400 |
+| CLB registers (FF)  | 44,112                              |  9.57% of 460,800 |
+| DSP48E2             | 24                                  |  1.39% of 1,728   |
+| Block RAM / URAM    | 0 / 0                               | —                 |
+| CARRY8 / F7 / F8    | 288 / 4,034 / 939                   | —                 |
+| Setup WNS @ 5.0 ns  | −3.213 ns                           | → **Fmax ≈ 122 MHz** |
+| Total on-chip power | 1.673 W (1.076 dyn + 0.597 static)  | Tj 26.6 °C, vectorless (Medium conf.) |
+
+Almost the entire footprint is `u_pool` (the `warp_pool`): **170,728 LUTs /
+43,885 FFs / 24 DSPs**. The lesson is the headline of the PPA story — the
+per-lane vector register file is `NUM_WARPS × NUM_LANES × 32 = 1024` 32-bit words
+= **32,768 flip-flops**, and because a kernel reads it as `vrf[issue_w][l][rs]`
+(both warp and register index variable) it synthesises a 128:1 mux per lane per
+read port. That mux fabric — not the ALUs — is why the design eats ~74% of the
+device LUTs at only ~10% of its FFs, and why it tops out near 122 MHz (the
+single-cycle path is *VRF-read mux → ALU → writeback*). DSP usage is just the
+eight per-lane RV32M multipliers (3 DSP48E2 each). **Architectural takeaway:**
+banking the VRF into distributed/block RAM instead of flip-flops is the obvious
+next optimisation — it would collapse the mux trees, the LUT count, and the
+critical path together. (Synthesis-only estimate; `opt_design`/place would lower
+the final LUT count further, per Vivado's own note in the utilization report.)
+
+### A note on the run itself
+
+The xczu7ev part database + timing engine alone push synthesis to a ~4.25 GB peak,
+which does not fit alongside the OS on this 8 GB host. A first timing-driven
+attempt thrashed for 4 h in "Timing Optimization" and produced nothing. The
+working recipe (in `synth_ooc.tcl`) is `-flatten_hierarchy none -no_timing_driven`
+with `maxThreads 2`: it optimises module-by-module and skips the timing-opt phase
+(the memory hog), completing in ~27 min. Because this design's critical path is an
+irreducible single-cycle mux→ALU→writeback, the non-timing-driven WNS is a
+realistic Fmax estimate rather than a pessimistic floor.
 
 ## Prior art
 

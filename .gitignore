@@ -10,6 +10,9 @@ sim/build/
 *.jou
 *.log
 *.str
+*.dcp
+.gen/
+fpga/reports/*.dcp
 *.cache/
 *.hw/
 *.runs/
@@ -17,6 +20,7 @@ sim/build/
 *.ip_user_files/
 .Xil/
 vivado*.backup.*
+dfx_runtime.txt
 
 # riscv toolchain build artifacts
 *.elf
