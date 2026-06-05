@@ -79,6 +79,15 @@ report_power            -file $out_dir/post_route_power.rpt
 report_drc              -file $out_dir/post_route_drc.rpt
 report_io               -file $out_dir/post_route_io.rpt
 
+# ── Post-implementation simulation models (functional netlist + SDF) ────────────
+# The routed gate-level netlist (UNISIM primitives) + an SDF of the real routed
+# delays, for post-implementation functional (and, with the SDF, timing) sim in
+# xsim. Drives docs/m13 post-impl verification.
+set sim_dir [file normalize ./postimpl]
+file mkdir $sim_dir
+write_verilog -mode funcsim -force $sim_dir/chip_top_funcsim.v
+write_sdf                   -force $sim_dir/chip_top_funcsim.sdf
+
 # ── Bitstream ───────────────────────────────────────────────────────────────────
 write_bitstream -force [file normalize ./chip_top.bit]
 

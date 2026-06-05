@@ -24,6 +24,17 @@ dfx_runtime.txt
 # implementation build artifacts (regenerate with fpga/impl_chip.tcl)
 *.bit
 fpga/clockInfo.txt
+# post-implementation sim: generated netlist/SDF + xsim work files
+fpga/postimpl/chip_top_funcsim.v
+fpga/postimpl/chip_top_funcsim.sdf
+fpga/postimpl/xsim.dir/
+fpga/postimpl/*.pb
+fpga/postimpl/*.wdb
+fpga/postimpl/*.jou
+fpga/postimpl/*.log
+fpga/postimpl/xelab.*
+fpga/postimpl/xvlog.*
+fpga/postimpl/webtalk*
 
 # riscv toolchain build artifacts
 *.elf
