@@ -21,7 +21,7 @@ coalescing memory engine**, and an on-chip **shared-memory scratchpad** — then
 take the whole thing through **FPGA synthesis** on a Zynq UltraScale+ and report
 real area / timing / power, plus a small **micro-architectural energy study**.
 
-> **Status: complete.** Milestones **M0 → M11** are all implemented, verified, and
+> **Status: complete.** Milestones **M0 → M12** are all implemented, verified, and
 > pushed; CI (lint + simulation regression) is green on every push. The design now
 > closes as a **complete chip** — host CPU + accelerator + on-chip shared memory in
 > one synthesizable top — and is taken all the way through **place & route to a
@@ -560,6 +560,7 @@ Each milestone is a self-contained, demoable, green-in-CI step.
 | M9 | Scratchpad in distributed RAM + timing-driven synth | 30.1k LUT / 4.6k FF, timing met (meets 125 MHz) | ✅ |
 | M10 | Complete chip: CPU + accelerator + on-chip shared memory | self-contained SoC, result=964 in HW; 34.3k LUT / 6.2k FF, meets 100 MHz | ✅ |
 | M11 | Full implementation + bitstream (place & route → `chip_top.bit`) | post-route timing-closed @ 100 MHz (WNS +0.000, 0 failing of 37.5k), 19 MB bitstream | ✅ |
+| M12 | CPU-side input loading (host writes A/B into shared memory at runtime) | full heterogeneous-SoC flow; result=964 proven CPU-driven (no preloaded inputs) | ✅ |
 
 Full detail in [docs/roadmap.md](docs/roadmap.md).
 

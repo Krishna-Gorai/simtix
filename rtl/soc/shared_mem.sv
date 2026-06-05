@@ -90,7 +90,12 @@ module shared_mem
     logic [31:0] imem_word [0:LINE_WORDS-1];          // bank read @ imem_line
     logic [31:0] cpu_word  [0:LINE_WORDS-1];          // bank read @ cpu_line
 
-    // ── Preload contents: kernel @0x200, A @0x300, B @0x340, C @0x380 ─────────────
+    // ── Preload contents: kernel @0x200, C @0x380 (poison) ───────────────────────
+    // The A/B operand arrays are NO LONGER preloaded — the host CPU writes them at
+    // runtime (see cpu_driver_rom.sv), so anything but a working store loop leaves
+    // A=B=0 and the result != 964. Only the kernel code (the accelerator's program
+    // memory) and a C poison pattern (so a missed accelerator write is visible) are
+    // initialised here.
     function automatic logic [31:0] init_word(input int unsigned w);
         // Vector-add kernel (a0=tid, a1=&A, a2=&B, a3=&C): C[tid]=A[tid]+B[tid].
         case (w)
@@ -104,13 +109,9 @@ module shared_mem
             32'h087: init_word = 32'h007f2023;        // sw   t2, 0(t5)
             32'h088: init_word = 32'h00000073;        // ecall
             default: begin
-                if (w >= 32'h0C0 && w < 32'h0C8)      // A[i] = 10 + i
-                    init_word = 32'd10 + (w - 32'h0C0);
-                else if (w >= 32'h0D0 && w < 32'h0D8)  // B[i] = 100 + 2i
-                    init_word = 32'd100 + ((w - 32'h0D0) << 1);
-                else if (w >= 32'h0E0 && w < 32'h0E8)  // C[i] = poison
+                if (w >= 32'h0E0 && w < 32'h0E8)      // C[i] = poison
                     init_word = 32'hdead_beef;
-                else
+                else                                  // A/B (0x0C0/0x0D0) now CPU-loaded
                     init_word = 32'd0;
             end
         endcase
