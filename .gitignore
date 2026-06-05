@@ -24,6 +24,8 @@ dfx_runtime.txt
 # implementation build artifacts (regenerate with fpga/impl_chip.tcl)
 *.bit
 fpga/clockInfo.txt
+# managed GUI project (regenerate with fpga/create_project.tcl)
+fpga/vivado_project/
 # post-implementation sim: generated netlist/SDF + xsim work files
 fpga/postimpl/chip_top_funcsim.v
 fpga/postimpl/chip_top_funcsim.sdf
