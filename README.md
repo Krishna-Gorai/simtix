@@ -21,10 +21,12 @@ coalescing memory engine**, and an on-chip **shared-memory scratchpad** — then
 take the whole thing through **FPGA synthesis** on a Zynq UltraScale+ and report
 real area / timing / power, plus a small **micro-architectural energy study**.
 
-> **Status: complete.** Milestones **M0 → M10** are all implemented, verified, and
+> **Status: complete.** Milestones **M0 → M11** are all implemented, verified, and
 > pushed; CI (lint + simulation regression) is green on every push. The design now
 > closes as a **complete chip** — host CPU + accelerator + on-chip shared memory in
-> one synthesizable top. See the [roadmap](docs/roadmap.md).
+> one synthesizable top — and is taken all the way through **place & route to a
+> timing-closed bitstream** (`chip_top.bit`, meets 100 MHz post-route). See the
+> [roadmap](docs/roadmap.md).
 
 ---
 
@@ -468,6 +470,26 @@ layout. The critical path is the accelerator's own single-cycle compute path
 (`warp-state → ALU+DSP multiply → VRF LUTRAM write`); the CPU and shared memory are
 not on it. Full analysis: [docs/m10_chip.md](docs/m10_chip.md).
 
+### 5. Full implementation + bitstream (M11)
+
+M11 takes the same `chip_top` through the **real device flow** (in-context
+synth → opt → place → phys_opt → route → bitstream) and produces a routed,
+**timing-closed** image, `fpga/chip_top.bit`:
+
+| Post-route sign-off (xczu7ev) | Value |
+|---|---|
+| Setup WNS / Hold WHS | **+0.000 ns** / +0.005 ns — all constraints met @ 100 MHz |
+| Failing endpoints | **0 / 37,516** (setup), 0 / 37,516 (hold) |
+| Errors / critical warnings | **0 / 0** |
+| Area | 34,850 LUT (15.1%) / 6,130 FF / 3,348 LUTRAM / 24 DSP / 0 BRAM |
+| Power | 1.086 W (0.492 dynamic + 0.594 static) |
+| Bitstream | `chip_top.bit`, 19.3 MB |
+
+Board files for the ZCU104 aren't installed here, so the 35 top-level I/O are
+auto-placed and the unconstrained-I/O DRCs downgraded — the deliverable is a real
+placed-and-routed, timing-closed bitstream of the whole chip, not board peripheral
+bring-up. Full writeup: [docs/m11_impl.md](docs/m11_impl.md).
+
 ---
 
 ## Engineering highlights
@@ -512,7 +534,8 @@ rtl/soc/            chip_top.sv  — complete chip: CPU + accelerator + shared m
 sim/                Verilator build/lint Makefile (delegated to from the root)
 tests/              self-checking SystemVerilog testbenches
 kernels/            data-parallel kernels (divergence, matmul naïve vs. scratchpad)
-fpga/               OOC synthesis: synth_ooc.tcl (accel), synth_chip.tcl (whole chip)
+fpga/               synth: synth_ooc.tcl (accel), synth_chip.tcl (whole chip, OOC)
+                    impl_chip.tcl — full place & route → chip_top.bit (M11)
 docs/               architecture, ISA, roadmap, energy study, LUTRAM writeup
 ```
 
@@ -536,6 +559,7 @@ Each milestone is a self-contained, demoable, green-in-CI step.
 | M8 | Register file in distributed RAM + timing closure | LUTs −55%, FFs −70%, timing met | ✅ |
 | M9 | Scratchpad in distributed RAM + timing-driven synth | 30.1k LUT / 4.6k FF, timing met (meets 125 MHz) | ✅ |
 | M10 | Complete chip: CPU + accelerator + on-chip shared memory | self-contained SoC, result=964 in HW; 34.3k LUT / 6.2k FF, meets 100 MHz | ✅ |
+| M11 | Full implementation + bitstream (place & route → `chip_top.bit`) | post-route timing-closed @ 100 MHz (WNS +0.000, 0 failing of 37.5k), 19 MB bitstream | ✅ |
 
 Full detail in [docs/roadmap.md](docs/roadmap.md).
 

@@ -21,6 +21,9 @@ fpga/reports/*.dcp
 .Xil/
 vivado*.backup.*
 dfx_runtime.txt
+# implementation build artifacts (regenerate with fpga/impl_chip.tcl)
+*.bit
+fpga/clockInfo.txt
 
 # riscv toolchain build artifacts
 *.elf
