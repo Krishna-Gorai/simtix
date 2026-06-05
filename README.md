@@ -21,9 +21,10 @@ coalescing memory engine**, and an on-chip **shared-memory scratchpad** — then
 take the whole thing through **FPGA synthesis** on a Zynq UltraScale+ and report
 real area / timing / power, plus a small **micro-architectural energy study**.
 
-> **Status: complete.** Milestones **M0 → M9** are all implemented, verified, and
-> pushed; CI (lint + simulation regression) is green on every push. See the
-> [roadmap](docs/roadmap.md).
+> **Status: complete.** Milestones **M0 → M10** are all implemented, verified, and
+> pushed; CI (lint + simulation regression) is green on every push. The design now
+> closes as a **complete chip** — host CPU + accelerator + on-chip shared memory in
+> one synthesizable top. See the [roadmap](docs/roadmap.md).
 
 ---
 
@@ -448,6 +449,25 @@ not directly comparable.) Full analysis: [docs/m8_lutram.md](docs/m8_lutram.md),
 > to dodge a 4 GB RAM thrash, a workaround M9's smaller netlist no longer requires.
 > The writeups document the RAM-pressure pitfalls and the working recipe.
 
+### 4. Whole-chip PPA — `chip_top` (CPU + accelerator + shared memory)
+
+M10 synthesizes the **complete chip** — the RISC-V host pipeline, the accelerator,
+the on-chip shared memory, and the driver ROM — in one timing-driven OOC run:
+
+| Instance | LUTs | LUTRAM | FFs | DSP |
+|---|---:|---:|---:|---:|
+| **chip_top** (whole chip) | **34,340 (14.9%)** | 3,348 | **6,171 (1.3%)** | 24 |
+| `cpu` (riscv_pipeline) | 1,451 | 0 | 1,555 | 0 |
+| `u_accel` (simt_accel) | 29,892 | 1,428 | 4,583 | 24 |
+| `u_mem` (shared_mem) | 2,934 | 1,920 | **0** | 0 |
+
+The chip **meets timing at 100 MHz (+0.253 ns)**, uses **0 BRAM**, and draws 0.964 W.
+The host CPU is small (1.5k LUT / 1.6k FF), the accelerator dominates (~87 % of LUTs),
+and the 4 KB shared memory is **entirely LUTRAM (0 flip-flops)** thanks to its 8-bank
+layout. The critical path is the accelerator's own single-cycle compute path
+(`warp-state → ALU+DSP multiply → VRF LUTRAM write`); the CPU and shared memory are
+not on it. Full analysis: [docs/m10_chip.md](docs/m10_chip.md).
+
 ---
 
 ## Engineering highlights
@@ -485,11 +505,14 @@ rtl/accel/          SIMT accelerator RTL (the project)
   lane.sv             M1 single-thread reference core (kept, still linted/tested)
   warp.sv             M2 single-warp reference (kept, still linted/tested)
 rtl/cpu/            reused 5-stage pipelined RISC-V host core (Verilog)
-rtl/soc/            soc_top.sv — CPU + accelerator + data RAM + MMIO decode
+rtl/soc/            chip_top.sv  — complete chip: CPU + accelerator + shared memory
+                    shared_mem.sv — 8-bank LUTRAM on-chip shared memory (M10)
+                    cpu_driver_rom.sv — host driver program (launch + readback)
+                    soc_top.sv   — earlier CPU + accelerator + MMIO decode (M1.3)
 sim/                Verilator build/lint Makefile (delegated to from the root)
 tests/              self-checking SystemVerilog testbenches
 kernels/            data-parallel kernels (divergence, matmul naïve vs. scratchpad)
-fpga/               OOC synthesis: synth_ooc.tcl, constraints, PPA reports
+fpga/               OOC synthesis: synth_ooc.tcl (accel), synth_chip.tcl (whole chip)
 docs/               architecture, ISA, roadmap, energy study, LUTRAM writeup
 ```
 
@@ -512,6 +535,7 @@ Each milestone is a self-contained, demoable, green-in-CI step.
 | M7b | FPGA / PPA: OOC synth on ZCU104 | real silicon-cost numbers | ✅ |
 | M8 | Register file in distributed RAM + timing closure | LUTs −55%, FFs −70%, timing met | ✅ |
 | M9 | Scratchpad in distributed RAM + timing-driven synth | 30.1k LUT / 4.6k FF, timing met (meets 125 MHz) | ✅ |
+| M10 | Complete chip: CPU + accelerator + on-chip shared memory | self-contained SoC, result=964 in HW; 34.3k LUT / 6.2k FF, meets 100 MHz | ✅ |
 
 Full detail in [docs/roadmap.md](docs/roadmap.md).
 

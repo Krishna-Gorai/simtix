@@ -48,6 +48,22 @@ SOC_RTL := \
 	../rtl/soc/soc_top.sv \
 	$(SOC_CPU_RTL)
 
+# Full chip (M10): host CPU pipeline + accelerator + on-chip shared memory +
+# driver ROM, wired into one self-contained top (chip_top). Uses only the
+# pipeline + its leaf modules from the CPU RTL (the standalone CPU SoC wrapper,
+# its ROM/SRAM, and the FPGA top are excluded — chip_top supplies its own).
+CHIP_CPU_RTL := $(filter-out ../rtl/cpu/top.v ../rtl/cpu/riscv_soc.v \
+	../rtl/cpu/instr_mem.v ../rtl/cpu/data_mem.v, $(CPU_RTL))
+CHIP_RTL := \
+	../rtl/accel/simtix_pkg.sv \
+	../rtl/accel/mmio_regs.sv \
+	../rtl/accel/warp_pool.sv \
+	../rtl/accel/simt_accel.sv \
+	../rtl/soc/shared_mem.sv \
+	../rtl/soc/cpu_driver_rom.sv \
+	../rtl/soc/chip_top.sv \
+	$(CHIP_CPU_RTL)
+
 # Package + per-block sources used by the unit testbenches.
 PKG       := ../rtl/accel/simtix_pkg.sv
 
@@ -63,9 +79,9 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc test test-accel test-lane test-warp test-pool test-soc clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-soc test-chip clean
 
-lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc
+lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
 lint-accel:
 	$(VERILATOR) --lint-only $(VFLAGS) --top-module simt_accel $(ACCEL_RTL)
@@ -91,6 +107,10 @@ lint-soc:
 	$(VERILATOR) --lint-only $(SOC_VFLAGS) --top-module soc_top $(SOC_RTL)
 	@echo "[lint] SoC integration OK"
 
+lint-chip:
+	$(VERILATOR) --lint-only $(SOC_VFLAGS) --top-module chip_top $(CHIP_RTL)
+	@echo "[lint] full chip OK"
+
 # Build & run a self-checking testbench.  $(1)=top module, $(2..)=extra sources.
 define run_tb
 	rm -rf $(MDIR)
@@ -99,7 +119,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-soc
+test: test-accel test-lane test-warp test-pool test-soc test-chip
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -119,6 +139,13 @@ test-soc:
 	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_soc_top $(SOC_RTL) ../tests/tb_soc_top.sv -o tb_soc_top
 	@echo "[test] running tb_soc_top..."
 	$(MDIR)/tb_soc_top
+
+# The full-chip test pulls in the Verilog CPU core, so it builds with SOC_VFLAGS.
+test-chip:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_chip_top $(CHIP_RTL) ../tests/tb_chip_top.sv -o tb_chip_top
+	@echo "[test] running tb_chip_top..."
+	$(MDIR)/tb_chip_top
 
 clean:
 	rm -rf obj_dir $(MDIR)
