@@ -2,9 +2,10 @@
 
 This is the implementation deep-dive. It describes the RTL as it actually exists
 (milestones M0–M8), down to signal names, so it can be read alongside the source.
-For the high-level tour see the [README](../README.md); for the two focused studies
-see [docs/m7_energy.md](m7_energy.md) (lane clock-gating) and
-[docs/m8_lutram.md](m8_lutram.md) (register file in distributed RAM).
+For the high-level tour see the [README](../README.md); for the focused studies see
+[docs/m7_energy.md](m7_energy.md) (lane clock-gating),
+[docs/m8_lutram.md](m8_lutram.md) (register file in distributed RAM), and
+[docs/m9_scratchpad.md](m9_scratchpad.md) (scratchpad in distributed RAM).
 
 The whole SIMT engine lives in **one module, `rtl/accel/warp_pool.sv`** — the
 scheduler, lanes, register file, reconvergence stack, memory engine and scratchpad
@@ -216,15 +217,25 @@ Cost = number of distinct lines touched: a contiguous warp access (`A[tid]`) →
 transaction; a fully scattered one → up to 8. `dbg_mem_txns` counts global line
 transactions.
 
-### 4.7.1 Shared-memory scratchpad (M6)
+### 4.7.1 Shared-memory scratchpad (M6, LUTRAM in M9)
 
 A memory op whose leader-lane address is in the `SCRATCH_BASE` aperture
-(`addr[31:30] == 2'b01`) is flagged `mem_is_scratch` at issue. The engine then
-serves the **whole warp from a per-warp on-chip SRAM (`scratch[w][...]`) in one
-cycle**, bypassing the global port entirely (the `dmem` driver is gated by
-`!mem_is_scratch`). Per-lane index `sidx = addr[SCRATCH_AW+1:2]`. `dbg_scratch_txns`
-counts scratchpad transactions. Staging reused data here (e.g. a broadcast matrix
-row) cuts global traffic.
+(`addr[31:30] == 2'b01`) is flagged `mem_is_scratch` at issue and bypasses the
+global port entirely (the `dmem` driver is gated by `!mem_is_scratch`). Per-lane
+index `sidx = addr[SCRATCH_AW+1:2]`; `dbg_scratch_txns` counts scratchpad
+transactions. Staging reused data here (e.g. a broadcast matrix row) cuts global
+traffic.
+
+The scratchpad is **shared across a warp's lanes**, so M9 holds it in a single
+flat `(* ram_style="distributed" *)` LUTRAM (`scratch[NW*SCRATCH_WORDS]`, addressed
+`{warp, sidx}`) with one write and one read port. Because that is single-ported, the
+engine **serializes one lane per cycle** — each cycle it picks `lead` (the lowest
+still-pending lane), reads (load) or writes (store) that lane's word, and clears it
+from `mem_pending`, finishing when the last lane drains. This mirrors the global
+coalescing drain and is semantically exact: within one SIMT memory instruction all
+lanes do the same op, so there is no intra-instruction lane-to-lane forwarding to
+lose, and store/store collisions still resolve last-writer-wins (highest lane). The
+cost is that a scratch op touching *k* lanes now takes *k* cycles instead of 1.
 
 ### 4.8 The VRF write arbiter (M8)
 
@@ -234,7 +245,8 @@ writeback** (warp `issue_w`) and the memory engine's **load writeback** (warp
 `{v_we, v_wa, v_wd}`:
 
 - **memory writeback wins** (`mem_wb_lane[l]`): from a global load (`grp[l]`,
-  data `ld_data[l]`) or a scratch load (`mem_pending[l]`, data `scratch[mem_w][sidx]`);
+  data `ld_data[l]`) or a scratch load (the serialized `lead` lane only, data from
+  the single scratch read port `sc_rd`);
 - else the **compute writeback** (`wb_en[l]`, data `wb_val[l]`), *unless* a memory
   write is happening this cycle (`mem_wb_act`).
 

@@ -1,4 +1,4 @@
-# synth_ooc.tcl  -  M7b: out-of-context synthesis + PPA of simt_accel on ZCU104
+# synth_ooc.tcl  -  M9: out-of-context, timing-driven synthesis + PPA of simt_accel
 #
 # Target: Zynq UltraScale+ MPSoC xczu7ev-ffvc1156-2-e (the ZCU104 eval board).
 # Produces area (LUT/FF/BRAM/DSP), a post-synth timing estimate (=> Fmax), and a
@@ -6,14 +6,18 @@
 #
 #   vivado -mode batch -source synth_ooc.tcl
 #
-# Notes for the 8 GB host (this host peaks ~3 GB free; an earlier timing-driven
-# run hit 4.25 GB *before* "Start Timing Optimization" and then thrashed for 4 h):
+# History on this 8 GB host: the original M7b FF design had 1024-entry VRF +
+# 256-word scratch held in flip-flops with variable indexing -> huge mux trees.
+# Timing-driven synthesis of that netlist peaked 4.25 GB *before* "Start Timing
+# Optimization" and thrashed for 4 h, so M7b ran -no_timing_driven as a workaround.
+#
+# M8 moved the VRF and M9 moved the scratchpad into distributed RAM (LUTRAM): the
+# mux trees are gone, FFs dropped ~70%, and peak synthesis RAM falls to ~2.4 GB.
+# That headroom lets us turn the timing-optimization phase back ON (real placement-
+# aware Fmax instead of the conservative raw-path estimate). We keep the host-proven
+# memory guards:
 #   * maxThreads 2 + flatten_hierarchy none -> per-module optimization, lower peak
-#     RAM (proven recipe on this host); reports stay readable per-module.
-#   * -no_timing_driven skips the timing-optimization phase that was the memory
-#     hog AND the stall point. For this design the critical path is an irreducible
-#     single-cycle ALU + 128:1 VRF mux + writeback, so the post-synth WNS is a
-#     realistic Fmax estimate, not a pessimistic floor.
+#     RAM; reports stay readable per-module.
 #   * no write_checkpoint: it has a known silent-hang signature here and the .rpt
 #     files already carry every PPA number we need.
 
@@ -35,14 +39,12 @@ read_verilog -sv [list \
 # "Verilog Projects" parent directory (it would otherwise see two files).
 read_xdc [list [file normalize ./constr/simt_accel_ooc.xdc]]
 
-# ── Out-of-context synthesis ────────────────────────────────────────────────────
-# This register-heavy design (1024-entry VRF + scratch + stacks, variable-indexed
-# -> huge mux trees) makes the timing-driven optimization phase blow past the
-# host's RAM and thrash. -no_timing_driven skips that phase outright; flatten none
-# keeps peak RAM low by optimizing each module on its own. Result: a reliable, fast
-# area + power run, with a valid (conservative) post-synth Fmax from the timing rpt.
+# ── Out-of-context synthesis (timing-driven) ────────────────────────────────────
+# With the VRF (M8) and scratchpad (M9) in LUTRAM, the register count and mux trees
+# are small enough that timing-driven optimization fits in the host's RAM. flatten
+# none still bounds peak memory by optimizing each module independently.
 synth_design -top simt_accel -part $part -mode out_of_context \
-    -flatten_hierarchy none -no_timing_driven
+    -flatten_hierarchy none
 
 # ── Reports: area, timing (Fmax), power ─────────────────────────────────────────
 report_utilization      -file $out_dir/post_synth_util.rpt
@@ -52,7 +54,7 @@ report_power            -file $out_dir/post_synth_power.rpt
 # ── Console summary (also captured in vivado.log) ───────────────────────────────
 set clk_period 10.000
 set paths [get_timing_paths -max_paths 1 -nworst 1 -setup]
-puts "================ M7b PPA SUMMARY (xczu7ev / ZCU104) ================"
+puts "================ M9 PPA SUMMARY (xczu7ev / ZCU104) ================="
 if {[llength $paths] > 0} {
     set wns  [get_property SLACK $paths]
     set raw  [expr {$clk_period - $wns}]
@@ -61,9 +63,10 @@ if {[llength $paths] > 0} {
     puts [format "  Setup WNS            : %+.3f ns  (%s)" $wns [expr {$wns >= 0 ? "MET" : "VIOLATED"}]]
     puts [format "  Critical-path delay  : %.3f ns" $raw]
     puts [format "  Max Fmax             : %.1f MHz" $fmax]
-    # Non-timing-driven => the raw path is constant, so WNS at any target period is
-    # just (period - raw). Table shows where the design meets without re-synthesis.
-    puts "  WNS vs target period:"
+    # Timing-driven => the raw path was optimized for THIS constraint, so the table
+    # below is an approximate guide only (a re-synth at a tighter period may do
+    # slightly better). The headline WNS/Fmax above is the real result.
+    puts "  WNS vs target period (approx, extrapolated from this run):"
     foreach p {10.0 9.0 8.0 7.0 6.0 5.0} {
         puts [format "    %4.1f ns (%5.1f MHz) -> WNS %+.3f ns  %s" \
               $p [expr {1000.0/$p}] [expr {$p - $raw}] \

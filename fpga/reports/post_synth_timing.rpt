@@ -1,7 +1,7 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 --------------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version      : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
-| Date              : Thu Jun  4 12:00:28 2026
+| Date              : Fri Jun  5 09:52:20 2026
 | Host              : Krishna_NITjsr running 64-bit major release  (build 9200)
 | Command           : report_timing_summary -max_paths 10 -file {D:/Verilog Projects/simtix/fpga/reports/post_synth_timing.rpt}
 | Design            : simt_accel
@@ -139,7 +139,7 @@ Table of Contents
 
     WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints     WPWS(ns)     TPWS(ns)  TPWS Failing Endpoints  TPWS Total Endpoints  
     -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------     --------     --------  ----------------------  --------------------  
-      2.719        0.000                      0                35603        0.057        0.000                      0                35603        4.468        0.000                       0                 14642  
+      2.254        0.000                      0                19258        0.057        0.000                      0                19258        4.468        0.000                       0                  6038  
 
 
 All user specified timing constraints are met.
@@ -162,7 +162,7 @@ clk    {0.000 5.000}      10.000          100.000
 
 Clock             WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints     WPWS(ns)     TPWS(ns)  TPWS Failing Endpoints  TPWS Total Endpoints  
 -----             -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------     --------     --------  ----------------------  --------------------  
-clk                 2.719        0.000                      0                35603        0.057        0.000                      0                35603        4.468        0.000                       0                 14642  
+clk                 2.254        0.000                      0                19258        0.057        0.000                      0                19258        4.468        0.000                       0                  6038  
 
 
 ------------------------------------------------------------------------------------------------
@@ -193,7 +193,7 @@ Path Group    From Clock    To Clock          WNS(ns)      TNS(ns)  TNS Failing 
 From Clock:  clk
   To Clock:  clk
 
-Setup :            0  Failing Endpoints,  Worst Slack        2.719ns,  Total Violation        0.000ns
+Setup :            0  Failing Endpoints,  Worst Slack        2.254ns,  Total Violation        0.000ns
 Hold  :            0  Failing Endpoints,  Worst Slack        0.057ns,  Total Violation        0.000ns
 PW    :            0  Failing Endpoints,  Worst Slack        4.468ns,  Total Violation        0.000ns
 ---------------------------------------------------------------------------------------------------
@@ -201,16 +201,16 @@ PW    :            0  Failing Endpoints,  Worst Slack        4.468ns,  Total Vio
 
 Max Delay Paths
 --------------------------------------------------------------------------------------
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.254ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[1].bank_reg_r1_0_63_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMC/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.668ns  (logic 3.792ns (49.452%)  route 3.876ns (50.548%))
+  Logic Levels:           30  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=2 LUT4=1 LUT5=3 LUT6=8 MUXF7=2 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -225,98 +225,108 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__0__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__0__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__0__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__0__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__0__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__0__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__0__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__0__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__0__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__0__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__0__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__0__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__0__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__1__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__1__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__1__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__1__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__1__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[1][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[1][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[1][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[1][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[1][31]_i_5/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[1][31]_i_5_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[1][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[1][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[1][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[1].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[1].bank_reg_r1_0_63_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[6])
+                                                      0.103     6.618 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[6]
+                         net (fo=1, unplaced)         0.089     6.707    u_pool/mem_addr_lane_reg[2][29]_i_7_n_9
+                         LUT3 (Prop_LUT3_I0_O)        0.053     6.760 f  u_pool/mem_addr_lane[2][30]_i_9/O
+                         net (fo=1, unplaced)         0.140     6.900    u_pool/mem_addr_lane[2][30]_i_9_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.090     6.990 f  u_pool/mem_addr_lane[2][30]_i_4/O
+                         net (fo=1, unplaced)         0.018     7.008    u_pool/mem_addr_lane[2][30]_i_4_n_0
+                         MUXF7 (Prop_MUXF7_I1_O)      0.065     7.073 f  u_pool/mem_addr_lane_reg[2][30]_i_2/O
+                         net (fo=3, unplaced)         0.190     7.263    u_pool/mem_addr_lane_reg[2][30]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.301 f  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12/O
+                         net (fo=1, unplaced)         0.186     7.487    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     7.525 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_3/O
+                         net (fo=4, unplaced)         0.173     7.698    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/DIC
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMC/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[1].bank_reg_r1_0_63_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMC/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[1].bank_reg_r1_0_63_28_31/RAMA
+                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMC
   -------------------------------------------------------------------
                          required time                          9.952    
-                         arrival time                          -7.233    
+                         arrival time                          -7.698    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.254    
 
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.254ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[1].bank_reg_r1_64_127_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMC/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.668ns  (logic 3.792ns (49.452%)  route 3.876ns (50.548%))
+  Logic Levels:           30  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=2 LUT4=1 LUT5=3 LUT6=8 MUXF7=2 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -331,98 +341,108 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__0__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__0__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__0__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__0__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__0__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__0__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__0__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__0__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__0__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__0__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__0__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__0__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__0__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__1__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__1__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__1__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__1__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__1__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[1][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[1][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[1][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[1][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[1][31]_i_5/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[1][31]_i_5_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[1][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[1][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[1][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[1].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[1].bank_reg_r1_64_127_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_64_127_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[6])
+                                                      0.103     6.618 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[6]
+                         net (fo=1, unplaced)         0.089     6.707    u_pool/mem_addr_lane_reg[2][29]_i_7_n_9
+                         LUT3 (Prop_LUT3_I0_O)        0.053     6.760 f  u_pool/mem_addr_lane[2][30]_i_9/O
+                         net (fo=1, unplaced)         0.140     6.900    u_pool/mem_addr_lane[2][30]_i_9_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.090     6.990 f  u_pool/mem_addr_lane[2][30]_i_4/O
+                         net (fo=1, unplaced)         0.018     7.008    u_pool/mem_addr_lane[2][30]_i_4_n_0
+                         MUXF7 (Prop_MUXF7_I1_O)      0.065     7.073 f  u_pool/mem_addr_lane_reg[2][30]_i_2/O
+                         net (fo=3, unplaced)         0.190     7.263    u_pool/mem_addr_lane_reg[2][30]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.301 f  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12/O
+                         net (fo=1, unplaced)         0.186     7.487    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     7.525 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_3/O
+                         net (fo=4, unplaced)         0.173     7.698    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/DIC
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMC/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[1].bank_reg_r1_64_127_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_64_127_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMC/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[1].bank_reg_r1_64_127_28_31/RAMA
+                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMC
   -------------------------------------------------------------------
                          required time                          9.952    
-                         arrival time                          -7.233    
+                         arrival time                          -7.698    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.254    
 
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.254ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[1].bank_reg_r2_0_63_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMC/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.668ns  (logic 3.792ns (49.452%)  route 3.876ns (50.548%))
+  Logic Levels:           30  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=2 LUT4=1 LUT5=3 LUT6=8 MUXF7=2 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -437,98 +457,108 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__0__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__0__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__0__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__0__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__0__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__0__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__0__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__0__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__0__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__0__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__0__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__0__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__0__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__1__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__1__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__1__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__1__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__1__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[1][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[1][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[1][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[1][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[1][31]_i_5/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[1][31]_i_5_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[1][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[1][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[1][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[1].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[1].bank_reg_r2_0_63_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r2_0_63_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[6])
+                                                      0.103     6.618 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[6]
+                         net (fo=1, unplaced)         0.089     6.707    u_pool/mem_addr_lane_reg[2][29]_i_7_n_9
+                         LUT3 (Prop_LUT3_I0_O)        0.053     6.760 f  u_pool/mem_addr_lane[2][30]_i_9/O
+                         net (fo=1, unplaced)         0.140     6.900    u_pool/mem_addr_lane[2][30]_i_9_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.090     6.990 f  u_pool/mem_addr_lane[2][30]_i_4/O
+                         net (fo=1, unplaced)         0.018     7.008    u_pool/mem_addr_lane[2][30]_i_4_n_0
+                         MUXF7 (Prop_MUXF7_I1_O)      0.065     7.073 f  u_pool/mem_addr_lane_reg[2][30]_i_2/O
+                         net (fo=3, unplaced)         0.190     7.263    u_pool/mem_addr_lane_reg[2][30]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.301 f  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12/O
+                         net (fo=1, unplaced)         0.186     7.487    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     7.525 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_3/O
+                         net (fo=4, unplaced)         0.173     7.698    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/DIC
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMC/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[1].bank_reg_r2_0_63_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r2_0_63_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMC/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[1].bank_reg_r2_0_63_28_31/RAMA
+                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMC
   -------------------------------------------------------------------
                          required time                          9.952    
-                         arrival time                          -7.233    
+                         arrival time                          -7.698    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.254    
 
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.254ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[1].bank_reg_r2_64_127_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMC/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.668ns  (logic 3.792ns (49.452%)  route 3.876ns (50.548%))
+  Logic Levels:           30  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=2 LUT4=1 LUT5=3 LUT6=8 MUXF7=2 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -543,98 +573,108 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__0__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__0__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__0__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__0__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__0__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__0__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__0__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__0__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__0__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__0__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__0__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__0__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__0__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__1__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__1__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__1__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__1__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__1__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[1][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[1][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[1][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[1][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[1][31]_i_5/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[1][31]_i_5_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[1][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[1][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[1][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[1].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[1].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[1].bank_reg_r2_64_127_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r2_64_127_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[6])
+                                                      0.103     6.618 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[6]
+                         net (fo=1, unplaced)         0.089     6.707    u_pool/mem_addr_lane_reg[2][29]_i_7_n_9
+                         LUT3 (Prop_LUT3_I0_O)        0.053     6.760 f  u_pool/mem_addr_lane[2][30]_i_9/O
+                         net (fo=1, unplaced)         0.140     6.900    u_pool/mem_addr_lane[2][30]_i_9_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.090     6.990 f  u_pool/mem_addr_lane[2][30]_i_4/O
+                         net (fo=1, unplaced)         0.018     7.008    u_pool/mem_addr_lane[2][30]_i_4_n_0
+                         MUXF7 (Prop_MUXF7_I1_O)      0.065     7.073 f  u_pool/mem_addr_lane_reg[2][30]_i_2/O
+                         net (fo=3, unplaced)         0.190     7.263    u_pool/mem_addr_lane_reg[2][30]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.301 f  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12/O
+                         net (fo=1, unplaced)         0.186     7.487    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_12_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     7.525 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_3/O
+                         net (fo=4, unplaced)         0.173     7.698    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/DIC
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMC/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[1].bank_reg_r2_64_127_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r2_64_127_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMC/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[1].bank_reg_r2_64_127_28_31/RAMA
+                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMC
   -------------------------------------------------------------------
                          required time                          9.952    
-                         arrival time                          -7.233    
+                         arrival time                          -7.698    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.254    
 
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.315ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMD/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.605ns  (logic 3.750ns (49.310%)  route 3.855ns (50.690%))
+  Logic Levels:           29  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=1 LUT4=1 LUT5=4 LUT6=8 MUXF7=1 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -649,98 +689,106 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__3__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__3__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__3__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__3__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__3__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__3__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__3__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__3__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__3__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__3__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__3__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__3__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__3__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__4__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__4__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__4__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__4__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__4__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[2][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[2][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[2][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[2][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[2][31]_i_7/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[2][31]_i_7_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[2][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[2][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[2][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[2].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[7])
+                                                      0.116     6.631 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[7]
+                         net (fo=1, unplaced)         0.089     6.720    u_pool/mem_addr_lane_reg[2][29]_i_7_n_8
+                         LUT5 (Prop_LUT5_I0_O)        0.053     6.773 f  u_pool/mem_addr_lane[2][31]_i_10/O
+                         net (fo=1, unplaced)         0.186     6.959    u_pool/mem_addr_lane[2][31]_i_10_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     6.997 f  u_pool/mem_addr_lane[2][31]_i_3/O
+                         net (fo=2, unplaced)         0.141     7.138    u_pool/mem_addr_lane[2][31]_i_3_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     7.238 f  u_pool/mem_addr_lane[2][31]_i_2/O
+                         net (fo=2, unplaced)         0.186     7.424    u_pool/mem_addr_lane[2][31]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.462 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_4/O
+                         net (fo=4, unplaced)         0.173     7.635    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/DID
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMD/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMD/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMA
+                                                     -0.058     9.950    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31/RAMD
   -------------------------------------------------------------------
-                         required time                          9.952    
-                         arrival time                          -7.233    
+                         required time                          9.950    
+                         arrival time                          -7.635    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.315    
 
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.315ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMD/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.605ns  (logic 3.750ns (49.310%)  route 3.855ns (50.690%))
+  Logic Levels:           29  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=1 LUT4=1 LUT5=4 LUT6=8 MUXF7=1 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -755,98 +803,106 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__3__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__3__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__3__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__3__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__3__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__3__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__3__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__3__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__3__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__3__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__3__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__3__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__3__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__4__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__4__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__4__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__4__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__4__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[2][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[2][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[2][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[2][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[2][31]_i_7/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[2][31]_i_7_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[2][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[2][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[2][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[2].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[7])
+                                                      0.116     6.631 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[7]
+                         net (fo=1, unplaced)         0.089     6.720    u_pool/mem_addr_lane_reg[2][29]_i_7_n_8
+                         LUT5 (Prop_LUT5_I0_O)        0.053     6.773 f  u_pool/mem_addr_lane[2][31]_i_10/O
+                         net (fo=1, unplaced)         0.186     6.959    u_pool/mem_addr_lane[2][31]_i_10_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     6.997 f  u_pool/mem_addr_lane[2][31]_i_3/O
+                         net (fo=2, unplaced)         0.141     7.138    u_pool/mem_addr_lane[2][31]_i_3_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     7.238 f  u_pool/mem_addr_lane[2][31]_i_2/O
+                         net (fo=2, unplaced)         0.186     7.424    u_pool/mem_addr_lane[2][31]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.462 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_4/O
+                         net (fo=4, unplaced)         0.173     7.635    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/DID
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMD/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMD/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMA
+                                                     -0.058     9.950    u_pool/g_vrf[2].bank_reg_r1_64_127_28_31/RAMD
   -------------------------------------------------------------------
-                         required time                          9.952    
-                         arrival time                          -7.233    
+                         required time                          9.950    
+                         arrival time                          -7.635    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.315    
 
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.315ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMD/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.605ns  (logic 3.750ns (49.310%)  route 3.855ns (50.690%))
+  Logic Levels:           29  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=1 LUT4=1 LUT5=4 LUT6=8 MUXF7=1 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -861,98 +917,106 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__3__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__3__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__3__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__3__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__3__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__3__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__3__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__3__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__3__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__3__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__3__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__3__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__3__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__4__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__4__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__4__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__4__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__4__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[2][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[2][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[2][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[2][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[2][31]_i_7/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[2][31]_i_7_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[2][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[2][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[2][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[2].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[7])
+                                                      0.116     6.631 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[7]
+                         net (fo=1, unplaced)         0.089     6.720    u_pool/mem_addr_lane_reg[2][29]_i_7_n_8
+                         LUT5 (Prop_LUT5_I0_O)        0.053     6.773 f  u_pool/mem_addr_lane[2][31]_i_10/O
+                         net (fo=1, unplaced)         0.186     6.959    u_pool/mem_addr_lane[2][31]_i_10_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     6.997 f  u_pool/mem_addr_lane[2][31]_i_3/O
+                         net (fo=2, unplaced)         0.141     7.138    u_pool/mem_addr_lane[2][31]_i_3_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     7.238 f  u_pool/mem_addr_lane[2][31]_i_2/O
+                         net (fo=2, unplaced)         0.186     7.424    u_pool/mem_addr_lane[2][31]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.462 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_4/O
+                         net (fo=4, unplaced)         0.173     7.635    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/DID
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMD/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMD/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMA
+                                                     -0.058     9.950    u_pool/g_vrf[2].bank_reg_r2_0_63_28_31/RAMD
   -------------------------------------------------------------------
-                         required time                          9.952    
-                         arrival time                          -7.233    
+                         required time                          9.950    
+                         arrival time                          -7.635    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.315    
 
-Slack (MET) :             2.719ns  (required time - arrival time)
+Slack (MET) :             2.315ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMA/I
+  Destination:            u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMD/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.203ns  (logic 3.472ns (48.202%)  route 3.731ns (51.798%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.605ns  (logic 3.750ns (49.310%)  route 3.855ns (50.690%))
+  Logic Levels:           29  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=1 LUT4=1 LUT5=4 LUT6=8 MUXF7=1 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -967,98 +1031,223 @@ Slack (MET) :             2.719ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__3__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__3__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__3__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__3__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__3__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__3__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__3__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__3__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__3__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__3__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__3__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__3__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__3__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__4__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__4__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__4__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__4__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__4__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[2][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[2][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[2][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[2][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[4])
-                                                      0.086     6.098 r  u_pool/mem_addr_lane_reg[2][31]_i_7/O[4]
-                         net (fo=1, unplaced)         0.184     6.282    u_pool/mem_addr_lane_reg[2][31]_i_7_n_11
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.382 r  u_pool/mem_addr_lane[2][28]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.522    u_pool/mem_addr_lane[2][28]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.612 r  u_pool/mem_addr_lane[2][28]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.798    u_pool/(null)[2].y[28]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.836 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6/O
-                         net (fo=1, unplaced)         0.186     7.022    u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_6_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.060 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_1/O
-                         net (fo=4, unplaced)         0.173     7.233    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/DIA
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMA/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[7])
+                                                      0.116     6.631 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[7]
+                         net (fo=1, unplaced)         0.089     6.720    u_pool/mem_addr_lane_reg[2][29]_i_7_n_8
+                         LUT5 (Prop_LUT5_I0_O)        0.053     6.773 f  u_pool/mem_addr_lane[2][31]_i_10/O
+                         net (fo=1, unplaced)         0.186     6.959    u_pool/mem_addr_lane[2][31]_i_10_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     6.997 f  u_pool/mem_addr_lane[2][31]_i_3/O
+                         net (fo=2, unplaced)         0.141     7.138    u_pool/mem_addr_lane[2][31]_i_3_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     7.238 f  u_pool/mem_addr_lane[2][31]_i_2/O
+                         net (fo=2, unplaced)         0.186     7.424    u_pool/mem_addr_lane[2][31]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.462 r  u_pool/g_vrf[2].bank_reg_r1_0_63_28_31_i_4/O
+                         net (fo=4, unplaced)         0.173     7.635    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/DID
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMD/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMA/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMD/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.056     9.952    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMA
+                                                     -0.058     9.950    u_pool/g_vrf[2].bank_reg_r2_64_127_28_31/RAMD
   -------------------------------------------------------------------
-                         required time                          9.952    
-                         arrival time                          -7.233    
+                         required time                          9.950    
+                         arrival time                          -7.635    
   -------------------------------------------------------------------
-                         slack                                  2.719    
+                         slack                                  2.315    
 
-Slack (MET) :             2.735ns  (required time - arrival time)
+Slack (MET) :             2.384ns  (required time - arrival time)
   Source:                 u_pool/wstate_reg[2][1]/C
                             (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[1].bank_reg_r1_0_63_21_27/RAMF/I
+  Destination:            u_pool/mem_is_scratch_reg/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        7.597ns  (logic 3.873ns (50.981%)  route 3.724ns (49.019%))
+  Logic Levels:           31  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=2 LUT4=1 LUT5=3 LUT6=8 MUXF7=3 MUXF8=1)
+  Clock Path Skew:        -0.009ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.021ns = ( 10.021 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
+                         FDRE                                         r  u_pool/wstate_reg[2][1]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
+                         DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
+                         DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
+                         DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
+                         CARRY8 (Prop_CARRY8_S[1]_CO[7])
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[6])
+                                                      0.103     6.618 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[6]
+                         net (fo=1, unplaced)         0.089     6.707    u_pool/mem_addr_lane_reg[2][29]_i_7_n_9
+                         LUT3 (Prop_LUT3_I0_O)        0.053     6.760 f  u_pool/mem_addr_lane[2][30]_i_9/O
+                         net (fo=1, unplaced)         0.140     6.900    u_pool/mem_addr_lane[2][30]_i_9_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.090     6.990 f  u_pool/mem_addr_lane[2][30]_i_4/O
+                         net (fo=1, unplaced)         0.018     7.008    u_pool/mem_addr_lane[2][30]_i_4_n_0
+                         MUXF7 (Prop_MUXF7_I1_O)      0.065     7.073 f  u_pool/mem_addr_lane_reg[2][30]_i_2/O
+                         net (fo=3, unplaced)         0.190     7.263    u_pool/mem_addr_lane_reg[2][30]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.037     7.300 f  u_pool/mem_is_scratch_i_5/O
+                         net (fo=1, unplaced)         0.024     7.324    u_pool/mem_is_scratch_i_5_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.067     7.391 f  u_pool/mem_is_scratch_reg_i_2/O
+                         net (fo=1, unplaced)         0.135     7.526    u_pool/mem_is_scratch_reg_i_2_n_0
+                         LUT6 (Prop_LUT6_I3_O)        0.053     7.579 r  u_pool/mem_is_scratch_i_1/O
+                         net (fo=1, unplaced)         0.048     7.627    u_pool/mem_is_scratch_i_1_n_0
+                         FDRE                                         r  u_pool/mem_is_scratch_reg/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=6037, unset)         0.021    10.021    u_pool/clk
+                         FDRE                                         r  u_pool/mem_is_scratch_reg/C
+                         clock pessimism              0.000    10.021    
+                         clock uncertainty           -0.035     9.986    
+                         FDRE (Setup_FDRE_C_D)        0.025    10.011    u_pool/mem_is_scratch_reg
+  -------------------------------------------------------------------
+                         required time                         10.011    
+                         arrival time                          -7.627    
+  -------------------------------------------------------------------
+                         slack                                  2.384    
+
+Slack (MET) :             2.498ns  (required time - arrival time)
+  Source:                 u_pool/wstate_reg[2][1]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_pool/g_vrf[2].bank_reg_r1_0_63_21_27/RAME/I
                             (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
   Path Group:             clk
   Path Type:              Setup (Max at Slow Process Corner)
   Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.186ns  (logic 3.453ns (48.052%)  route 3.733ns (51.948%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
+  Data Path Delay:        7.423ns  (logic 3.709ns (49.966%)  route 3.714ns (50.034%))
+  Logic Levels:           28  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=2 LUT3=2 LUT4=1 LUT5=4 LUT6=6 MUXF7=1 MUXF8=1)
   Clock Path Skew:        0.013ns (DCD - SCD + CPR)
     Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
     Source Clock Delay      (SCD):    0.030ns
@@ -1073,193 +1262,93 @@ Slack (MET) :             2.735ns  (required time - arrival time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
+                         net (fo=6037, unset)         0.030     0.030    u_pool/clk
                          FDRE                                         r  u_pool/wstate_reg[2][1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__0__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__0__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__0__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__0__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__0__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__0__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__0__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__0__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__0__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__0__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__0__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__0__1/DSP_ALU.ALU_OUT<47>
+                         net (fo=10, unplaced)        0.187     0.294    u_pool/wstate_reg_n_0_[2][1]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.444 f  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74/O
+                         net (fo=3, unplaced)         0.192     0.636    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_74_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     0.674 r  u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40/O
+                         net (fo=22, unplaced)        0.192     0.866    u_pool/g_vrf[4].bank_reg_r1_0_63_0_6_i_40_n_0
+                         LUT5 (Prop_LUT5_I1_O)        0.100     0.966 r  u_pool/mem_sdata_lane[3][31]_i_60/O
+                         net (fo=129, unplaced)       0.277     1.243    u_pool/vaddr_return[5]
+                         LUT2 (Prop_LUT2_I1_O)        0.038     1.281 f  u_pool/mem_sdata_lane[3][31]_i_28/O
+                         net (fo=154, unplaced)       0.281     1.562    u_pool/mem_sdata_lane[3][31]_i_28_n_0
+                         LUT4 (Prop_LUT4_I2_O)        0.038     1.600 f  u_pool/mem_sdata_lane[2][31]_i_33/O
+                         net (fo=2, unplaced)         0.141     1.741    u_pool/mem_sdata_lane[2][31]_i_33_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.099     1.840 f  u_pool/mem_sdata_lane[2][31]_i_17/O
+                         net (fo=1, unplaced)         0.032     1.872    u_pool/mem_sdata_lane[2][31]_i_17_n_0
+                         MUXF7 (Prop_MUXF7_I0_O)      0.069     1.941 f  u_pool/mem_sdata_lane_reg[2][31]_i_9/O
+                         net (fo=1, unplaced)         0.000     1.941    u_pool/mem_sdata_lane_reg[2][31]_i_9_n_0
+                         MUXF8 (Prop_MUXF8_I0_O)      0.030     1.971 f  u_pool/mem_sdata_lane_reg[2][31]_i_4/O
+                         net (fo=1, unplaced)         0.186     2.157    u_pool/mem_sdata_lane_reg[2][31]_i_4_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.100     2.257 r  u_pool/mem_sdata_lane[2][31]_i_2/O
+                         net (fo=37, unplaced)        0.249     2.506    u_pool/mem_sdata_lane[2][31]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.038     2.544 r  u_pool/addr1__4_i_18/O
+                         net (fo=33, unplaced)        0.246     2.790    u_pool/addr1__4_i_18_n_0
+                         LUT6 (Prop_LUT6_I0_O)        0.038     2.828 r  u_pool/mem_sdata_lane[2][16]_i_2/O
+                         net (fo=1, unplaced)         0.186     3.014    u_pool/mem_sdata_lane[2][16]_i_2_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     3.052 f  u_pool/mem_sdata_lane[2][16]_i_1/O
+                         net (fo=10, unplaced)        0.219     3.271    u_pool/rv2[2][16]
+                         LUT5 (Prop_LUT5_I4_O)        0.038     3.309 r  u_pool/addr1__2_i_61/O
+                         net (fo=9, unplaced)         0.217     3.526    u_pool/addr1__2_i_61_n_0
+                         LUT1 (Prop_LUT1_I0_O)        0.038     3.564 f  u_pool/addr1__2_i_16/O
+                         net (fo=2, unplaced)         0.227     3.791    u_pool/addr1__3/B[16]
+                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_B[16]_B2_DATA[16])
+                                                      0.151     3.942 r  u_pool/addr1__3/DSP_A_B_DATA_INST/B2_DATA[16]
+                         net (fo=1, unplaced)         0.000     3.942    u_pool/addr1__3/DSP_A_B_DATA.B2_DATA<16>
+                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_B2_DATA[16]_B2B1[16])
+                                                      0.073     4.015 r  u_pool/addr1__3/DSP_PREADD_DATA_INST/B2B1[16]
+                         net (fo=1, unplaced)         0.000     4.015    u_pool/addr1__3/DSP_PREADD_DATA.B2B1<16>
+                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_B2B1[16]_V[43])
+                                                      0.609     4.624 f  u_pool/addr1__3/DSP_MULTIPLIER_INST/V[43]
+                         net (fo=1, unplaced)         0.000     4.624    u_pool/addr1__3/DSP_MULTIPLIER.V<43>
+                         DSP_M_DATA (Prop_DSP_M_DATA_V[43]_V_DATA[43])
+                                                      0.046     4.670 r  u_pool/addr1__3/DSP_M_DATA_INST/V_DATA[43]
+                         net (fo=1, unplaced)         0.000     4.670    u_pool/addr1__3/DSP_M_DATA.V_DATA<43>
+                         DSP_ALU (Prop_DSP_ALU_V_DATA[43]_ALU_OUT[47])
+                                                      0.571     5.241 f  u_pool/addr1__3/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, unplaced)         0.000     5.241    u_pool/addr1__3/DSP_ALU.ALU_OUT<47>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__0__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__1__1/PCIN[47]
+                                                      0.122     5.363 r  u_pool/addr1__3/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, unplaced)         0.014     5.377    u_pool/addr1__4/PCIN[47]
                          DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__1__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__1__1/DSP_ALU.ALU_OUT<0>
+                                                      0.546     5.923 f  u_pool/addr1__4/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, unplaced)         0.000     5.923    u_pool/addr1__4/DSP_ALU.ALU_OUT<0>
                          DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__1__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__1__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[1][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[1][23]_i_18_n_0
+                                                      0.109     6.032 r  u_pool/addr1__4/DSP_OUTPUT_INST/P[0]
+                         net (fo=2, unplaced)         0.206     6.238    u_pool/addr1__4_n_105
+                         LUT2 (Prop_LUT2_I0_O)        0.052     6.290 r  u_pool/mem_addr_lane[2][23]_i_22/O
+                         net (fo=1, unplaced)         0.023     6.313    u_pool/mem_addr_lane[2][23]_i_22_n_0
                          CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[1][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[1][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[2])
-                                                      0.067     6.079 r  u_pool/mem_addr_lane_reg[1][31]_i_5/O[2]
-                         net (fo=1, unplaced)         0.186     6.265    u_pool/mem_addr_lane_reg[1][31]_i_5_n_13
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.365 r  u_pool/mem_addr_lane[1][26]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.505    u_pool/mem_addr_lane[1][26]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.595 r  u_pool/mem_addr_lane[1][26]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.781    u_pool/(null)[1].y[26]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.819 r  u_pool/g_vrf[1].bank_reg_r1_0_63_21_27_i_19/O
-                         net (fo=1, unplaced)         0.186     7.005    u_pool/g_vrf[1].bank_reg_r1_0_63_21_27_i_19_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.043 r  u_pool/g_vrf[1].bank_reg_r1_0_63_21_27_i_6/O
-                         net (fo=4, unplaced)         0.173     7.216    u_pool/g_vrf[1].bank_reg_r1_0_63_21_27/DIF
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_0_63_21_27/RAMF/I
+                                                      0.197     6.510 r  u_pool/mem_addr_lane_reg[2][23]_i_7/CO[7]
+                         net (fo=1, unplaced)         0.005     6.515    u_pool/mem_addr_lane_reg[2][23]_i_7_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[1])
+                                                      0.076     6.591 r  u_pool/mem_addr_lane_reg[2][29]_i_7/O[1]
+                         net (fo=1, unplaced)         0.135     6.726    u_pool/mem_addr_lane_reg[2][29]_i_7_n_14
+                         LUT3 (Prop_LUT3_I2_O)        0.100     6.826 f  u_pool/mem_addr_lane[2][25]_i_4/O
+                         net (fo=1, unplaced)         0.140     6.966    u_pool/mem_addr_lane[2][25]_i_4_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.090     7.056 f  u_pool/mem_addr_lane[2][25]_i_2/O
+                         net (fo=2, unplaced)         0.186     7.242    u_pool/mem_addr_lane[2][25]_i_2_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     7.280 r  u_pool/g_vrf[2].bank_reg_r1_0_63_21_27_i_5/O
+                         net (fo=4, unplaced)         0.173     7.453    u_pool/g_vrf[2].bank_reg_r1_0_63_21_27/DIE
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_21_27/RAME/I
   -------------------------------------------------------------------    -------------------
 
                          (clock clk rise edge)       10.000    10.000 r  
                                                       0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[1].bank_reg_r1_0_63_21_27/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_0_63_21_27/RAMF/CLK
+                         net (fo=6037, unset)         0.043    10.043    u_pool/g_vrf[2].bank_reg_r1_0_63_21_27/WCLK
+                         RAMD64E                                      r  u_pool/g_vrf[2].bank_reg_r1_0_63_21_27/RAME/CLK
                          clock pessimism              0.000    10.043    
                          clock uncertainty           -0.035    10.008    
                          RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.057     9.951    u_pool/g_vrf[1].bank_reg_r1_0_63_21_27/RAMF
+                                                     -0.057     9.951    u_pool/g_vrf[2].bank_reg_r1_0_63_21_27/RAME
   -------------------------------------------------------------------
                          required time                          9.951    
-                         arrival time                          -7.216    
+                         arrival time                          -7.453    
   -------------------------------------------------------------------
-                         slack                                  2.735    
-
-Slack (MET) :             2.735ns  (required time - arrival time)
-  Source:                 u_pool/wstate_reg[2][1]/C
-                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Destination:            u_pool/g_vrf[1].bank_reg_r1_64_127_21_27/RAMF/I
-                            (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
-  Path Group:             clk
-  Path Type:              Setup (Max at Slow Process Corner)
-  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
-  Data Path Delay:        7.186ns  (logic 3.453ns (48.052%)  route 3.733ns (51.948%))
-  Logic Levels:           25  (CARRY8=2 DSP_A_B_DATA=1 DSP_ALU=2 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=2 DSP_PREADD_DATA=1 LUT1=1 LUT2=3 LUT4=1 LUT5=6 LUT6=3 MUXF7=1)
-  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
-    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
-    Source Clock Delay      (SCD):    0.030ns
-    Clock Pessimism Removal (CPR):    0.000ns
-  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
-    Total System Jitter     (TSJ):    0.071ns
-    Total Input Jitter      (TIJ):    0.000ns
-    Discrete Jitter          (DJ):    0.000ns
-    Phase Error              (PE):    0.000ns
-
-    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
-  -------------------------------------------------------------------    -------------------
-                         (clock clk rise edge)        0.000     0.000 r  
-                                                      0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.030     0.030    u_pool/clk
-                         FDRE                                         r  u_pool/wstate_reg[2][1]/C
-  -------------------------------------------------------------------    -------------------
-                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_pool/wstate_reg[2][1]/Q
-                         net (fo=6, unplaced)         0.176     0.283    u_pool/wstate_reg_n_0_[2][1]
-                         LUT6 (Prop_LUT6_I0_O)        0.150     0.433 f  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71/O
-                         net (fo=1, unplaced)         0.186     0.619    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_71_n_0
-                         LUT2 (Prop_LUT2_I1_O)        0.038     0.657 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34/O
-                         net (fo=18, unplaced)        0.187     0.844    u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_34_n_0
-                         LUT5 (Prop_LUT5_I1_O)        0.090     0.934 r  u_pool/g_vrf[5].bank_reg_r1_0_63_0_6_i_8/O
-                         net (fo=1787, unplaced)      0.288     1.222    u_pool/vaddr_return[5]
-                         LUT2 (Prop_LUT2_I0_O)        0.053     1.275 f  u_pool/stk_mask[3][1][7]_i_7/O
-                         net (fo=182, unplaced)       0.285     1.560    u_pool/stk_mask[3][1][7]_i_7_n_0
-                         LUT4 (Prop_LUT4_I2_O)        0.038     1.598 r  u_pool/imem_addr[31]_INST_0_i_25/O
-                         net (fo=33, unplaced)        0.246     1.844    u_pool/imem_addr[31]_INST_0_i_25_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     1.882 f  u_pool/imem_addr[31]_INST_0_i_16/O
-                         net (fo=409, unplaced)       0.303     2.185    u_pool/imem_addr[31]_INST_0_i_16_n_0
-                         LUT1 (Prop_LUT1_I0_O)        0.038     2.223 r  u_pool/imem_addr[31]_INST_0_i_9/O
-                         net (fo=54, unplaced)        0.304     2.527    u_pool/cur_sp[0]
-                         MUXF7 (Prop_MUXF7_S_O)       0.076     2.603 r  u_pool/imem_addr[8]_INST_0_i_2/O
-                         net (fo=2, unplaced)         0.184     2.787    u_pool/imem_addr[8]_INST_0_i_2_n_0
-                         LUT5 (Prop_LUT5_I2_O)        0.038     2.825 f  u_pool/imem_addr[8]_INST_0/O
-                         net (fo=15, unplaced)        0.179     3.004    u_pool/imem_addr[8]
-                         LUT5 (Prop_LUT5_I0_O)        0.053     3.057 f  u_pool/addr1__0__1_i_9/O
-                         net (fo=19, unplaced)        0.276     3.333    u_pool/addr1__0__1/A[8]
-                         DSP_A_B_DATA (Prop_DSP_A_B_DATA_A[8]_A2_DATA[8])
-                                                      0.192     3.525 r  u_pool/addr1__0__1/DSP_A_B_DATA_INST/A2_DATA[8]
-                         net (fo=1, unplaced)         0.000     3.525    u_pool/addr1__0__1/DSP_A_B_DATA.A2_DATA<8>
-                         DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_A2_DATA[8]_A2A1[8])
-                                                      0.076     3.601 r  u_pool/addr1__0__1/DSP_PREADD_DATA_INST/A2A1[8]
-                         net (fo=1, unplaced)         0.000     3.601    u_pool/addr1__0__1/DSP_PREADD_DATA.A2A1<8>
-                         DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_A2A1[8]_U[29])
-                                                      0.505     4.106 f  u_pool/addr1__0__1/DSP_MULTIPLIER_INST/U[29]
-                         net (fo=1, unplaced)         0.000     4.106    u_pool/addr1__0__1/DSP_MULTIPLIER.U<29>
-                         DSP_M_DATA (Prop_DSP_M_DATA_U[29]_U_DATA[29])
-                                                      0.047     4.153 r  u_pool/addr1__0__1/DSP_M_DATA_INST/U_DATA[29]
-                         net (fo=1, unplaced)         0.000     4.153    u_pool/addr1__0__1/DSP_M_DATA.U_DATA<29>
-                         DSP_ALU (Prop_DSP_ALU_U_DATA[29]_ALU_OUT[47])
-                                                      0.585     4.738 f  u_pool/addr1__0__1/DSP_ALU_INST/ALU_OUT[47]
-                         net (fo=1, unplaced)         0.000     4.738    u_pool/addr1__0__1/DSP_ALU.ALU_OUT<47>
-                         DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[47]_PCOUT[47])
-                                                      0.122     4.860 r  u_pool/addr1__0__1/DSP_OUTPUT_INST/PCOUT[47]
-                         net (fo=1, unplaced)         0.014     4.874    u_pool/addr1__1__1/PCIN[47]
-                         DSP_ALU (Prop_DSP_ALU_PCIN[47]_ALU_OUT[0])
-                                                      0.546     5.420 f  u_pool/addr1__1__1/DSP_ALU_INST/ALU_OUT[0]
-                         net (fo=1, unplaced)         0.000     5.420    u_pool/addr1__1__1/DSP_ALU.ALU_OUT<0>
-                         DSP_OUTPUT (Prop_DSP_OUTPUT_ALU_OUT[0]_P[0])
-                                                      0.109     5.529 r  u_pool/addr1__1__1/DSP_OUTPUT_INST/P[0]
-                         net (fo=2, unplaced)         0.206     5.735    u_pool/addr1__1__1_n_105
-                         LUT2 (Prop_LUT2_I0_O)        0.052     5.787 r  u_pool/mem_addr_lane[1][23]_i_18/O
-                         net (fo=1, unplaced)         0.023     5.810    u_pool/mem_addr_lane[1][23]_i_18_n_0
-                         CARRY8 (Prop_CARRY8_S[1]_CO[7])
-                                                      0.197     6.007 r  u_pool/mem_addr_lane_reg[1][23]_i_5/CO[7]
-                         net (fo=1, unplaced)         0.005     6.012    u_pool/mem_addr_lane_reg[1][23]_i_5_n_0
-                         CARRY8 (Prop_CARRY8_CI_O[2])
-                                                      0.067     6.079 r  u_pool/mem_addr_lane_reg[1][31]_i_5/O[2]
-                         net (fo=1, unplaced)         0.186     6.265    u_pool/mem_addr_lane_reg[1][31]_i_5_n_13
-                         LUT6 (Prop_LUT6_I0_O)        0.100     6.365 r  u_pool/mem_addr_lane[1][26]_i_2/O
-                         net (fo=1, unplaced)         0.140     6.505    u_pool/mem_addr_lane[1][26]_i_2_n_0
-                         LUT5 (Prop_LUT5_I0_O)        0.090     6.595 r  u_pool/mem_addr_lane[1][26]_i_1/O
-                         net (fo=2, unplaced)         0.186     6.781    u_pool/(null)[1].y[26]
-                         LUT6 (Prop_LUT6_I1_O)        0.038     6.819 r  u_pool/g_vrf[1].bank_reg_r1_0_63_21_27_i_19/O
-                         net (fo=1, unplaced)         0.186     7.005    u_pool/g_vrf[1].bank_reg_r1_0_63_21_27_i_19_n_0
-                         LUT5 (Prop_LUT5_I4_O)        0.038     7.043 r  u_pool/g_vrf[1].bank_reg_r1_0_63_21_27_i_6/O
-                         net (fo=4, unplaced)         0.173     7.216    u_pool/g_vrf[1].bank_reg_r1_64_127_21_27/DIF
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_64_127_21_27/RAMF/I
-  -------------------------------------------------------------------    -------------------
-
-                         (clock clk rise edge)       10.000    10.000 r  
-                                                      0.000    10.000 r  clk (IN)
-                         net (fo=14641, unset)        0.043    10.043    u_pool/g_vrf[1].bank_reg_r1_64_127_21_27/WCLK
-                         RAMD64E                                      r  u_pool/g_vrf[1].bank_reg_r1_64_127_21_27/RAMF/CLK
-                         clock pessimism              0.000    10.043    
-                         clock uncertainty           -0.035    10.008    
-                         RAMD64E (Setup_RAMD64E_CLK_I)
-                                                     -0.057     9.951    u_pool/g_vrf[1].bank_reg_r1_64_127_21_27/RAMF
-  -------------------------------------------------------------------
-                         required time                          9.951    
-                         arrival time                          -7.216    
-  -------------------------------------------------------------------
-                         slack                                  2.735    
+                         slack                                  2.498    
 
 
 
@@ -1286,7 +1375,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[10]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[10]/Q
@@ -1299,7 +1388,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[10]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[10]
@@ -1328,7 +1417,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[18]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[18]/Q
@@ -1341,7 +1430,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[18]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[18]
@@ -1370,7 +1459,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[26]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[26]/Q
@@ -1383,7 +1472,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[26]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[26]
@@ -1412,7 +1501,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[2]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[2]/Q
@@ -1425,7 +1514,7 @@ Slack (MET) :             0.057ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[2]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[2]
@@ -1454,7 +1543,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[15]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[15]/Q
@@ -1467,7 +1556,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[15]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[15]
@@ -1496,7 +1585,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[16]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[16]/Q
@@ -1509,7 +1598,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[16]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[16]
@@ -1538,7 +1627,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[17]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[17]/Q
@@ -1551,7 +1640,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[17]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[17]
@@ -1580,7 +1669,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[1]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[1]/Q
@@ -1593,7 +1682,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[1]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[1]
@@ -1622,7 +1711,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[23]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[23]/Q
@@ -1635,7 +1724,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[23]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[23]
@@ -1664,7 +1753,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
   -------------------------------------------------------------------    -------------------
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.013     0.013    clk
+                         net (fo=6037, unset)         0.013     0.013    clk
                          FDRE                                         r  cyc_count_reg[24]/C
   -------------------------------------------------------------------    -------------------
                          FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  cyc_count_reg[24]/Q
@@ -1677,7 +1766,7 @@ Slack (MET) :             0.058ns  (arrival time - required time)
 
                          (clock clk rise edge)        0.000     0.000 r  
                                                       0.000     0.000 r  clk (IN)
-                         net (fo=14641, unset)        0.019     0.019    clk
+                         net (fo=6037, unset)         0.019     0.019    clk
                          FDRE                                         r  cycles_reg[24]/C
                          clock pessimism              0.000     0.019    
                          FDRE (Hold_FDRE_C_D)         0.046     0.065    cycles_reg[24]

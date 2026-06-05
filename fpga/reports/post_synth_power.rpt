@@ -1,7 +1,7 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 -------------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version     : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
-| Date             : Thu Jun  4 12:02:14 2026
+| Date             : Fri Jun  5 09:52:45 2026
 | Host             : Krishna_NITjsr running 64-bit major release  (build 9200)
 | Command          : report_power -file {D:/Verilog Projects/simtix/fpga/reports/post_synth_power.rpt}
 | Design           : simt_accel
@@ -30,10 +30,10 @@ Table of Contents
 ----------
 
 +--------------------------+--------------+
-| Total On-Chip Power (W)  | 0.841        |
+| Total On-Chip Power (W)  | 0.811        |
 | Design Power Budget (W)  | Unspecified* |
 | Power Budget Margin (W)  | NA           |
-| Dynamic (W)              | 0.248        |
+| Dynamic (W)              | 0.218        |
 | Device Static (W)        | 0.593        |
 | Effective TJA (C/W)      | 1.0          |
 | Max Ambient (C)          | 99.2         |
@@ -52,18 +52,18 @@ Table of Contents
 +--------------------------+-----------+----------+-----------+-----------------+
 | On-Chip                  | Power (W) | Used     | Available | Utilization (%) |
 +--------------------------+-----------+----------+-----------+-----------------+
-| Clocks                   |     0.034 |        3 |       --- |             --- |
-| CLB Logic                |     0.114 |   106375 |       --- |             --- |
-|   LUT as Logic           |     0.109 |    75725 |    230400 |           32.87 |
-|   LUT as Distributed RAM |     0.004 |     1300 |    101760 |            1.28 |
+| Clocks                   |     0.020 |        3 |       --- |             --- |
+| CLB Logic                |     0.108 |    40386 |       --- |             --- |
+|   LUT as Logic           |     0.103 |    28660 |    230400 |           12.44 |
+|   LUT as Distributed RAM |     0.004 |     1428 |    101760 |            1.40 |
 |   CARRY8                 |    <0.001 |      302 |     28800 |            1.05 |
-|   Register               |    <0.001 |    13322 |    460800 |            2.89 |
-|   Others                 |     0.000 |        8 |       --- |             --- |
-|   F7/F8 Muxes            |     0.000 |     4254 |    230400 |            1.85 |
-| Signals                  |     0.094 |    94987 |       --- |             --- |
+|   Register               |    <0.001 |     4590 |    460800 |            1.00 |
+|   Others                 |     0.000 |        7 |       --- |             --- |
+|   F7/F8 Muxes            |     0.000 |     1339 |    230400 |            0.58 |
+| Signals                  |     0.083 |    34567 |       --- |             --- |
 | DSPs                     |     0.007 |       24 |      1728 |            1.39 |
 | Static Power             |     0.593 |          |           |                 |
-| Total                    |     0.841 |          |           |                 |
+| Total                    |     0.811 |          |           |                 |
 +--------------------------+-----------+----------+-----------+-----------------+
 
 
@@ -73,7 +73,7 @@ Table of Contents
 +------------------+-------------+-----------+-------------+------------+-------------+-------------+------------+
 | Source           | Voltage (V) | Total (A) | Dynamic (A) | Static (A) | Powerup (A) | Budget (A)  | Margin (A) |
 +------------------+-------------+-----------+-------------+------------+-------------+-------------+------------+
-| Vccint           |       0.850 |     0.429 |       0.292 |      0.137 |       NA    | Unspecified | NA         |
+| Vccint           |       0.850 |     0.393 |       0.256 |      0.137 |       NA    | Unspecified | NA         |
 | Vccint_io        |       0.850 |     0.070 |       0.000 |      0.070 |       NA    | Unspecified | NA         |
 | Vccbram          |       0.850 |     0.002 |       0.000 |      0.002 |       NA    | Unspecified | NA         |
 | Vccaux           |       1.800 |     0.148 |       0.000 |      0.148 |       NA    | Unspecified | NA         |
@@ -161,8 +161,8 @@ Table of Contents
 +------------+-----------+
 | Name       | Power (W) |
 +------------+-----------+
-| simt_accel |     0.248 |
-|   u_pool   |     0.247 |
+| simt_accel |     0.218 |
+|   u_pool   |     0.217 |
 +------------+-----------+
 
 

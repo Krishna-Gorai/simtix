@@ -92,6 +92,10 @@ module warp_pool
     // VRF address = {warp, reg5}. NW is a power of two, so depth = NW*32.
     localparam int VAW    = WIDXW + 5;
     localparam int VDEPTH = (1 << VAW);
+    // Scratchpad address = {warp, sidx}. One flat single-port RAM holds all warps'
+    // scratch; depth = NW * SCRATCH_WORDS (M9: distributed-RAM, see banks below).
+    localparam int SCAW    = WIDXW + SCRATCH_AW;
+    localparam int SCDEPTH = NW * SCRATCH_WORDS;
 
     localparam logic [31:0] RPC_BOTTOM = 32'hFFFF_FFFF;  // base frame never pops
 
@@ -120,9 +124,14 @@ module warp_pool
     logic [31:0]    warp_base [0:NW-1];                 // base tid (for tid CSR)
 
     // Per-warp on-chip scratchpad (M6): one word per address, shared by the
-    // warp's lanes. Accesses in the SCRATCH_BASE aperture are serviced here in a
-    // single cycle and never reach the global data port.
-    logic [31:0]    scratch   [0:NW-1][0:SCRATCH_WORDS-1];
+    // warp's lanes. Accesses in the SCRATCH_BASE aperture are serviced here and
+    // never reach the global data port. M9: the array is a single flat
+    // single-port distributed RAM (addr = {warp, sidx}); the memory engine now
+    // services one lane per cycle (see scratch branch below) so a single port
+    // suffices, trading multi-cycle scratch ops for ~8 k fewer flip-flops.
+    logic [SCAW-1:0] sc_ra, sc_wa;   // scratch read / write address {warp, sidx}
+    logic [31:0]     sc_rd, sc_wd;   // scratch read data / write data
+    logic            sc_we;          // scratch write enable (store, lead lane)
 
     // Per-warp SIMT reconvergence stack. TOS = sp[w]; the TOS frame gives the
     // warp's live PC (stk_npc) and active mask (stk_mask); stk_rpc is the join PC
@@ -522,14 +531,15 @@ module warp_pool
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
-            logic [SCRATCH_AW-1:0] sidx;
-            sidx           = mem_addr_lane[l][SCRATCH_AW+1:2];
             mem_wb_lane[l] = 1'b0;
             mem_wb_data[l] = 32'd0;
             if (mem_busy && !mem_is_store && (mem_rd != 5'd0)) begin
-                if (mem_is_scratch && mem_pending[l]) begin
+                // Scratch (M9): the engine serves ONE lane (the lowest-index
+                // pending lane) per cycle, so only that lane's VRF is written,
+                // sourced from the single RAM read port sc_rd.
+                if (mem_is_scratch && mem_pending[lead] && (l[LIDXW-1:0] == lead)) begin
                     mem_wb_lane[l] = 1'b1;
-                    mem_wb_data[l] = scratch[mem_w][sidx];
+                    mem_wb_data[l] = sc_rd;
                 end else if (!mem_is_scratch && grp[l]) begin
                     mem_wb_lane[l] = 1'b1;
                     mem_wb_data[l] = ld_data[l];
@@ -578,6 +588,23 @@ module warp_pool
             assign vrf_rd2[gl] = bank[vaddr(issue_w, rs2)];
         end
     endgenerate
+
+    // ── Scratchpad memory (distributed RAM, single port) ────────────────────────────
+    // The memory engine drains scratch ops one lane per cycle. `lead` is the lowest
+    // still-pending lane; that lane's word is the one read (load) or written (store)
+    // this cycle. Stores commit lead's data; loads feed sc_rd to the VRF arbiter.
+    logic [SCRATCH_AW-1:0] sc_sidx;
+    assign sc_sidx = mem_addr_lane[lead][SCRATCH_AW+1:2];
+    assign sc_ra   = {mem_w, sc_sidx};
+    assign sc_wa   = {mem_w, sc_sidx};
+    assign sc_wd   = mem_sdata_lane[lead];
+    assign sc_we   = mem_busy && mem_is_scratch && mem_is_store && mem_pending[lead];
+
+    (* ram_style = "distributed" *)
+    logic [31:0] scratch [0:SCDEPTH-1];
+    always_ff @(posedge clk)
+        if (sc_we) scratch[sc_wa] <= sc_wd;
+    assign sc_rd = scratch[sc_ra];
 
     // ── Sequential update ───────────────────────────────────────────────────────────
     always_ff @(posedge clk) begin
@@ -728,20 +755,23 @@ module warp_pool
                 // 3) Memory engine step.
                 if (mem_busy) begin
                     if (mem_is_scratch) begin
-                        // On-chip scratchpad: serve EVERY pending lane this cycle
-                        // (word access; no global port, no coalescing needed). Scratch
-                        // LOADS write the VRF via the central arbiter; here we only
-                        // commit scratch STORES into the scratchpad SRAM.
-                        if (mem_is_store)
-                            for (int l = 0; l < NL; l++) begin
-                                logic [SCRATCH_AW-1:0] sidx;
-                                sidx = mem_addr_lane[l][SCRATCH_AW+1:2];
-                                if (mem_pending[l]) scratch[mem_w][sidx] <= mem_sdata_lane[l];
-                            end
-                        dbg_scratch_txns          <= dbg_scratch_txns + 32'd1;
-                        mem_busy                  <= 1'b0;
-                        stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;
-                        wstate[mem_w]             <= W_RUN;
+                        // On-chip scratchpad (M9): single-port distributed RAM, so the
+                        // engine serves ONE lane — the lowest still-pending lane `lead`
+                        // — per cycle. The store data write commits in the scratch RAM
+                        // block (sc_we); scratch LOADS write the VRF via the central
+                        // arbiter (lead lane only). Here we just retire lead and finish
+                        // when the warp's last scratch lane drains.
+                        logic [NL-1:0] lead_oh;
+                        lead_oh = '0;
+                        lead_oh[lead] = 1'b1;
+                        dbg_scratch_txns <= dbg_scratch_txns + 32'd1;
+                        if ((mem_pending & ~lead_oh) == '0) begin
+                            mem_busy                  <= 1'b0;
+                            stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;
+                            wstate[mem_w]             <= W_RUN;
+                        end else begin
+                            mem_pending <= mem_pending & ~lead_oh;
+                        end
                     end else begin
                         // Global memory: one coalesced line transaction / cycle. The
                         // load result is written to the VRF by the central arbiter.

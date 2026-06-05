@@ -21,7 +21,7 @@ coalescing memory engine**, and an on-chip **shared-memory scratchpad** — then
 take the whole thing through **FPGA synthesis** on a Zynq UltraScale+ and report
 real area / timing / power, plus a small **micro-architectural energy study**.
 
-> **Status: complete.** Milestones **M0 → M8** are all implemented, verified, and
+> **Status: complete.** Milestones **M0 → M9** are all implemented, verified, and
 > pushed; CI (lint + simulation regression) is green on every push. See the
 > [roadmap](docs/roadmap.md).
 
@@ -57,13 +57,13 @@ real area / timing / power, plus a small **micro-architectural energy study**.
 - **Memory coalescing.** Eight per-lane accesses that fall on one 32-byte line are
   merged into a **single** line transaction; a contiguous warp access costs 1
   transfer instead of 8 (**8× fewer** in the regression).
-- **On-chip shared memory.** A per-warp scratchpad aperture serves a whole warp in
-  one cycle and never touches the global port — staging reused data there cuts
-  global traffic.
+- **On-chip shared memory.** A per-warp scratchpad aperture serves a warp's lanes
+  without touching the global port — staging reused data there cuts global traffic.
 - **Taken to silicon-cost.** Out-of-context synthesis on the **ZCU104 (xczu7ev)**
-  with full area / timing / power, *and* an optimization pass that banks the
-  register file into distributed RAM: **LUTs −55%, FFs −70%, timing met at
-  100 MHz** (ceiling ~137 MHz).
+  with full area / timing / power, *and* optimization passes that bank both the
+  register file (M8) and the scratchpad (M9) into distributed RAM: from 170.9k LUT /
+  44.1k FF down to **30.1k LUT (13%) / 4.6k FF (1%)**, **timing met at 100 MHz**
+  (also meets 125 MHz), 0.81 W.
 - **A real research angle.** A divergence-aware **lane clock-gating energy study**
   quantifies **0% → 22.5%** lane-datapath energy saved as divergence rises.
 - **Reproducible & open.** 100% open-source flow (Verilator); kernels assemble with
@@ -229,12 +229,16 @@ that shares that line into one transaction. A contiguous warp access (`A[tid]`)
 collapses to **1** line transfer; a fully scattered access costs up to 8.
 `dbg_mem_txns` counts global line transactions.
 
-### Shared-memory scratchpad (M6)
+### Shared-memory scratchpad (M6, LUTRAM in M9)
 
 Accesses whose effective address lands in the `SCRATCH_BASE` aperture are served
-from a per-warp on-chip SRAM **in a single cycle for the whole warp** and never
-reach the global port. Staging reused data (e.g. a broadcast matrix row) there cuts
-global traffic; `dbg_scratch_txns` counts scratchpad transactions.
+from a per-warp on-chip scratchpad and never reach the global port. Staging reused
+data (e.g. a broadcast matrix row) there cuts global traffic; `dbg_scratch_txns`
+counts scratchpad transactions. The scratchpad is **shared across a warp's lanes**
+(lane 0's store is visible to lane 3's load), so M9 implements it as a single
+**distributed-RAM (LUTRAM)** bank with the memory engine **serializing one lane per
+cycle** — the same coalescing-style drain the global port uses — which removes 8.2k
+flip-flops while keeping shared-memory semantics exact.
 
 ### Register file in distributed RAM (M8)
 
@@ -255,7 +259,10 @@ mechanisms keep behaviour bit-identical:
   results are unchanged).
 
 The win: **LUTs 170.9k → 77.0k, FFs 44.1k → 13.3k**, and the design now meets
-timing — see [Results](#results) and [docs/m8_lutram.md](docs/m8_lutram.md).
+timing — see [Results](#results) and [docs/m8_lutram.md](docs/m8_lutram.md). M9
+then moves the scratchpad to LUTRAM the same way and re-enables timing-driven
+synthesis, landing at **30.1k LUT / 4.6k FF** — see
+[docs/m9_scratchpad.md](docs/m9_scratchpad.md).
 
 ---
 
@@ -407,32 +414,39 @@ The monotonic relationship is asserted in CI. Details:
 
 ### 3. FPGA PPA — ZCU104 (xczu7ev-ffvc1156-2-e), Vivado 2025.1
 
-Out-of-context synthesis of `simt_accel`. The first build (M7b) used a flip-flop
-register file and showed the file dominating area and timing; M8 banks the VRF into
-distributed RAM and relaxes the clock to one the single-cycle datapath can meet:
+Out-of-context synthesis of `simt_accel`, evolved over three builds. M7b used a
+flip-flop register file and showed it dominating area and timing; M8 banked the VRF
+into distributed RAM; M9 did the same for the shared scratchpad and — the netlist
+now being small enough — re-enabled **timing-driven** optimization:
 
-| Metric | M7b (flip-flop VRF) | **M8 (LUTRAM VRF)** | Δ |
+| Metric | M7b (FF VRF) | M8 (LUTRAM VRF) | **M9 (+ LUTRAM scratch)** |
 |---|---:|---:|---:|
-| Target clock | 5.0 ns / 200 MHz | 10.0 ns / 100 MHz | |
-| CLB LUTs | 170,868 (74.2%) | **77,025 (33.4%)** | **−54.9%** |
-| &nbsp;&nbsp;└ as distributed RAM | 20 | 1,300 | VRF → 8× `RAM64M8` |
-| CLB registers (FF) | 44,112 (9.6%) | **13,322 (2.9%)** | **−69.8%** |
-| DSP48E2 | 24 | 24 | — |
-| Block RAM / URAM | 0 / 0 | 0 / 0 | — |
-| Setup WNS | −3.213 ns (**violated**) | **+2.719 ns (MET)** | meets |
-| Critical-path delay | 8.213 ns | 7.281 ns | |
-| Max Fmax | 121.8 MHz | **137.3 MHz** | +13% |
-| On-chip power (vectorless) | 1.673 W @200 MHz | 0.841 W @100 MHz | see note |
+| Synthesis flow | `-no_timing_driven` | `-no_timing_driven` | **timing-driven** |
+| Target clock | 5.0 ns / 200 MHz | 10.0 ns / 100 MHz | 10.0 ns / 100 MHz |
+| CLB LUTs | 170,868 (74.2%) | 77,025 (33.4%) | **30,088 (13.1%)** |
+| &nbsp;&nbsp;└ as distributed RAM | 20 | 1,300 | **1,428** (VRF + scratch) |
+| CLB registers (FF) | 44,112 (9.6%) | 13,322 (2.9%) | **4,590 (1.0%)** |
+| DSP48E2 | 24 | 24 | 24 |
+| Block RAM / URAM | 0 / 0 | 0 / 0 | 0 / 0 |
+| Setup WNS | −3.213 (**violated**) | +2.719 (MET) | **+2.254 (MET)** |
+| Critical-path delay | 8.213 ns | 7.281 ns | 7.746 ns |
+| Max Fmax | 121.8 MHz | 137.3 MHz | **129.1 MHz** |
+| On-chip power (vectorless) | 1.673 W @200 MHz | 0.841 W @100 MHz | **0.811 W @100 MHz** |
 
-The M8 design **meets timing at 100 MHz with +2.7 ns slack** and closes at up to
-125 MHz; the raw critical path (7.281 ns) is now an irreducible single-cycle
-LUTRAM-read → 32-bit ALU (incl. a DSP multiply) → writeback. (Power is a vectorless
-estimate; dynamic power scales with frequency, so the 200 MHz and 100 MHz figures
-are not directly comparable.) Full analysis: [docs/m8_lutram.md](docs/m8_lutram.md).
+The M9 design **meets timing at 100 MHz with +2.25 ns slack** and the WNS-vs-period
+sweep shows it also closes at **125 MHz**; the path is an irreducible single-cycle
+LUTRAM-read → 32-bit ALU (incl. a DSP multiply) → writeback. Read the M8→M9 table
+honestly: the **flip-flop drop (13.3k → 4.6k) is the scratchpad** (8.2k FFs removed),
+while the **LUT drop (77k → 30k) is mostly the timing-driven optimization phase**
+finally fitting in the host's RAM once both big banks are LUTRAM. (Power is a
+vectorless estimate; dynamic power scales with frequency, so cross-clock figures are
+not directly comparable.) Full analysis: [docs/m8_lutram.md](docs/m8_lutram.md),
+[docs/m9_scratchpad.md](docs/m9_scratchpad.md).
 
-> **Host note.** These runs were done on an 8 GB laptop. The synthesis flow is tuned
-> for that (`-flatten_hierarchy none -no_timing_driven`, capped threads); the writeup
-> documents the RAM-pressure pitfalls and the working recipe.
+> **Host note.** These runs were done on an 8 GB laptop. The flow is tuned for that
+> (`-flatten_hierarchy none`, capped threads); M7b/M8 also needed `-no_timing_driven`
+> to dodge a 4 GB RAM thrash, a workaround M9's smaller netlist no longer requires.
+> The writeups document the RAM-pressure pitfalls and the working recipe.
 
 ---
 
@@ -497,6 +511,7 @@ Each milestone is a self-contained, demoable, green-in-CI step.
 | M7a | Divergence-aware lane clock-gating **energy study** | the research contribution (0→22.5%) | ✅ |
 | M7b | FPGA / PPA: OOC synth on ZCU104 | real silicon-cost numbers | ✅ |
 | M8 | Register file in distributed RAM + timing closure | LUTs −55%, FFs −70%, timing met | ✅ |
+| M9 | Scratchpad in distributed RAM + timing-driven synth | 30.1k LUT / 4.6k FF, timing met (meets 125 MHz) | ✅ |
 
 Full detail in [docs/roadmap.md](docs/roadmap.md).
 
@@ -512,9 +527,10 @@ Full detail in [docs/roadmap.md](docs/roadmap.md).
   scheduler keeps advancing).
 - **Small, fixed grid geometry.** `WARP_SIZE == NUM_LANES == 8`, `NUM_WARPS == 4` by
   default; all are parameters.
-- **Next optimizations.** Bank the **scratchpad** into LUTRAM/BRAM as well; tighten
-  the FPGA clock to the 125 MHz the design already meets; cross-check the modelled
-  clock-gating energy against a switching-activity power run.
+- **Next optimizations.** The big register banks (VRF M8, scratchpad M9) are now in
+  LUTRAM; remaining ideas: move the SIMT reconvergence stacks (now the dominant FF
+  user) into RAM, tighten the FPGA clock to the 125 MHz the design already meets, and
+  cross-check the modelled clock-gating energy against a switching-activity power run.
 
 ---
 
