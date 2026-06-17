@@ -421,6 +421,61 @@ Kernel & $N$ & Accel & CPU & Speedup & Lane-util\\
 \end{tabular}
 \end{table}
 
+\subsection{Design-space exploration: lanes and warps}\label{sec:dse}
+SIMTiX is parameterized in its lane count and resident-warp count
+($\mathrm{WARP\_SIZE}=\mathrm{NUM\_LANES}$, and the coalescing line scales with
+the lanes). We swept $\mathrm{NUM\_LANES}\in\{4,8,16,32\}$ against
+$\mathrm{NUM\_WARPS}\in\{2,4,8\}$---all twelve configurations elaborate and pass
+the suite bit-exact---and measured throughput on the five lane-count-agnostic
+kernels. Table~\ref{tab:dse} reports the geometric-mean throughput, and
+Figure~\ref{fig:dse} plots it against lane count.
+
+Two clear effects emerge. First, throughput scales almost linearly with lanes:
+$3.06\rightarrow5.85\rightarrow11.68\rightarrow23.24$ work-items/cycle, about
+$1.97\times$ per doubling, i.e.\ $7.6\times$ from 4 to 32 lanes. Widening the
+lanes also widens the coalescing line, so global line transactions fall
+proportionally (e.g.\ \texttt{vadd} drops $768\rightarrow96$ transactions from 4
+to 32 lanes). Second, and more interesting, the resident-warp count makes
+essentially no difference here (the three curves in Figure~\ref{fig:dse}
+coincide; eight warps is marginally \emph{worse} due to extra spawn bookkeeping).
+This is honest about the harness: the behavioral memory model answers in a single
+cycle, so there is almost no latency for extra warps to hide; occupancy beyond
+the two warps needed to overlap the memory engine with the datapath pays off only
+under realistic multi-cycle memory. The two knobs are thus separable---lanes buy
+data-parallel throughput, warps buy latency tolerance---and both cost register-file
+area ($\propto\!\mathrm{lanes}\times\mathrm{warps}$), which motivates the
+area/frequency Pareto study (Section~\ref{sec:future}).
+
+\begin{table}[t]
+\caption{Geometric-mean throughput (work-items/cycle) over the five
+lane-agnostic kernels, swept over lanes and resident warps. All twelve
+configurations verify bit-exact.}
+\label{tab:dse}
+\centering
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+& \multicolumn{3}{c}{NUM\_WARPS}\\
+\cmidrule(lr){2-4}
+NUM\_LANES & 2 & 4 & 8\\
+\midrule
+4  & 3.06  & 3.06  & 3.05\\
+8  & 5.85  & 5.85  & 5.85\\
+16 & 11.68 & 11.68 & 11.65\\
+32 & 23.24 & 23.24 & 23.14\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{dse_throughput.png}
+\caption{Throughput versus lane count for each resident-warp count. Throughput
+scales near-linearly with lanes; the warp-count curves coincide because the
+single-cycle memory model offers little latency to hide.}
+\label{fig:dse}
+\end{figure}
+
 %==============================================================================
 \section{Related Work}\label{sec:related}
 %==============================================================================
@@ -445,11 +500,12 @@ throughput below the lane-count ideal; multiple memory ports or banked access
 would raise the saturation point. The \texttt{reduce} result motivates a
 dedicated cross-lane reduction primitive. The lane clock-gating model is
 analytic from counters; a gate-level power simulation would confirm the realized
-savings. Finally, two evaluation extensions are in progress: a design-space
-sweep over lane and warp counts to produce area/frequency/throughput Pareto
-fronts, and an open-source ASIC path through the SkyWater~130\,nm
-PDK~\cite{sky130} using OpenLane~\cite{openlane}, which would turn the FPGA PPA
-numbers into silicon-relevant area, frequency, and power.
+savings. The throughput design-space sweep (Section~\ref{sec:dse}) establishes
+how performance scales with lanes and warps; the complementary piece in progress
+is a per-configuration FPGA and ASIC PPA sweep to complete the
+area/frequency/throughput Pareto. Finally, an open-source ASIC path through the
+SkyWater~130\,nm PDK~\cite{sky130} using OpenLane~\cite{openlane} would turn the
+FPGA PPA numbers into silicon-relevant area, frequency, and power.
 
 %==============================================================================
 \section{Conclusion}

@@ -162,5 +162,17 @@ cpu-bench:
 	@echo "[bench] running tb_cpu_bench..."
 	$(MDIR)/tb_cpu_bench
 
+# Design-space-exploration sweep (Part 2): elaborate the engine at LANES/WARPS
+# and run the lane-agnostic kernels. Defaults reproduce the 8/4 config. Sweep:
+#   for L in 4 8 16 32; do for W in 2 4 8; do make dse LANES=$L WARPS=$W; done; done
+LANES ?= 8
+WARPS ?= 4
+dse:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(SOC_VFLAGS) +define+SIMTIX_NUM_LANES=$(LANES) +define+SIMTIX_NUM_WARPS=$(WARPS) \
+		--Mdir $(MDIR) --top-module tb_dse $(PKG) ../rtl/accel/warp_pool.sv ../tests/tb_dse.sv -o tb_dse
+	@echo "[dse] running tb_dse LANES=$(LANES) WARPS=$(WARPS)..."
+	$(MDIR)/tb_dse
+
 clean:
 	rm -rf obj_dir $(MDIR)

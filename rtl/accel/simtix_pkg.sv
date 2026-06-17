@@ -7,15 +7,29 @@
 // per-symbol.
 // =============================================================================
 `timescale 1ns/1ps
+
+// ── Design-space-exploration overrides (Part-2 DSE sweep) ─────────────────────
+// NUM_LANES and NUM_WARPS may be overridden at elaboration with
+//   +define+SIMTIX_NUM_LANES=<n>  +define+SIMTIX_NUM_WARPS=<n>
+// (both powers of two). Absent any define the defaults below reproduce the
+// committed 8-lane / 4-warp configuration exactly, so existing tests and the
+// FPGA flow are byte-for-byte unaffected.
+`ifndef SIMTIX_NUM_LANES
+  `define SIMTIX_NUM_LANES 8
+`endif
+`ifndef SIMTIX_NUM_WARPS
+  `define SIMTIX_NUM_WARPS 4
+`endif
+
 package simtix_pkg;
 
   /* verilator lint_off UNUSEDPARAM */
 
   // ── Accelerator configuration ──────────────────────────────────────────────
-  parameter int XLEN       = 32;   // data width
-  parameter int NUM_LANES  = 8;    // physical SIMT lanes (M2)
-  parameter int WARP_SIZE  = 8;    // threads per warp
-  parameter int NUM_WARPS  = 4;    // hardware warp slots (M3)
+  parameter int XLEN       = 32;                  // data width
+  parameter int NUM_LANES  = `SIMTIX_NUM_LANES;   // physical SIMT lanes (M2)
+  parameter int WARP_SIZE  = NUM_LANES;           // one warp fills all lanes / issue
+  parameter int NUM_WARPS  = `SIMTIX_NUM_WARPS;   // hardware warp slots (M3)
 
   // ── Coalescing cache line (M4) ───────────────────────────────────────────────
   // The data port serves a whole line per access; the memory engine groups a
