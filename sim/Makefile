@@ -79,7 +79,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-soc test-chip clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-soc test-chip bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -146,6 +146,21 @@ test-chip:
 	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_chip_top $(CHIP_RTL) ../tests/tb_chip_top.sv -o tb_chip_top
 	@echo "[test] running tb_chip_top..."
 	$(MDIR)/tb_chip_top
+
+# Benchmark suite (publication evaluation): runs every kernel at several sizes,
+# verifies golden results, and prints a metrics table + CSV rows. Capture with:
+#   make bench | grep '^CSV,' > ../docs/bench.csv
+bench:
+	$(call run_tb,tb_bench,$(PKG) ../rtl/accel/warp_pool.sv ../tests/tb_bench.sv)
+
+# Scalar host-CPU baseline: runs the same kernels on the 5-stage RV32I pipeline
+# and reports cycles. Capture with:  make cpu-bench | grep '^CSVCPU,' > ../docs/bench_cpu.csv
+# (uses the pipeline + its leaf modules — the same subset chip_top instantiates.)
+cpu-bench:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_cpu_bench $(CHIP_CPU_RTL) ../tests/tb_cpu_bench.sv -o tb_cpu_bench
+	@echo "[bench] running tb_cpu_bench..."
+	$(MDIR)/tb_cpu_bench
 
 clean:
 	rm -rf obj_dir $(MDIR)
