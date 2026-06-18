@@ -83,7 +83,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fparith16 test-soc test-chip bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fparith16 test-soc test-chip bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -193,6 +193,17 @@ test-chip:
 #   make bench | grep '^CSV,' > ../docs/bench.csv
 bench:
 	$(call run_tb,tb_bench,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_bench.sv)
+
+# FP benchmark (M14 evaluation): FP32 + FP16 streaming kernels, golden-checked
+# against the DPI reference. Capture with:
+#   make fp-bench | grep '^FPCSV,' > ../docs/fp_bench.csv
+fp-bench:
+	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpbench \
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpbench.sv $(FPU_REF_SRC) -o tb_fpbench
+	@echo "[bench] running tb_fpbench..."
+	$(MDIR)/tb_fpbench
 
 # Scalar host-CPU baseline: runs the same kernels on the 5-stage RV32I pipeline
 # and reports cycles. Capture with:  make cpu-bench | grep '^CSVCPU,' > ../docs/bench_cpu.csv

@@ -60,13 +60,19 @@ divergence-heavy kernel, and---reported honestly---a slowdown on a serial
 reduction, exposing where the SIMT model does and does not pay off. Using the
 SIMT active mask as a per-lane clock-enable, we quantify the lane-datapath
 dynamic energy a divergence-aware gated design saves (up to 22.5\% on a
-divergent kernel). The complete RTL, benchmark harness, and FPGA flow are
-publicly available.
+divergent kernel). We further extend each lane with a single-cycle
+floating-point unit supporting both single and half precision (FP32 and FP16):
+half precision reuses the single-precision datapath through NaN-boxed
+widen--compute--narrow, which we show is correctly single-rounded and adds no
+extra cycles. The unit is verified bit-exact against an IEEE-754 reference over
+$76{,}048$ vectors, and sustains the engine's full lane-parallel throughput. The
+complete RTL, benchmark harness, and FPGA flow are publicly available.
 \end{abstract}
 
 \begin{IEEEkeywords}
 SIMT, GPGPU, RISC-V, hardware accelerator, control divergence, memory
-coalescing, FPGA, clock gating, open-source hardware.
+coalescing, floating-point, half precision, FPGA, clock gating, open-source
+hardware.
 \end{IEEEkeywords}
 
 %==============================================================================
@@ -107,6 +113,11 @@ SIMT loses (Section~\ref{sec:results}).
 active mask as a per-lane clock-enable and quantifies the lane-datapath energy
 saved as a function of control divergence (Sections~\ref{sec:arch},
 \ref{sec:results}).
+\item A per-lane floating-point extension covering both FP32 and FP16, in which
+half precision is obtained almost for free from the single-precision path via
+NaN-boxed widen--compute--narrow (which we show is correctly single-rounded),
+verified bit-exact and shown to sustain the engine's full lane-parallel
+throughput (Section~\ref{sec:fp}).
 \end{itemize}
 
 %==============================================================================
@@ -477,6 +488,109 @@ single-cycle memory model offers little latency to hide.}
 \end{figure}
 
 %==============================================================================
+\section{Floating-Point Extension}\label{sec:fp}
+%==============================================================================
+The base engine is integer-only. We extend it with floating point in both
+single (FP32) and half (FP16) precision, keeping the same SIMT structure: the
+extension is a per-lane execute unit and a second per-lane register file, not a
+new pipeline.
+
+\subsection{Per-lane FP unit and register file}
+Each lane gains a compact, single-cycle floating-point unit beside its integer
+ALU, and a second per-lane register file holds the 32 floating-point registers
+in distributed RAM, addressed by \{warp, register\} exactly like the integer VRF.
+The two files have independent write ports, so an FP compute result and an
+integer load can retire in the same cycle; only same-file collisions defer.
+The unit implements add, subtract, multiply, sign-injection, min/max, the
+ordered compares, integer$\leftrightarrow$float conversion, the
+FP32$\leftrightarrow$FP16 format conversions, the integer/FP bit-moves, and
+classify, in both precisions. Rounding is round-to-nearest-even; float-to-integer
+truncates; subnormals are flushed to zero in both formats, a deliberate
+throughput-oriented choice that keeps each lane small. Fused multiply-add and
+division/square-root are deferred to a shared per-warp special-function unit
+(Section~\ref{sec:future}).
+
+\subsection{Half precision via NaN-boxed widen--compute--narrow}
+Half precision is not a second arithmetic datapath. A 16-bit half lives in a
+32-bit register NaN-boxed (the upper 16 bits all ones); a mis-boxed value reads
+as a canonical NaN, per the RISC-V convention. For an FP16 operation the unit
+checks the box, widens the operand exactly to FP32, runs the single-precision
+adder/multiplier, and rounds the FP32 result back to FP16. This is correct, not
+approximate: because the FP32 intermediate carries a 24-bit significand and
+$24 \ge 2\cdot 11 + 2$, rounding the exact result first to FP32 and then to FP16
+gives the same value as rounding directly to FP16~\cite{figueroa}, so FP16
+add/sub/mul and integer$\leftrightarrow$FP16 conversion are correctly
+single-rounded. Sign-injection, min/max, comparison, classification, and the
+bit-moves are done natively at 16 bits so NaN payloads and the signalling/quiet
+distinction survive. Half precision thus reuses the verified single-precision
+logic almost entirely, adding only the widen, narrow, and box steps.
+
+\subsection{Verification}
+The unit is verified standalone against a DPI-C IEEE-754 reference: FP32 against
+the host's hardware \texttt{float}, and FP16 against a \texttt{double}-based
+reference that is independent of, and was cross-checked against, the host
+\texttt{\_Float16} type. Over random normal-range vectors plus directed
+infinity/NaN/zero/flush-to-zero/overflow corners, a mis-NaN-boxed-operand case,
+and all conversions, $76{,}048$ results match bit-for-bit with zero mismatches
+(Table~\ref{tab:fpverif}). Two end-to-end kernels---$C_i=A_i+B_i$ and
+$C_i=A_iB_i+B_i$---then run through the complete warp pool in each precision and
+match the reference bit-exact up to 1024 threads.
+
+\begin{table}[t]
+\caption{Floating-point operation coverage. Every operation is implemented and
+checked in both FP32 and FP16; all checks are bit-exact against an IEEE-754
+reference.}
+\label{tab:fpverif}
+\centering
+\footnotesize
+\begin{tabular}{ll}
+\toprule
+Category & Operations (each in FP32 \emph{and} FP16)\\
+\midrule
+Arithmetic     & \texttt{fadd}, \texttt{fsub}, \texttt{fmul}\\
+Sign / select  & \texttt{fsgnj\{,n,x\}}, \texttt{fmin}, \texttt{fmax}\\
+Compare        & \texttt{feq}, \texttt{flt}, \texttt{fle}\\
+Convert        & float$\leftrightarrow$int (signed/unsigned), FP32$\leftrightarrow$FP16\\
+Move / classify& \texttt{fmv.x.\_}, \texttt{fmv.\_.x}, \texttt{fclass}\\
+\midrule
+\multicolumn{2}{l}{Bit-exact checks vs IEEE reference: \textbf{76{,}048} (0 mismatches)}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Floating-point throughput}
+Because the FP unit is single-cycle, floating-point work flows through the SIMT
+pipeline exactly like integer work. Figure~\ref{fig:fpthr} plots throughput
+against problem size for streaming add and multiply-add kernels in both
+precisions. The curves show the same latency-hiding ramp as the integer suite
+and saturate near 7 work-items per cycle at full (100\%) lane utilization, with
+coalesced traffic of three line transactions per warp. Critically, the FP16
+curves lie exactly on the FP32 curves, and the cycle counts are identical
+(Figure~\ref{fig:fpcost}): half precision shares the single-cycle datapath, so it
+costs no extra time. Half precision therefore delivers reduced storage and
+bandwidth and ISA-level FP16 support at \emph{no} throughput penalty; its area
+benefit is quantified in the forthcoming per-configuration PPA sweep
+(Section~\ref{sec:future}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fp_throughput.png}
+\caption{Floating-point throughput versus problem size for streaming add and
+multiply-add kernels. The ramp is the same latency-hiding behavior as the
+integer suite; the FP16 curves coincide with the FP32 ones because both use the
+single-cycle datapath.}
+\label{fig:fpthr}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.74\columnwidth]{fp_cost.png}
+\caption{Cycles to completion at $N{=}1024$: FP16 equals FP32 for both kernels,
+confirming half precision adds no compute-time cost on the single-cycle FP unit.}
+\label{fig:fpcost}
+\end{figure}
+
+%==============================================================================
 \section{Related Work}\label{sec:related}
 %==============================================================================
 Open RISC-V GPGPU cores include Vortex~\cite{vortex}, a full OpenCL-capable
@@ -500,10 +614,14 @@ throughput below the lane-count ideal; multiple memory ports or banked access
 would raise the saturation point. The \texttt{reduce} result motivates a
 dedicated cross-lane reduction primitive. The lane clock-gating model is
 analytic from counters; a gate-level power simulation would confirm the realized
-savings. The throughput design-space sweep (Section~\ref{sec:dse}) establishes
-how performance scales with lanes and warps; the complementary piece in progress
-is a per-configuration FPGA and ASIC PPA sweep to complete the
-area/frequency/throughput Pareto. Finally, an open-source ASIC path through the
+savings. The floating-point unit (Section~\ref{sec:fp}) currently covers
+add/multiply/convert in both precisions; a shared per-warp special-function unit
+for division, square root, and fused multiply-add---with the multi-cycle
+issue/writeback scoreboard those require---is the next extension, after which the
+FP-enabled design enters the PPA sweep. The throughput design-space sweep
+(Section~\ref{sec:dse}) establishes how performance scales with lanes and warps;
+the complementary piece in progress is a per-configuration FPGA and ASIC PPA
+sweep to complete the area/frequency/throughput Pareto. Finally, an open-source ASIC path through the
 SkyWater~130\,nm PDK~\cite{sky130} using OpenLane~\cite{openlane} would turn the
 FPGA PPA numbers into silicon-relevant area, frequency, and power.
 
@@ -518,7 +636,10 @@ small and fast on FPGA. Across a verified six-kernel suite, SIMTiX delivers
 $7$--$10\times$ measured speedup where the SIMT model fits, degrades gracefully
 under divergence, and---reported honestly---loses on a serial reduction, while
 its mask-driven clock-gating saves up to 22.5\% of lane-datapath dynamic energy
-on divergent code. The design and its evaluation infrastructure are public, so
+on divergent code. A per-lane floating-point unit adds FP32 and FP16 arithmetic,
+with half precision obtained almost for free from the single-precision path by
+NaN-boxed widen--compute--narrow and verified bit-exact against an IEEE
+reference, sustaining the engine's full throughput at no extra cycle cost. The design and its evaluation infrastructure are public, so
 the results are reproducible and the platform is reusable for teaching and
 research.
 
@@ -547,6 +668,8 @@ ASIC Implementation Flow,'' in \emph{Workshop on Open-Source EDA Technology
 (WOSET)}, 2020.
 \bibitem{riscv} A.~Waterman and K.~Asanovi\'c, ``The RISC-V Instruction Set
 Manual, Volume I: Unprivileged ISA,'' RISC-V International.
+\bibitem{figueroa} S.~A.~Figueroa, ``When is double rounding innocuous?,''
+\emph{ACM SIGNUM Newsletter}, vol.~30, no.~3, pp.~21--26, 1995.
 \end{thebibliography}
 
 \end{document}
