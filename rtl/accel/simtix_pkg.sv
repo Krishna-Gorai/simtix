@@ -98,6 +98,48 @@ package simtix_pkg;
   parameter logic [3:0] ALU_PASSB = 4'b1010;
   parameter logic [3:0] ALU_MUL   = 4'b1011;   // RV32M `mul` (low 32 bits) — M6
 
+  // ── RV32F / Zfh floating-point ISA (M14) ────────────────────────────────────
+  // SIMTiX FP support: single-precision (FP32) and half-precision (FP16, NaN-boxed
+  // into the low 16 bits of a 32-bit f-register, the Zfh convention). A separate
+  // f0..f31 register file holds BOTH formats — so an FP16 value occupies the low
+  // half of the same physical register, and we never pay for two files. With this
+  // standard layout, `-march=rv32imf` (+ Zfh) emits these instructions directly.
+  //   M14.0 wires the f-regfile + decode + flw/fsw (this step).
+  //   M14.1+ adds the per-lane FPU (add/sub/mul/FMA/convert/compare).
+  //   M14.3  adds the shared div/sqrt SFU.
+  parameter int FLEN      = 32;   // f-register width (FP32; FP16 NaN-boxed low 16)
+  parameter int NUM_FREGS = 32;
+
+  // Major opcodes (instr[6:0]).
+  parameter logic [6:0] OP_LOADFP  = 7'b0000111;  // flw / flh   (funct3 = width)
+  parameter logic [6:0] OP_STOREFP = 7'b0100111;  // fsw / fsh
+  parameter logic [6:0] OP_FP      = 7'b1010011;  // OP-FP: fadd/fmul/fdiv/fsqrt/...
+  parameter logic [6:0] OP_FMADD   = 7'b1000011;  // fmadd.{s,h}
+  parameter logic [6:0] OP_FMSUB   = 7'b1000111;  // fmsub.{s,h}
+  parameter logic [6:0] OP_FNMSUB  = 7'b1001011;  // fnmsub.{s,h}
+  parameter logic [6:0] OP_FNMADD  = 7'b1001111;  // fnmadd.{s,h}
+
+  // OP-FP operation select = funct5 (instr[31:27]); fmt = instr[26:25] picks the
+  // format, funct3 = instr[14:12] is the rounding mode (or a sub-select for the
+  // sign-inject / min-max / compare / move groups).
+  parameter logic [4:0] FP_ADD    = 5'b00000;  // fadd
+  parameter logic [4:0] FP_SUB    = 5'b00001;  // fsub
+  parameter logic [4:0] FP_MUL    = 5'b00010;  // fmul
+  parameter logic [4:0] FP_DIV    = 5'b00011;  // fdiv
+  parameter logic [4:0] FP_SQRT   = 5'b01011;  // fsqrt          (rs2 = 0)
+  parameter logic [4:0] FP_SGNJ   = 5'b00100;  // fsgnj/jn/jx    (funct3 picks)
+  parameter logic [4:0] FP_MINMAX = 5'b00101;  // fmin/fmax      (funct3 picks)
+  parameter logic [4:0] FP_CMP    = 5'b10100;  // feq/flt/fle    (funct3 picks)
+  parameter logic [4:0] FP_CVT_W  = 5'b11000;  // fcvt.w.s / .wu.s  (float -> int)
+  parameter logic [4:0] FP_CVT_S  = 5'b11010;  // fcvt.s.w / .s.wu  (int -> float)
+  parameter logic [4:0] FP_CVT_FF = 5'b01000;  // fcvt.s.h / fcvt.h.s (format cast)
+  parameter logic [4:0] FP_FMVXW  = 5'b11100;  // fmv.x.w / fclass  (funct3 picks)
+  parameter logic [4:0] FP_FMVWX  = 5'b11110;  // fmv.w.x
+
+  // FP format field fmt = instr[26:25].
+  parameter logic [1:0] FMT_S = 2'b00;  // single  (FP32)
+  parameter logic [1:0] FMT_H = 2'b10;  // half    (FP16)
+
   // Thread-id CSR (read-only): csrr rd, TID
   parameter logic [11:0] CSR_TID = 12'hCC0;
 

@@ -79,7 +79,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-soc test-chip bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-soc test-chip bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -119,7 +119,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-soc test-chip
+test: test-accel test-lane test-warp test-pool test-fp test-soc test-chip
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -132,6 +132,10 @@ test-warp:
 
 test-pool:
 	$(call run_tb,tb_warp_pool,$(PKG) ../rtl/accel/warp_pool.sv ../tests/tb_warp_pool.sv)
+
+# M14.0: floating-point load/store data path (flw/fsw through the f-regfile).
+test-fp:
+	$(call run_tb,tb_fp,$(PKG) ../rtl/accel/warp_pool.sv ../tests/tb_fp.sv)
 
 # The SoC test pulls in the Verilog CPU core, so it builds with SOC_VFLAGS.
 test-soc:

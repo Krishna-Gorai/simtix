@@ -115,6 +115,19 @@ module warp_pool
     logic [31:0]    vrf_rd1 [0:NL-1];                   // async read port 1 (rs1)
     logic [31:0]    vrf_rd2 [0:NL-1];                   // async read port 2 (rs2)
 
+    // ── M14.0: floating-point register file (separate from the integer VRF) ──────
+    // One independent distributed-RAM bank per lane, VDEPTH×32 addressed by
+    // {warp,freg}, exactly like the integer VRF but with THREE async read ports
+    // (fs1/fs2/fs3 — fs3 feeds the future FMA) and one sync write port. The 32-bit
+    // width holds an FP32 value or a NaN-boxed FP16 (low 16 bits), so a single file
+    // serves both formats. f0 is a normal register here (no x0 hardwiring). Unlike
+    // the integer file there are no spawn seeds, so an unwritten f-register reads 0
+    // (freg_written guards stale RAM contents on a recycled warp slot).
+    logic [31:0]    frf_rd1 [0:NL-1];                   // async read port 1 (fs1)
+    logic [31:0]    frf_rd2 [0:NL-1];                   // async read port 2 (fs2)
+    logic [31:0]    frf_rd3 [0:NL-1];                   // async read port 3 (fs3, FMA)
+    logic           freg_written [0:NW-1][0:NL-1][0:31];
+
     // Per-(warp,lane,reg) "has been written this grid" bit. An unwritten register
     // reads its spawn seed (a0=tid, a1..a4=args, else 0) instead of RAM, which
     // reproduces the old "zero the VRF on spawn then seed" behaviour bit-for-bit
@@ -154,6 +167,7 @@ module warp_pool
     logic [NL-1:0]    mem_pending;               // active lanes not yet serviced
     logic             mem_is_store;
     logic             mem_is_scratch;            // latched: scratchpad vs global op
+    logic             mem_is_fp;                 // latched: FP load/store (M14.0)
     logic [2:0]       mem_funct3;
     logic [4:0]       mem_rd;
     logic [31:0]      mem_next_pc;
@@ -270,11 +284,44 @@ module warp_pool
     assign j_imm = {{11{instr[31]}}, instr[31], instr[19:12], instr[20], instr[30:21], 1'b0};
 
     logic is_load, is_store, is_mem, is_ecall, is_csr;
-    assign is_load  = (opcode == OP_LOAD);
-    assign is_store = (opcode == OP_STORE);
+    assign is_load  = (opcode == OP_LOAD)  | (opcode == OP_LOADFP);
+    assign is_store = (opcode == OP_STORE) | (opcode == OP_STOREFP);
     assign is_mem   = is_load | is_store;
     assign is_ecall = (opcode == OP_SYSTEM) && (funct3 == 3'b000);
     assign is_csr   = (opcode == OP_SYSTEM) && (funct3 != 3'b000);
+
+    // ── M14.0: floating-point decode ────────────────────────────────────────────
+    // FP loads/stores reuse the integer memory engine (the address register is an
+    // INTEGER reg in RV32F, so address-gen is unchanged); is_fp_mem only steers the
+    // data side — store data is read from the f-regfile and load results are written
+    // back to it. The OP-FP / fused-multiply-add compute ops are DECODED here so the
+    // f-source/format/rounding fields are ready, but they execute no math yet (M14.1
+    // adds the FPU); in M14.0 they retire as a PC-advancing no-op (no register
+    // write), which is inert for every existing integer kernel.
+    logic       is_load_fp, is_store_fp, is_fp_mem;
+    logic [4:0] rs3;                       // fs3 for FMA read port (instr[31:27])
+    assign is_load_fp  = (opcode == OP_LOADFP);
+    assign is_store_fp = (opcode == OP_STOREFP);
+    assign is_fp_mem   = is_load_fp | is_store_fp;
+    assign rs3         = instr[31:27];
+
+    // FP compute decode (OP-FP / FMA). These fields are wired now so the f-source,
+    // format and rounding-mode steering is ready, but they are CONSUMED in M14.1
+    // when the per-lane FPU is added; until then the ops retire as PC-advancing
+    // no-ops. Waive UNUSEDSIGNAL for exactly these pending nets so M14.0 lints clean.
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic       is_fp_op, is_fp_fma, is_fp;
+    logic [4:0] fp_funct5;                 // OP-FP operation select
+    logic [1:0] fp_fmt;                    // 00=S(FP32), 10=H(FP16)
+    logic [2:0] fp_rm;                     // rounding mode / sub-select
+    /* verilator lint_on UNUSEDSIGNAL */
+    assign is_fp_op    = (opcode == OP_FP);
+    assign is_fp_fma   = (opcode == OP_FMADD)  | (opcode == OP_FMSUB)
+                       | (opcode == OP_FNMSUB) | (opcode == OP_FNMADD);
+    assign is_fp       = is_fp_op | is_fp_fma;
+    assign fp_funct5   = instr[31:27];
+    assign fp_fmt      = instr[26:25];
+    assign fp_rm       = instr[14:12];
 
     // ── ALU control decode (shared) ────────────────────────────────────────────────
     logic [3:0] alu_ctrl;
@@ -322,6 +369,11 @@ module warp_pool
     // ── Per-lane datapath of the issuing warp (combinational) ───────────────────────
     logic [31:0] rv1   [0:NL-1];
     logic [31:0] rv2   [0:NL-1];
+    logic [31:0] frv2  [0:NL-1];   // f-source 2 (fs2) — fsw store data (M14.0)
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [31:0] frv1  [0:NL-1];   // f-source 1 (fs1) — FPU operand   (M14.1)
+    logic [31:0] frv3  [0:NL-1];   // f-source 3 (fs3) — FMA addend     (M14.1)
+    /* verilator lint_on UNUSEDSIGNAL */
     logic [31:0] addr  [0:NL-1];   // effective address / ALU result per lane
     logic [31:0] wb_val[0:NL-1];
     logic        wb_en [0:NL-1];
@@ -336,16 +388,22 @@ module warp_pool
             rv2[l] = (rs2 == 5'd0) ? 32'd0 :
                      (reg_written[issue_w][l][rs2] ? vrf_rd2[l]
                                                    : seed_val(issue_w, l[LIDXW-1:0], rs2));
+            // FP sources: no x0 hardwiring (f0 is real); unwritten reads 0.
+            frv1[l] = freg_written[issue_w][l][rs1] ? frf_rd1[l] : 32'd0;
+            frv2[l] = freg_written[issue_w][l][rs2] ? frf_rd2[l] : 32'd0;
+            frv3[l] = freg_written[issue_w][l][rs3] ? frf_rd3[l] : 32'd0;
             tid_l  = warp_base[issue_w] + l[31:0];
 
             unique case (opcode)
-                OP_OP:    begin a = rv1[l]; b = rv2[l]; end
-                OP_OPIMM: begin a = rv1[l]; b = i_imm;  end
-                OP_LOAD:  begin a = rv1[l]; b = i_imm;  end
-                OP_STORE: begin a = rv1[l]; b = s_imm;  end
-                OP_LUI:   begin a = 32'd0;  b = u_imm;  end
-                OP_AUIPC: begin a = cur_pc; b = u_imm;  end
-                default:  begin a = rv1[l]; b = rv2[l]; end
+                OP_OP:     begin a = rv1[l]; b = rv2[l]; end
+                OP_OPIMM:  begin a = rv1[l]; b = i_imm;  end
+                OP_LOAD,
+                OP_LOADFP: begin a = rv1[l]; b = i_imm;  end
+                OP_STORE,
+                OP_STOREFP:begin a = rv1[l]; b = s_imm;  end
+                OP_LUI:    begin a = 32'd0;  b = u_imm;  end
+                OP_AUIPC:  begin a = cur_pc; b = u_imm;  end
+                default:   begin a = rv1[l]; b = rv2[l]; end
             endcase
 
             unique case (alu_ctrl)
@@ -517,7 +575,8 @@ module warp_pool
     // writeback is squashed that cycle — the instruction simply re-issues next cycle
     // (it is idempotent: same VRF in → same result out). Stores and rd==x0 never
     // write the file.
-    logic             mem_wb_act;             // memory engine writes the VRF this cycle
+    logic             mem_wb_act;             // memory engine writes a regfile this cycle
+    logic             mem_wb_act_int;         // …and it targets the INTEGER VRF
     logic [NL-1:0]    mem_wb_lane;            // per-lane: memory writeback fires
     logic [31:0]      mem_wb_data [0:NL-1];
     logic             do_compute;             // issue is a committing compute instr
@@ -529,11 +588,22 @@ module warp_pool
     logic [WIDXW-1:0] v_ww [0:NL-1];          // …warp (for the valid bit)
     logic [4:0]       v_wr [0:NL-1];          // …reg  (for the valid bit)
 
+    // M14.0: FP-file write port (separate bank → no contention with the integer
+    // VRF). The only FP writer in M14.0 is an `flw` load result; M14.1 adds the
+    // FPU compute writeback through the same signals.
+    logic             fv_we [0:NL-1];
+    logic [VAW-1:0]   fv_wa [0:NL-1];
+    logic [31:0]      fv_wd [0:NL-1];
+    logic [WIDXW-1:0] fv_ww [0:NL-1];
+    logic [4:0]       fv_wr [0:NL-1];
+
     always_comb begin
         for (int l = 0; l < NL; l++) begin
             mem_wb_lane[l] = 1'b0;
             mem_wb_data[l] = 32'd0;
-            if (mem_busy && !mem_is_store && (mem_rd != 5'd0)) begin
+            // FP loads target f0..f31 where f0 is a real register, so the rd!=x0
+            // guard applies to integer loads only.
+            if (mem_busy && !mem_is_store && (mem_is_fp || mem_rd != 5'd0)) begin
                 // Scratch (M9): the engine serves ONE lane (the lowest-index
                 // pending lane) per cycle, so only that lane's VRF is written,
                 // sourced from the single RAM read port sc_rd.
@@ -547,9 +617,12 @@ module warp_pool
             end
         end
     end
-    assign mem_wb_act = |mem_wb_lane;
-    assign do_compute = issue_valid && !do_pop && !is_ecall && !is_mem;
-    assign squash_wb  = do_compute && mem_wb_act;
+    assign mem_wb_act     = |mem_wb_lane;
+    assign mem_wb_act_int = mem_wb_act && !mem_is_fp;   // contends with integer compute
+    assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem;
+    // Only an INTEGER memory writeback shares the integer VRF port with a compute
+    // writeback; an FP load lands in the separate f-file and squashes nothing.
+    assign squash_wb      = do_compute && mem_wb_act_int;
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -558,13 +631,30 @@ module warp_pool
             v_wd[l] = 32'd0;
             v_ww[l] = '0;
             v_wr[l] = 5'd0;
-            if (mem_wb_lane[l]) begin                                  // memory writeback
+            fv_we[l] = 1'b0;
+            fv_wa[l] = '0;
+            fv_wd[l] = 32'd0;
+            fv_ww[l] = '0;
+            fv_wr[l] = 5'd0;
+            // The FP file (fv_we) and the integer VRF (v_we) are SEPARATE write
+            // ports, so they arbitrate independently — an flw writeback to the
+            // f-file must NOT block an integer compute writeback this cycle (only an
+            // INTEGER memory writeback shares the integer port and defers a compute,
+            // exactly as squash_wb gates the issue side).
+            if (mem_wb_lane[l] && mem_is_fp) begin                     // FP load writeback
+                fv_we[l] = 1'b1;
+                fv_ww[l] = mem_w;
+                fv_wr[l] = mem_rd;
+                fv_wa[l] = vaddr(mem_w, mem_rd);
+                fv_wd[l] = mem_wb_data[l];
+            end
+            if (mem_wb_lane[l] && !mem_is_fp) begin                    // integer mem writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = mem_w;
                 v_wr[l] = mem_rd;
                 v_wa[l] = vaddr(mem_w, mem_rd);
                 v_wd[l] = mem_wb_data[l];
-            end else if (do_compute && !mem_wb_act && wb_en[l]) begin   // compute writeback
+            end else if (do_compute && !mem_wb_act_int && wb_en[l]) begin // compute writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = issue_w;
                 v_wr[l] = rd;
@@ -586,6 +676,23 @@ module warp_pool
                 if (v_we[gl]) bank[v_wa[gl]] <= v_wd[gl];
             assign vrf_rd1[gl] = bank[vaddr(issue_w, rs1)];
             assign vrf_rd2[gl] = bank[vaddr(issue_w, rs2)];
+        end
+    endgenerate
+
+    // ── Per-lane FP register-file banks (distributed RAM) — M14.0 ────────────────────
+    // Same LUTRAM pattern as the integer VRF, but THREE async read ports (fs1/fs2/
+    // fs3) feed the future FMA. One sync write port; in M14.0 the only writer is an
+    // flw load result (fv_we), M14.1 adds the FPU compute writeback.
+    genvar gf;
+    generate
+        for (gf = 0; gf < NL; gf++) begin : g_frf
+            (* ram_style = "distributed" *)
+            logic [31:0] bank [0:VDEPTH-1];
+            always_ff @(posedge clk)
+                if (fv_we[gf]) bank[fv_wa[gf]] <= fv_wd[gf];
+            assign frf_rd1[gf] = bank[vaddr(issue_w, rs1)];
+            assign frf_rd2[gf] = bank[vaddr(issue_w, rs2)];
+            assign frf_rd3[gf] = bank[vaddr(issue_w, rs3)];
         end
     endgenerate
 
@@ -627,7 +734,10 @@ module warp_pool
             for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
             for (int k = 0; k < NW; k++)
                 for (int l = 0; l < NL; l++)
-                    for (int r = 0; r < 32; r++) reg_written[k][l][r] <= 1'b0;
+                    for (int r = 0; r < 32; r++) begin
+                        reg_written[k][l][r]  <= 1'b0;
+                        freg_written[k][l][r] <= 1'b0;
+                    end
         end else begin
             done <= 1'b0;                         // default: 1-cycle pulse
 
@@ -660,7 +770,10 @@ module warp_pool
                     // inference). Instead mark every register unwritten so reads
                     // return their spawn seed (a0=tid, a1..a4=args, else 0).
                     for (int l = 0; l < NL; l++) begin
-                        for (int r = 0; r < 32; r++) reg_written[fill_w][l][r] <= 1'b0;
+                        for (int r = 0; r < 32; r++) begin
+                            reg_written[fill_w][l][r]  <= 1'b0;
+                            freg_written[fill_w][l][r] <= 1'b0;   // M14.0: f-regs unwritten
+                        end
                         tmask[l] = ((sbase + l[31:0]) < arg_n);   // tail mask
                     end
                     warp_base[fill_w]        <= sbase;
@@ -700,12 +813,14 @@ module warp_pool
                             mem_pending  <= cur_mask;
                             mem_is_store <= is_store;
                             mem_is_scratch <= issue_is_scratch;
+                            mem_is_fp    <= is_fp_mem;       // M14.0: flw/fsw
                             mem_funct3   <= funct3;
                             mem_rd       <= rd;
                             mem_next_pc  <= fallthru;        // mem is not control flow
                             for (int l = 0; l < NL; l++) begin
                                 mem_addr_lane[l]  <= addr[l];
-                                mem_sdata_lane[l] <= rv2[l];
+                                // fsw stores an f-register; integer stores an x-register.
+                                mem_sdata_lane[l] <= is_store_fp ? frv2[l] : rv2[l];
                             end
                             wstate[issue_w] <= W_MEM;
                         end
@@ -790,8 +905,10 @@ module warp_pool
                 // 3b) Mark written registers valid. The VRF data write itself happens
                 //     in the per-lane distributed-RAM banks (see the generate block);
                 //     here we only record that the register is no longer at its seed.
-                for (int l = 0; l < NL; l++)
-                    if (v_we[l]) reg_written[v_ww[l]][l][v_wr[l]] <= 1'b1;
+                for (int l = 0; l < NL; l++) begin
+                    if (v_we[l])  reg_written [v_ww[l]][l][v_wr[l]] <= 1'b1;
+                    if (fv_we[l]) freg_written[fv_ww[l]][l][fv_wr[l]] <= 1'b1;
+                end
 
                 // 4) Completion: nothing left to spawn and no slot running.
                 if (!any_busy) begin

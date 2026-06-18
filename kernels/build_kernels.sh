@@ -18,6 +18,8 @@ KERNELS="vadd/vadd saxpy/saxpy fir/fir relu/relu collatz/collatz reduce/reduce \
          matmul/matmul_naive matmul/matmul_smem divergence/heavy_div"
 # Scalar host-CPU baselines (rv32i — the 5-stage core has no `mul`; built below).
 SCALAR="scalar/s_vadd scalar/s_saxpy scalar/s_fir scalar/s_relu scalar/s_collatz scalar/s_reduce"
+# Floating-point kernels (rv32imf — M14: the engine has an f-regfile + flw/fsw).
+FPKERNELS="fptest/fpcopy"
 
 emit_words() {  # $1 = .bin  -> stdout: one 32-bit little-endian word per line (hex)
     python - "$1" <<'PY'
@@ -46,6 +48,7 @@ build_one() {  # $1 = name (dir/base) ; $2 = -march
     "$OBJDUMP" -d "$dir/$base.elf" | sed -n '/<_start>:/,$p'
 }
 
-for k in $KERNELS; do build_one "$k" rv32im; done
-for k in $SCALAR;  do build_one "$k" rv32i;  done
+for k in $KERNELS;   do build_one "$k" rv32im;  done
+for k in $SCALAR;    do build_one "$k" rv32i;   done
+for k in $FPKERNELS; do build_one "$k" rv32imf; done
 echo "DONE."
