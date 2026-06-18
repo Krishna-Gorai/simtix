@@ -19,7 +19,7 @@ KERNELS="vadd/vadd saxpy/saxpy fir/fir relu/relu collatz/collatz reduce/reduce \
 # Scalar host-CPU baselines (rv32i — the 5-stage core has no `mul`; built below).
 SCALAR="scalar/s_vadd scalar/s_saxpy scalar/s_fir scalar/s_relu scalar/s_collatz scalar/s_reduce"
 # Floating-point kernels (rv32imf — M14: the engine has an f-regfile + flw/fsw).
-FPKERNELS="fptest/fpcopy"
+FPKERNELS="fptest/fpcopy fptest/fparith"
 
 emit_words() {  # $1 = .bin  -> stdout: one 32-bit little-endian word per line (hex)
     python - "$1" <<'PY'

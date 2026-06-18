@@ -305,23 +305,27 @@ module warp_pool
     assign is_fp_mem   = is_load_fp | is_store_fp;
     assign rs3         = instr[31:27];
 
-    // FP compute decode (OP-FP / FMA). These fields are wired now so the f-source,
-    // format and rounding-mode steering is ready, but they are CONSUMED in M14.1
-    // when the per-lane FPU is added; until then the ops retire as PC-advancing
-    // no-ops. Waive UNUSEDSIGNAL for exactly these pending nets so M14.0 lints clean.
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic       is_fp_op, is_fp_fma, is_fp;
+    // FP compute decode (OP-FP). funct5 selects the operation, fmt the format,
+    // funct3 the rounding mode / group sub-select, instr[20] the signed/unsigned
+    // variant of fcvt. The per-lane simt_fpu (M14.1) consumes these. The fused-
+    // multiply-add majors (OP_FMADD..OP_FNMADD) are NOT executed yet (M14.1b): they
+    // fall through to the compute default and retire as a PC-advancing no-op, so an
+    // FMA-using kernel is inert rather than wrong-but-silent — covered by M14.1b.
+    logic       is_fp_op, fp_int_dest, wb_is_fp, fp_cvt_unsigned;
     logic [4:0] fp_funct5;                 // OP-FP operation select
     logic [1:0] fp_fmt;                    // 00=S(FP32), 10=H(FP16)
     logic [2:0] fp_rm;                     // rounding mode / sub-select
-    /* verilator lint_on UNUSEDSIGNAL */
-    assign is_fp_op    = (opcode == OP_FP);
-    assign is_fp_fma   = (opcode == OP_FMADD)  | (opcode == OP_FMSUB)
-                       | (opcode == OP_FNMSUB) | (opcode == OP_FNMADD);
-    assign is_fp       = is_fp_op | is_fp_fma;
-    assign fp_funct5   = instr[31:27];
-    assign fp_fmt      = instr[26:25];
-    assign fp_rm       = instr[14:12];
+    assign is_fp_op        = (opcode == OP_FP);
+    assign fp_funct5       = instr[31:27];
+    assign fp_fmt          = instr[26:25];
+    assign fp_rm           = instr[14:12];
+    assign fp_cvt_unsigned = instr[20];
+    // FP ops whose RESULT lands in the integer register file (compares, float->int,
+    // fmv.x.w / fclass); all other OP-FP results land in the f-register file.
+    assign fp_int_dest = is_fp_op && ((fp_funct5 == FP_CMP)   ||
+                                      (fp_funct5 == FP_CVT_W) ||
+                                      (fp_funct5 == FP_FMVXW));
+    assign wb_is_fp    = is_fp_op && !fp_int_dest;
 
     // ── ALU control decode (shared) ────────────────────────────────────────────────
     logic [3:0] alu_ctrl;
@@ -369,19 +373,40 @@ module warp_pool
     // ── Per-lane datapath of the issuing warp (combinational) ───────────────────────
     logic [31:0] rv1   [0:NL-1];
     logic [31:0] rv2   [0:NL-1];
-    logic [31:0] frv2  [0:NL-1];   // f-source 2 (fs2) — fsw store data (M14.0)
+    logic [31:0] frv1  [0:NL-1];   // f-source 1 (fs1) — FPU operand a  (M14.1)
+    logic [31:0] frv2  [0:NL-1];   // f-source 2 (fs2) — FPU operand b / fsw data
     /* verilator lint_off UNUSEDSIGNAL */
-    logic [31:0] frv1  [0:NL-1];   // f-source 1 (fs1) — FPU operand   (M14.1)
-    logic [31:0] frv3  [0:NL-1];   // f-source 3 (fs3) — FMA addend     (M14.1)
+    logic [31:0] frv3  [0:NL-1];   // f-source 3 (fs3) — FMA addend     (M14.1b)
     /* verilator lint_on UNUSEDSIGNAL */
     logic [31:0] addr  [0:NL-1];   // effective address / ALU result per lane
-    logic [31:0] wb_val[0:NL-1];
-    logic        wb_en [0:NL-1];
+    logic [31:0] wb_val[0:NL-1];   // integer-VRF writeback value
+    logic        wb_en [0:NL-1];   // integer-VRF writeback enable
+    logic [31:0] fwb_val[0:NL-1];  // FP-file writeback value (M14.1)
+    logic        fwb_en [0:NL-1];  // FP-file writeback enable
+    logic [31:0] fpu_res[0:NL-1];  // per-lane FP32 execute result
+
+    // ── M14.1: per-lane FP32 execute unit (combinational) ───────────────────────────
+    // One simt_fpu per lane runs the OP-FP datapath (add/sub/mul, sign-inject,
+    // min/max, compare, int<->float convert, bit moves). Single-cycle, so an FP op
+    // commits through the normal compute-writeback path (below) — to the f-file when
+    // wb_is_fp, else to the integer VRF (compares / float->int / fmv.x.w). int_dest
+    // is recomputed from the decode (fp_int_dest), so the module's is left open.
+    genvar gp;
+    generate
+        for (gp = 0; gp < NL; gp++) begin : g_fpu
+            /* verilator lint_off PINCONNECTEMPTY */
+            simt_fpu u_fpu (
+                .funct5(fp_funct5), .cvt_unsigned(fp_cvt_unsigned), .rm(fp_rm),
+                .fmt(fp_fmt), .a(frv1[gp]), .b(frv2[gp]), .xa(rv1[gp]),
+                .res(fpu_res[gp]), .int_dest()      // recomputed as fp_int_dest in decode
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+        end
+    endgenerate
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
             logic [31:0] a, b, y;
-            logic [31:0] tid_l;
             rv1[l] = (rs1 == 5'd0) ? 32'd0 :
                      (reg_written[issue_w][l][rs1] ? vrf_rd1[l]
                                                    : seed_val(issue_w, l[LIDXW-1:0], rs1));
@@ -392,7 +417,6 @@ module warp_pool
             frv1[l] = freg_written[issue_w][l][rs1] ? frf_rd1[l] : 32'd0;
             frv2[l] = freg_written[issue_w][l][rs2] ? frf_rd2[l] : 32'd0;
             frv3[l] = freg_written[issue_w][l][rs3] ? frf_rd3[l] : 32'd0;
-            tid_l  = warp_base[issue_w] + l[31:0];
 
             unique case (opcode)
                 OP_OP:     begin a = rv1[l]; b = rv2[l]; end
@@ -423,17 +447,37 @@ module warp_pool
             endcase
 
             addr[l]  = y;
+        end
+    end
 
+    // Writeback value/enable for both register files, in a SEPARATE always_comb
+    // from the operand reads above. The FPU's result (fpu_res) depends on rv1 (the
+    // fmv.w.x / fcvt integer source feeds simt_fpu.xa); consuming fpu_res in the
+    // same block that drives rv1 makes Verilator see a (false) UNOPTFLAT loop, so
+    // the consumers live here while the operand block stays purely a producer.
+    always_comb begin
+        for (int l = 0; l < NL; l++) begin
+            logic [31:0] tid_l;
+            tid_l = warp_base[issue_w] + l[31:0];
             wb_val[l] = 32'd0;
             wb_en[l]  = 1'b0;
             unique case (opcode)
-                OP_OP, OP_OPIMM, OP_LUI, OP_AUIPC: begin wb_val[l] = y;          wb_en[l] = 1'b1; end
+                OP_OP, OP_OPIMM, OP_LUI, OP_AUIPC: begin wb_val[l] = addr[l];      wb_en[l] = 1'b1; end
                 OP_JAL, OP_JALR:                   begin wb_val[l] = cur_pc + 32'd4; wb_en[l] = 1'b1; end
-                OP_SYSTEM: if (is_csr)             begin wb_val[l] = tid_l;       wb_en[l] = 1'b1; end
+                OP_SYSTEM: if (is_csr)             begin wb_val[l] = tid_l;         wb_en[l] = 1'b1; end
                 default: ;
             endcase
+            // FP op writing an integer register (feq/flt/fle, fcvt.w.s, fmv.x.w,
+            // fclass): take the FPU result onto the integer-VRF path.
+            if (fp_int_dest) begin wb_val[l] = fpu_res[l]; wb_en[l] = 1'b1; end
             if (rd == 5'd0)        wb_en[l] = 1'b0;
             if (!cur_mask[l])      wb_en[l] = 1'b0;   // masked-off lanes do nothing
+
+            // FP op writing an f-register (add/sub/mul/sgnj/min/max/fcvt.s.w/fmv.w.x):
+            // take the FPU result onto the f-file path. f0 is a real register, so no
+            // x0 guard; masked-off lanes still do nothing.
+            fwb_val[l] = fpu_res[l];
+            fwb_en[l]  = wb_is_fp && cur_mask[l];
         end
     end
 
@@ -576,7 +620,6 @@ module warp_pool
     // (it is idempotent: same VRF in → same result out). Stores and rd==x0 never
     // write the file.
     logic             mem_wb_act;             // memory engine writes a regfile this cycle
-    logic             mem_wb_act_int;         // …and it targets the INTEGER VRF
     logic [NL-1:0]    mem_wb_lane;            // per-lane: memory writeback fires
     logic [31:0]      mem_wb_data [0:NL-1];
     logic             do_compute;             // issue is a committing compute instr
@@ -618,11 +661,13 @@ module warp_pool
         end
     end
     assign mem_wb_act     = |mem_wb_lane;
-    assign mem_wb_act_int = mem_wb_act && !mem_is_fp;   // contends with integer compute
     assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem;
-    // Only an INTEGER memory writeback shares the integer VRF port with a compute
-    // writeback; an FP load lands in the separate f-file and squashes nothing.
-    assign squash_wb      = do_compute && mem_wb_act_int;
+    // A compute writeback is squashed only when it contends for the SAME file port as
+    // the memory writeback: the integer VRF if the compute is integer-dest and the mem
+    // op is integer, or the f-file if the compute is FP-dest and the mem op is FP. When
+    // they target different files (e.g. an FP compute alongside an integer load) both
+    // proceed — the two ports are independent, so there is no conflict and no defer.
+    assign squash_wb      = do_compute && mem_wb_act && (wb_is_fp == mem_is_fp);
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -636,25 +681,37 @@ module warp_pool
             fv_wd[l] = 32'd0;
             fv_ww[l] = '0;
             fv_wr[l] = 5'd0;
-            // The FP file (fv_we) and the integer VRF (v_we) are SEPARATE write
-            // ports, so they arbitrate independently — an flw writeback to the
-            // f-file must NOT block an integer compute writeback this cycle (only an
-            // INTEGER memory writeback shares the integer port and defers a compute,
-            // exactly as squash_wb gates the issue side).
+            // The FP file (fv_we) and the integer VRF (v_we) are SEPARATE write ports,
+            // so they arbitrate INDEPENDENTLY. On each port the memory writeback wins
+            // and the compute writeback is squashed only when both target that port
+            // (squash_wb already encodes the wb_is_fp == mem_is_fp conflict). An FP
+            // compute alongside an integer load — or vice versa — both commit.
+            //
+            // FP-file port: flw load result, else an FP-dest compute (add/sub/mul/
+            // sgnj/min/max/fcvt.s.w/fmv.w.x). fwb_en already folds in wb_is_fp & mask.
             if (mem_wb_lane[l] && mem_is_fp) begin                     // FP load writeback
                 fv_we[l] = 1'b1;
                 fv_ww[l] = mem_w;
                 fv_wr[l] = mem_rd;
                 fv_wa[l] = vaddr(mem_w, mem_rd);
                 fv_wd[l] = mem_wb_data[l];
+            end else if (do_compute && !squash_wb && fwb_en[l]) begin  // FP compute writeback
+                fv_we[l] = 1'b1;
+                fv_ww[l] = issue_w;
+                fv_wr[l] = rd;
+                fv_wa[l] = vaddr(issue_w, rd);
+                fv_wd[l] = fwb_val[l];
             end
+            // Integer VRF port: integer load result, else an integer-dest compute
+            // (ALU ops, jal/jalr link, csr tid, and FP compares / float->int / fmv.x.w
+            // which land here via wb_en). wb_en already excludes rd==x0 and masked lanes.
             if (mem_wb_lane[l] && !mem_is_fp) begin                    // integer mem writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = mem_w;
                 v_wr[l] = mem_rd;
                 v_wa[l] = vaddr(mem_w, mem_rd);
                 v_wd[l] = mem_wb_data[l];
-            end else if (do_compute && !mem_wb_act_int && wb_en[l]) begin // compute writeback
+            end else if (do_compute && !squash_wb && !wb_is_fp && wb_en[l]) begin // int compute writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = issue_w;
                 v_wr[l] = rd;
