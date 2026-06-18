@@ -20,6 +20,8 @@ KERNELS="vadd/vadd saxpy/saxpy fir/fir relu/relu collatz/collatz reduce/reduce \
 SCALAR="scalar/s_vadd scalar/s_saxpy scalar/s_fir scalar/s_relu scalar/s_collatz scalar/s_reduce"
 # Floating-point kernels (rv32imf — M14: the engine has an f-regfile + flw/fsw).
 FPKERNELS="fptest/fpcopy fptest/fparith"
+# Half-precision kernels (rv32imf_zfh — M14.2: FP16 via NaN-boxing).
+FPHKERNELS="fptest/fparith16"
 
 emit_words() {  # $1 = .bin  -> stdout: one 32-bit little-endian word per line (hex)
     python - "$1" <<'PY'
@@ -50,5 +52,6 @@ build_one() {  # $1 = name (dir/base) ; $2 = -march
 
 for k in $KERNELS;   do build_one "$k" rv32im;  done
 for k in $SCALAR;    do build_one "$k" rv32i;   done
-for k in $FPKERNELS; do build_one "$k" rv32imf; done
+for k in $FPKERNELS;  do build_one "$k" rv32imf;     done
+for k in $FPHKERNELS; do build_one "$k" rv32imf_zfh; done
 echo "DONE."

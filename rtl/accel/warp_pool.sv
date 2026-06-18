@@ -311,7 +311,7 @@ module warp_pool
     // multiply-add majors (OP_FMADD..OP_FNMADD) are NOT executed yet (M14.1b): they
     // fall through to the compute default and retire as a PC-advancing no-op, so an
     // FMA-using kernel is inert rather than wrong-but-silent — covered by M14.1b.
-    logic       is_fp_op, fp_int_dest, wb_is_fp, fp_cvt_unsigned;
+    logic       is_fp_op, fp_int_dest, wb_is_fp, fp_cvt_unsigned, fp_cvt_src_h;
     logic [4:0] fp_funct5;                 // OP-FP operation select
     logic [1:0] fp_fmt;                    // 00=S(FP32), 10=H(FP16)
     logic [2:0] fp_rm;                     // rounding mode / sub-select
@@ -320,6 +320,8 @@ module warp_pool
     assign fp_fmt          = instr[26:25];
     assign fp_rm           = instr[14:12];
     assign fp_cvt_unsigned = instr[20];
+    // fcvt.s.h source is half when the rs2 field encodes the H format (00010).
+    assign fp_cvt_src_h    = (fp_funct5 == FP_CVT_FF) && (instr[24:20] == 5'b00010);
     // FP ops whose RESULT lands in the integer register file (compares, float->int,
     // fmv.x.w / fclass); all other OP-FP results land in the f-register file.
     assign fp_int_dest = is_fp_op && ((fp_funct5 == FP_CMP)   ||
@@ -396,7 +398,8 @@ module warp_pool
         for (gp = 0; gp < NL; gp++) begin : g_fpu
             /* verilator lint_off PINCONNECTEMPTY */
             simt_fpu u_fpu (
-                .funct5(fp_funct5), .cvt_unsigned(fp_cvt_unsigned), .rm(fp_rm),
+                .funct5(fp_funct5), .cvt_unsigned(fp_cvt_unsigned),
+                .cvt_src_h(fp_cvt_src_h), .rm(fp_rm),
                 .fmt(fp_fmt), .a(frv1[gp]), .b(frv2[gp]), .xa(rv1[gp]),
                 .res(fpu_res[gp]), .int_dest()      // recomputed as fp_int_dest in decode
             );

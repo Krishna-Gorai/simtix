@@ -19,9 +19,18 @@ module tb_fpu
     import "DPI-C" function int unsigned ref_cvt_sw (input int unsigned x);
     import "DPI-C" function int unsigned ref_cvt_swu(input int unsigned x);
     import "DPI-C" function int unsigned ref_cvt_ws (input int unsigned a);
+    // FP16 references (tests/fpu_ref.c): operate on 16-bit half patterns.
+    import "DPI-C" function int unsigned ref_hadd(input int unsigned a, input int unsigned b);
+    import "DPI-C" function int unsigned ref_hsub(input int unsigned a, input int unsigned b);
+    import "DPI-C" function int unsigned ref_hmul(input int unsigned a, input int unsigned b);
+    import "DPI-C" function int unsigned ref_cvt_sh(input int unsigned h);  // half -> FP32
+    import "DPI-C" function int unsigned ref_cvt_hs(input int unsigned a);  // FP32 -> half
+    import "DPI-C" function int unsigned ref_cvt_wh(input int unsigned h);  // half -> int32
+    import "DPI-C" function int unsigned ref_cvt_hw(input int unsigned x);  // int32 -> half
 
     logic [4:0]  funct5;
     logic        cvt_unsigned;
+    logic        cvt_src_h;
     logic [2:0]  rm;
     logic [1:0]  fmt;
     logic [31:0] a, b, xa;
@@ -30,8 +39,25 @@ module tb_fpu
     logic        int_dest;       // exercised by integration; not checked here
     /* verilator lint_on UNUSEDSIGNAL */
 
-    simt_fpu dut (.funct5(funct5), .cvt_unsigned(cvt_unsigned), .rm(rm), .fmt(fmt),
+    simt_fpu dut (.funct5(funct5), .cvt_unsigned(cvt_unsigned), .cvt_src_h(cvt_src_h),
+                  .rm(rm), .fmt(fmt),
                   .a(a), .b(b), .xa(xa), .res(res), .int_dest(int_dest));
+
+    // NaN-box a 16-bit half into a 32-bit f-register value.
+    function automatic logic [31:0] boxh(input logic [15:0] h);
+        return {16'hffff, h};
+    endfunction
+    // Random FP16 with exponent in [11,19]: add/sub/mul of two such stay normal
+    // (never subnormal/zero/inf/NaN), so results never hit the FTZ/overflow corners.
+    function automatic logic [15:0] rand_half_normal();
+        logic       s;
+        logic [4:0] e;
+        logic [9:0] m;
+        s = 1'($random);
+        e = 5'(11 + ($unsigned($random) % 9));
+        m = 10'($random);
+        return {s, e, m};
+    endfunction
 
     int unsigned errors = 0;
     int unsigned checks = 0;
@@ -60,8 +86,8 @@ module tb_fpu
     endtask
 
     initial begin
-        fmt = FMT_S; rm = 3'b000; cvt_unsigned = 1'b0; a = 0; b = 0; xa = 0;
-        funct5 = FP_ADD;
+        fmt = FMT_S; rm = 3'b000; cvt_unsigned = 1'b0; cvt_src_h = 1'b0;
+        a = 0; b = 0; xa = 0; funct5 = FP_ADD;
 
         $display("[tb_fpu] random normal-range add/sub/mul vs DPI float golden");
         for (int i = 0; i < 8000; i++) begin
@@ -111,6 +137,74 @@ module tb_fpu
             funct5 = FP_CVT_S; cvt_unsigned = 1'b1; xa = iv; ck(ref_cvt_swu(iv), "cvt.s.wu");
             fv = rand_normal();
             funct5 = FP_CVT_W; cvt_unsigned = 1'b0; a = fv; ck(ref_cvt_ws(fv),  "cvt.w.s");
+        end
+
+        // ══════════════════════════ FP16 (HALF) ═══════════════════════════════════
+        fmt = FMT_H; rm = 3'b000; cvt_unsigned = 1'b0; cvt_src_h = 1'b0;
+
+        $display("[tb_fpu] FP16 random normal-range add/sub/mul vs DPI half golden");
+        for (int i = 0; i < 8000; i++) begin
+            logic [15:0] av, bv;
+            av = rand_half_normal(); bv = rand_half_normal();
+            funct5 = FP_ADD; a = boxh(av); b = boxh(bv); ck(boxh(16'(ref_hadd(32'(av), 32'(bv)))), "hadd");
+            funct5 = FP_SUB; a = boxh(av); b = boxh(bv); ck(boxh(16'(ref_hsub(32'(av), 32'(bv)))), "hsub");
+            funct5 = FP_MUL; a = boxh(av); b = boxh(bv); ck(boxh(16'(ref_hmul(32'(av), 32'(bv)))), "hmul");
+        end
+        $display("  %0d checks, %0d errors so far", checks, errors);
+
+        $display("[tb_fpu] FP16 directed specials + NaN-boxing");
+        funct5 = FP_ADD; a = boxh(16'h7c00); b = boxh(16'h7c00); ck(boxh(16'h7c00), "hinf+inf");
+        funct5 = FP_ADD; a = boxh(16'h7c00); b = boxh(16'hfc00); ck(boxh(16'h7e00), "hinf-inf");
+        funct5 = FP_MUL; a = boxh(16'h0000); b = boxh(16'h7c00); ck(boxh(16'h7e00), "h0*inf");
+        funct5 = FP_MUL; a = boxh(16'h3c00); b = boxh(16'h4000); ck(boxh(16'h4000), "h1*2");
+        funct5 = FP_ADD; a = boxh(16'h3c00); b = boxh(16'hbc00); ck(boxh(16'h0000), "h1-1");
+        funct5 = FP_ADD; a = boxh(16'h3c00); b = boxh(16'h0001); ck(boxh(16'h3c00), "h1+denorm(FTZ)");
+        funct5 = FP_MUL; a = boxh(16'h7bff); b = boxh(16'h4000); ck(boxh(16'h7c00), "hovf->inf");
+        funct5 = FP_MUL; a = boxh(16'h0400); b = boxh(16'h0400); ck(boxh(16'h0000), "hunf->0(FTZ)");
+        // mis-NaN-boxed operand (upper bits not all ones) must read as canonical NaN
+        funct5 = FP_ADD; a = 32'h0000_3c00; b = boxh(16'h3c00); ck(boxh(16'h7e00), "unboxed->nan");
+
+        $display("[tb_fpu] FP16 sgnj / minmax / compare / fmv");
+        funct5 = FP_SGNJ; rm = 3'b000; a = boxh(16'h3c00); b = boxh(16'hbc00); ck(boxh(16'hbc00), "hsgnj");
+        funct5 = FP_SGNJ; rm = 3'b001; a = boxh(16'h3c00); b = boxh(16'hbc00); ck(boxh(16'h3c00), "hsgnjn");
+        funct5 = FP_SGNJ; rm = 3'b010; a = boxh(16'hbc00); b = boxh(16'hbc00); ck(boxh(16'h3c00), "hsgnjx");
+        funct5 = FP_MINMAX; rm = 3'b000; a = boxh(16'h4000); b = boxh(16'h3c00); ck(boxh(16'h3c00), "hmin");
+        funct5 = FP_MINMAX; rm = 3'b001; a = boxh(16'h4000); b = boxh(16'h3c00); ck(boxh(16'h4000), "hmax");
+        funct5 = FP_MINMAX; rm = 3'b000; a = boxh(16'h7e00); b = boxh(16'h3c00); ck(boxh(16'h3c00), "hmin(nan,1)");
+        funct5 = FP_CMP; rm = 3'b001; a = boxh(16'h3c00); b = boxh(16'h4000); ck(32'd1, "hlt");
+        funct5 = FP_CMP; rm = 3'b010; a = boxh(16'h3c00); b = boxh(16'h3c00); ck(32'd1, "heq");
+        funct5 = FP_CMP; rm = 3'b000; a = boxh(16'h4000); b = boxh(16'h3c00); ck(32'd0, "hle");
+        funct5 = FP_CMP; rm = 3'b010; a = boxh(16'h7e00); b = boxh(16'h3c00); ck(32'd0, "heq(nan)");
+        // fmv.x.h sign-extends the 16-bit value; fmv.h.x NaN-boxes the low 16 bits
+        funct5 = FP_FMVXW; rm = 3'b000; a = boxh(16'hbc00); ck(32'hffff_bc00, "fmv.x.h(neg)");
+        funct5 = FP_FMVXW; rm = 3'b000; a = boxh(16'h3c00); ck(32'h0000_3c00, "fmv.x.h(pos)");
+        funct5 = FP_FMVWX; xa = 32'h1234_abcd;              ck(boxh(16'habcd), "fmv.h.x");
+        // fclass.h: -normal (bit1), +0 (bit4), +inf (bit7), qNaN (bit9)
+        funct5 = FP_FMVXW; rm = 3'b001; a = boxh(16'hbc00); ck(32'h0000_0002, "fclass.h(-norm)");
+        funct5 = FP_FMVXW; rm = 3'b001; a = boxh(16'h0000); ck(32'h0000_0010, "fclass.h(+0)");
+        funct5 = FP_FMVXW; rm = 3'b001; a = boxh(16'h7c00); ck(32'h0000_0080, "fclass.h(+inf)");
+        funct5 = FP_FMVXW; rm = 3'b001; a = boxh(16'h7e00); ck(32'h0000_0200, "fclass.h(qnan)");
+
+        $display("[tb_fpu] FP16 conversions vs DPI golden");
+        rm = 3'b000; cvt_unsigned = 1'b0;
+        for (int i = 0; i < 4000; i++) begin
+            logic [15:0] hv;
+            logic [31:0] fv, iv;
+            hv = rand_half_normal();
+            // fcvt.s.h : half -> FP32 (source is half)
+            funct5 = FP_CVT_FF; fmt = FMT_S; cvt_src_h = 1'b1; a = boxh(hv);
+            ck(ref_cvt_sh(32'(hv)), "cvt.s.h");
+            // fcvt.h.s : FP32 (in FP16's normal range) -> half
+            fv = {1'($random), 8'(115 + ($unsigned($random) % 26)), 23'($random)};
+            funct5 = FP_CVT_FF; fmt = FMT_H; cvt_src_h = 1'b0; a = fv;
+            ck(boxh(16'(ref_cvt_hs(fv))), "cvt.h.s");
+            // fcvt.w.h : half -> int32 (RTZ)
+            funct5 = FP_CVT_W; fmt = FMT_H; cvt_src_h = 1'b0; a = boxh(hv);
+            ck(ref_cvt_wh(32'(hv)), "cvt.w.h");
+            // fcvt.h.w : int32 -> half (RNE)
+            iv = $random;
+            funct5 = FP_CVT_S; fmt = FMT_H; cvt_src_h = 1'b0; xa = iv;
+            ck(boxh(16'(ref_cvt_hw(iv))), "cvt.h.w");
         end
 
         $display("[tb_fpu] total %0d checks, %0d errors", checks, errors);

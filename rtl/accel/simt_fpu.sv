@@ -1,28 +1,37 @@
 // =============================================================================
-// simt_fpu.sv  -  M14.1 compact per-lane single-precision (FP32) execute unit
+// simt_fpu.sv  -  per-lane floating-point execute unit (FP32 + FP16)
 //
-// A purely combinational RV32F execute datapath for the COMMON floating-point
-// ops, instantiated once per SIMT lane:
-//     fadd.s  fsub.s  fmul.s                       (arithmetic)
-//     fsgnj.s  fsgnjn.s  fsgnjx.s                  (sign inject)
-//     fmin.s  fmax.s                               (IEEE minNum/maxNum)
-//     feq.s  flt.s  fle.s                          (compares  -> integer reg)
-//     fcvt.w.s  fcvt.wu.s                          (float -> int, RTZ)
-//     fcvt.s.w  fcvt.s.wu                          (int -> float, RNE)
-//     fmv.x.w  fclass.s                            (bit move / classify -> int)
-//     fmv.w.x                                      (bit move int -> float)
+// A purely combinational RV32F + Zfh execute datapath for the COMMON floating-
+// point ops, instantiated once per SIMT lane. Single (S, FP32) and half (H,
+// FP16) precision share ONE datapath:
+//     fadd  fsub  fmul                          (arithmetic)
+//     fsgnj  fsgnjn  fsgnjx                      (sign inject)
+//     fmin  fmax                                 (IEEE minNum/maxNum)
+//     feq  flt  fle                              (compares  -> integer reg)
+//     fcvt.w / fcvt.wu  (float -> int, RTZ),  fcvt.w/wu -> float (RNE)
+//     fcvt.s.h / fcvt.h.s                        (format convert, S<->H)
+//     fmv.x  fclass  (-> int),  fmv.*.x          (bit move int -> float)
+//
+// HALF PRECISION via WIDEN-COMPUTE-NARROW: FP16 operands are NaN-box-checked,
+// widened to FP32 (exact), run through the FP32 datapath, then the FP-result is
+// rounded back to FP16 (RNE) and NaN-boxed. This is bit-exact single-rounding for
+// add/sub/mul/int<->float: the FP32 intermediate carries 24 significand bits and
+// 24 >= 2*11+2, so by Figueroa's double-rounding theorem round-to-24 then
+// round-to-11 equals direct round-to-11. Sign-inject / min-max / fmv / fclass are
+// done natively at 16-bit (they are bit-select ops, not arithmetic).
 //
 // Rounding: round-to-nearest-even (RNE) for arithmetic and int->float; float->int
 // truncates toward zero (RTZ, matching a C cast). Subnormals are FLUSHED TO ZERO
-// (FTZ) on both inputs and results — a deliberate GPU-style throughput choice that
-// keeps the per-lane datapath small. NaN/inf/signed-zero handled per IEEE-754.
+// (FTZ) on both inputs and results, for BOTH formats — a deliberate GPU-style
+// throughput choice that keeps the per-lane datapath small. NaN/inf/signed-zero
+// per IEEE-754; a mis-NaN-boxed FP16 operand reads as the canonical FP16 NaN.
 //
 // NOT here (by design): fused multiply-add (M14.1b — exact single rounding), div/
-// sqrt (shared SFU, M14.3), FP16 (M14.2). fmt != S returns 0. No FCSR yet, so
-// exception flags are not produced.
+// sqrt (shared SFU, M14.3). No FCSR yet, so exception flags are not produced.
 //
-// Verified standalone (tests/tb_fpu.sv) bit-exact against IEEE `shortreal` over
-// tens of thousands of random vectors plus directed inf/NaN/zero/FTZ corners.
+// Verified standalone (tests/tb_fpu.sv) bit-exact against a DPI-C IEEE reference
+// over tens of thousands of random vectors plus directed inf/NaN/zero/FTZ corners,
+// for both FP32 and FP16.
 // =============================================================================
 `timescale 1ns/1ps
 
@@ -30,23 +39,116 @@ module simt_fpu
   import simtix_pkg::*;
 (
     input  logic [4:0]  funct5,       // OP-FP operation select (instr[31:27])
-    input  logic        cvt_unsigned, // instr[20] — unsigned variant of fcvt
+    input  logic        cvt_unsigned, // instr[20] — unsigned variant of fcvt int
+    input  logic        cvt_src_h,    // fcvt.f.f: source operand is half (rs2==H)
     input  logic [2:0]  rm,           // funct3 — rounding mode / group sub-select
-    input  logic [1:0]  fmt,      // format (only FMT_S handled here)
-    input  logic [31:0] a,        // f[rs1]
-    input  logic [31:0] b,        // f[rs2]
-    input  logic [31:0] xa,       // x[rs1]  (int->float, fmv.w.x)
+    input  logic [1:0]  fmt,          // format of the op: FMT_S (FP32) / FMT_H (FP16)
+    input  logic [31:0] a,        // f[rs1] (NaN-boxed if half)
+    input  logic [31:0] b,        // f[rs2] (NaN-boxed if half)
+    input  logic [31:0] xa,       // x[rs1]  (int->float, fmv.*.x)
     output logic [31:0] res,      // result bits (FP or int per int_dest)
     output logic        int_dest  // 1: result goes to the integer register file
 );
-    localparam logic [31:0] CANON_QNAN = 32'h7fc0_0000;  // canonical quiet NaN
+    localparam logic [31:0] CANON_QNAN   = 32'h7fc0_0000;  // canonical quiet NaN (FP32)
+    localparam logic [15:0] CANON_QNAN_H = 16'h7e00;        // canonical quiet NaN (FP16)
 
-    // ── Unpack + classify (FTZ: a zero exponent — incl. subnormal — reads as 0) ──
+    // ── Format selection ─────────────────────────────────────────────────────────
+    // op_is_h : operands are interpreted as FP16 (and widened). For ordinary ops
+    //   this is fmt==H; for the format-convert op it follows the SOURCE format.
+    // dst_is_h: the FP result is FP16 (and narrowed + NaN-boxed) — always fmt==H.
+    logic op_is_h, dst_is_h;
+    assign op_is_h  = (funct5 == FP_CVT_FF) ? cvt_src_h : (fmt == FMT_H);
+    assign dst_is_h = (fmt == FMT_H);
+
+    // ── FP16 operand bits, NaN-box checked (upper half must be all ones) ──────────
+    logic        a_box_ok, b_box_ok;
+    assign a_box_ok = (a[31:16] == 16'hffff);
+    assign b_box_ok = (b[31:16] == 16'hffff);
+    logic [15:0] a16, b16;
+    assign a16 = a_box_ok ? a[15:0] : CANON_QNAN_H;
+    assign b16 = b_box_ok ? b[15:0] : CANON_QNAN_H;
+
+    // FP16 unpack + classify (FTZ: subnormal exponent reads as zero).
+    logic        hsa, hsb;
+    logic [4:0]  hea, heb;
+    logic [9:0]  hma;
+    assign hsa = a16[15]; assign hea = a16[14:10]; assign hma = a16[9:0];
+    assign hsb = b16[15]; assign heb = b16[14:10];   // b's mantissa: only zero-flag needed
+    logic ha_zero, ha_inf, ha_nan, ha_snan, hb_zero;
+    assign ha_zero = (hea == 5'd0);
+    assign ha_inf  = (hea == 5'h1f) && (hma == 10'd0);
+    assign ha_nan  = (hea == 5'h1f) && (hma != 10'd0);
+    assign ha_snan = ha_nan && !hma[9];
+    assign hb_zero = (heb == 5'd0);
+    // FTZ-canonicalised FP16 operands (for min/max signed-zero selection)
+    logic [15:0] a16can, b16can;
+    assign a16can = ha_zero ? {hsa, 15'd0} : a16;
+    assign b16can = hb_zero ? {hsb, 15'd0} : b16;
+
+    // ── FP16 -> FP32 widening (exact; FTZ subnormal input -> zero) ────────────────
+    function automatic logic [31:0] widen_h(input logic [15:0] h);
+        logic        s;
+        logic [4:0]  e;
+        logic [9:0]  m;
+        s = h[15]; e = h[14:10]; m = h[9:0];
+        if (e == 5'h1f)        widen_h = (m == 10'd0) ? {s, 8'hff, 23'd0} : CANON_QNAN;
+        else if (e == 5'd0)    widen_h = {s, 31'd0};                  // zero / subnormal (FTZ)
+        else                   widen_h = {s, 8'(8'(e) + 8'd112), m, 13'd0}; // exp += (127-15)
+    endfunction
+
+    // ── FP32 -> FP16 narrowing (RNE; FTZ subnormal result -> zero; over -> inf) ───
+    function automatic logic [15:0] narrow_h(input logic [31:0] x);
+        logic               s;
+        logic [7:0]         e32;
+        logic [22:0]        m32;
+        logic signed [9:0]  e_unb, e16;
+        logic [10:0]        sig;      // {hidden, top-10 of mantissa}
+        logic               g, r, st;
+        /* verilator lint_off UNUSEDSIGNAL */  // rounded[10] is the hidden bit, not stored
+        logic [11:0]        rounded;
+        /* verilator lint_on UNUSEDSIGNAL */
+        s = x[31]; e32 = x[30:23]; m32 = x[22:0];
+        if (e32 == 8'hff)      narrow_h = (m32 == 23'd0) ? {s, 5'h1f, 10'd0} : CANON_QNAN_H;
+        else if (e32 == 8'd0)  narrow_h = {s, 15'd0};               // zero / subnormal (FTZ)
+        else begin
+            e_unb = $signed({2'b0, e32}) - 10'sd127;
+            if (e_unb > 10'sd15)        narrow_h = {s, 5'h1f, 10'd0};  // overflow -> inf
+            else if (e_unb < -10'sd14)  narrow_h = {s, 15'd0};         // FP16-subnormal (FTZ)
+            else begin
+                sig     = {1'b1, m32[22:13]};
+                g       = m32[12];
+                r       = m32[11];
+                st      = |m32[10:0];
+                rounded = {1'b0, sig} + ((g && (r || st || sig[0])) ? 12'd1 : 12'd0);
+                e16     = e_unb + 10'sd15;
+                if (rounded[11]) begin                 // significand carried out -> exp++
+                    e16 = e16 + 10'sd1;
+                    narrow_h = (e16 > 10'sd30) ? {s, 5'h1f, 10'd0}     // rounded up to inf
+                                               : {s, e16[4:0], 10'd0};
+                end else begin
+                    narrow_h = {s, e16[4:0], rounded[9:0]};
+                end
+            end
+        end
+    endfunction
+    // NaN-box an FP16 result into a 32-bit f-register value.
+    function automatic logic [31:0] boxH(input logic [15:0] h);
+        boxH = {16'hffff, h};
+    endfunction
+
+    // ── Effective FP32 operands feeding the shared datapath ──────────────────────
+    // For FP32 ops these are a/b unchanged, so all FP32 behaviour is preserved
+    // bit-for-bit; for FP16 ops they are the widened operands.
+    logic [31:0] opa, opb;
+    assign opa = op_is_h ? widen_h(a16) : a;
+    assign opb = op_is_h ? widen_h(b16) : b;
+
+    // ── Unpack + classify the FP32-domain operands (FTZ) ─────────────────────────
     logic        sa, sb;
     logic [7:0]  ea, eb;
     logic [22:0] ma, mb;
-    assign sa = a[31]; assign ea = a[30:23]; assign ma = a[22:0];
-    assign sb = b[31]; assign eb = b[30:23]; assign mb = b[22:0];
+    assign sa = opa[31]; assign ea = opa[30:23]; assign ma = opa[22:0];
+    assign sb = opb[31]; assign eb = opb[30:23]; assign mb = opb[22:0];
 
     logic a_zero, a_inf, a_nan, a_snan;
     logic b_zero, b_inf, b_nan;
@@ -200,31 +302,46 @@ module simt_fpu
     end
 
     // ═══════════════════════════ SGNJ / MINMAX / CMP ════════════════════════════
-    logic [31:0] sgnj_res;
-    always_comb begin
-        logic newsign;
-        unique case (rm)
-            3'b000:  newsign = sb;          // fsgnj
-            3'b001:  newsign = ~sb;         // fsgnjn
-            default: newsign = sa ^ sb;     // fsgnjx
+    // Sign-inject is a bit op, done natively per format (FP32 on a/b, FP16 on a16/
+    // b16) so it never canonicalises a NaN operand's payload.
+    function automatic logic sgn_sel(input logic [2:0] mode,
+                                     input logic sgn_a, input logic sgn_b);
+        unique case (mode)
+            3'b000:  sgn_sel = sgn_b;          // fsgnj
+            3'b001:  sgn_sel = ~sgn_b;         // fsgnjn
+            default: sgn_sel = sgn_a ^ sgn_b;  // fsgnjx
         endcase
-        sgnj_res = {newsign, a[30:0]};
-    end
+    endfunction
+    logic [31:0] sgnj_res;
+    logic [15:0] sgnj_res_h;
+    assign sgnj_res   = {sgn_sel(rm, a[31],   b[31]),   a[30:0]};
+    assign sgnj_res_h = {sgn_sel(rm, a16[15], b16[15]), a16[14:0]};
 
-    // canonicalised (FTZ) operands for the ordered comparisons / min-max
+    // canonicalised (FTZ) FP32-domain operands for ordered comparisons / min-max
     logic [31:0] acan, bcan;
-    assign acan = a_zero ? {sa, 31'd0} : a;
-    assign bcan = b_zero ? {sb, 31'd0} : b;
+    assign acan = a_zero ? {sa, 31'd0} : opa;
+    assign bcan = b_zero ? {sb, 31'd0} : opb;
+
+    // less-than on the (widened) operands — monotonic, so it gives the correct FP16
+    // ordering too; min/max then SELECT the original operand of the right format.
+    logic mm_less;
+    assign mm_less = fp_lt(acan, bcan, a_zero, b_zero);
 
     logic [31:0] minmax_res;
     always_comb begin
-        logic less;
-        less = fp_lt(acan, bcan, a_zero, b_zero);
         if      (a_nan && b_nan) minmax_res = CANON_QNAN;
         else if (a_nan)          minmax_res = bcan;
         else if (b_nan)          minmax_res = acan;
-        else if (rm == 3'b000)   minmax_res = less ? acan : bcan;   // fmin
-        else                     minmax_res = less ? bcan : acan;   // fmax
+        else if (rm == 3'b000)   minmax_res = mm_less ? acan : bcan;   // fmin
+        else                     minmax_res = mm_less ? bcan : acan;   // fmax
+    end
+    logic [15:0] minmax_res_h;
+    always_comb begin
+        if      (a_nan && b_nan) minmax_res_h = CANON_QNAN_H;
+        else if (a_nan)          minmax_res_h = b16can;
+        else if (b_nan)          minmax_res_h = a16can;
+        else if (rm == 3'b000)   minmax_res_h = mm_less ? a16can : b16can;
+        else                     minmax_res_h = mm_less ? b16can : a16can;
     end
 
     logic [31:0] cmp_res;
@@ -232,7 +349,7 @@ module simt_fpu
         logic eq, lt, le, unordered;
         unordered = a_nan || b_nan;
         eq = !unordered && ( (a_zero && b_zero) ? 1'b1 :
-                             (!a_zero && !b_zero) ? (a == b) : 1'b0 );
+                             (!a_zero && !b_zero) ? (opa == opb) : 1'b0 );
         lt = !unordered && fp_lt(acan, bcan, a_zero, b_zero);
         le = lt || eq;
         unique case (rm)
@@ -243,7 +360,9 @@ module simt_fpu
     end
 
     // ═══════════════════════ CONVERSIONS  +  MOVES ══════════════════════════════
-    // float -> int (truncate toward zero, RISC-V saturation; NaN -> max).
+    // float -> int (truncate toward zero, RISC-V saturation; NaN -> max). Operates
+    // on the widened operand, so fcvt.w.h is the same path (FP16 magnitudes are well
+    // within int32 range, no extra saturation needed).
     logic [31:0] cvt_w_res;
     always_comb begin
         logic               is_unsigned;
@@ -273,7 +392,8 @@ module simt_fpu
         end
     end
 
-    // int -> float (RNE).
+    // int -> float (RNE). Produces FP32; narrowed to FP16 in the final mux for
+    // fcvt.h.w / fcvt.h.wu (single-rounded by Figueroa: 24 >= 2*11+2).
     logic [31:0] cvt_s_res;
     always_comb begin
         logic               is_unsigned, sign;
@@ -310,7 +430,9 @@ module simt_fpu
         end
     end
 
-    // fclass.s -> 10-bit one-hot mask (FTZ: the subnormal bits never set).
+    // fclass -> 10-bit one-hot mask (FTZ: the subnormal bits never set). FP32 reads
+    // the widened-domain flags; FP16 classifies the native 16-bit operand so the
+    // sNaN/qNaN split survives (widening canonicalises NaNs to quiet).
     logic [31:0] class_res;
     always_comb begin
         logic [9:0] c;
@@ -325,29 +447,45 @@ module simt_fpu
         if (a_nan && !a_snan)  c[9] = 1'b1;                                   // qNaN
         class_res = {22'd0, c};
     end
+    logic [9:0] class16;
+    always_comb begin
+        logic [9:0] c;
+        c = 10'd0;
+        if      (ha_inf && hsa)                                   c[0] = 1'b1;  // -inf
+        else if (hsa && !ha_zero && !ha_nan && !ha_inf)           c[1] = 1'b1;  // -normal
+        else if (ha_zero && hsa)                                  c[3] = 1'b1;  // -0
+        else if (ha_zero && !hsa)                                 c[4] = 1'b1;  // +0
+        else if (!hsa && !ha_zero && !ha_nan && !ha_inf)          c[6] = 1'b1;  // +normal
+        else if (ha_inf && !hsa)                                  c[7] = 1'b1;  // +inf
+        if (ha_snan)            c[8] = 1'b1;                                    // sNaN
+        if (ha_nan && !ha_snan) c[9] = 1'b1;                                    // qNaN
+        class16 = c;
+    end
 
     // ════════════════════════════ Final result mux ═════════════════════════════
+    // FP-result ops narrow + NaN-box when dst_is_h; int-result ops (cmp/cvt.w/
+    // fmv.x/fclass) never narrow.
     always_comb begin
         int_dest = 1'b0;
         res      = 32'd0;
-        if (fmt != FMT_S) begin
-            res      = 32'd0;                  // M14.1: only single precision
-            int_dest = (funct5 == FP_CMP) || (funct5 == FP_CVT_W) ||
-                       (funct5 == FP_FMVXW);
-        end else begin
-            unique case (funct5)
-                FP_ADD, FP_SUB: res = add_res;
-                FP_MUL:         res = mul_res;
-                FP_SGNJ:        res = sgnj_res;
-                FP_MINMAX:      res = minmax_res;
-                FP_CMP:    begin res = cmp_res;   int_dest = 1'b1; end
-                FP_CVT_W:  begin res = cvt_w_res; int_dest = 1'b1; end
-                FP_CVT_S:       res = cvt_s_res;
-                FP_FMVXW:  begin res = (rm == 3'b000) ? a : class_res; int_dest = 1'b1; end
-                FP_FMVWX:       res = xa;
-                default:        res = 32'd0;
-            endcase
-        end
+        unique case (funct5)
+            FP_ADD, FP_SUB: res = dst_is_h ? boxH(narrow_h(add_res))   : add_res;
+            FP_MUL:         res = dst_is_h ? boxH(narrow_h(mul_res))   : mul_res;
+            FP_SGNJ:        res = dst_is_h ? boxH(sgnj_res_h)          : sgnj_res;
+            FP_MINMAX:      res = dst_is_h ? boxH(minmax_res_h)        : minmax_res;
+            FP_CVT_S:       res = dst_is_h ? boxH(narrow_h(cvt_s_res)) : cvt_s_res;
+            FP_CVT_FF:      res = dst_is_h ? boxH(narrow_h(opa))       : opa; // S<->H convert
+            FP_FMVWX:       res = dst_is_h ? boxH(xa[15:0])            : xa;
+            FP_CMP:    begin res = cmp_res;   int_dest = 1'b1; end
+            FP_CVT_W:  begin res = cvt_w_res; int_dest = 1'b1; end
+            FP_FMVXW:  begin
+                // rm==000: fmv.x.* (move bits, sign-extend the half); else fclass.
+                if (rm == 3'b000) res = op_is_h ? {{16{a[15]}}, a[15:0]} : a;
+                else              res = op_is_h ? {22'd0, class16}       : class_res;
+                int_dest = 1'b1;
+            end
+            default:        res = 32'd0;
+        endcase
     end
 
 endmodule : simt_fpu
