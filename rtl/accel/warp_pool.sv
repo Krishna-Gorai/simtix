@@ -732,12 +732,15 @@ module warp_pool
             dbg_issued_insns<= 32'd0;
             dbg_active_lanes<= 32'd0;
             for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
+            // Two single-statement loops (NOT one begin/end body): Verilator's
+            // array-init pass only accepts a lone delayed array write per for loop
+            // (BLKLOOPINIT on 5.020), so reg/freg clears stay separate.
             for (int k = 0; k < NW; k++)
                 for (int l = 0; l < NL; l++)
-                    for (int r = 0; r < 32; r++) begin
-                        reg_written[k][l][r]  <= 1'b0;
-                        freg_written[k][l][r] <= 1'b0;
-                    end
+                    for (int r = 0; r < 32; r++) reg_written[k][l][r] <= 1'b0;
+            for (int k = 0; k < NW; k++)
+                for (int l = 0; l < NL; l++)
+                    for (int r = 0; r < 32; r++) freg_written[k][l][r] <= 1'b0;
         end else begin
             done <= 1'b0;                         // default: 1-cycle pulse
 
@@ -770,10 +773,9 @@ module warp_pool
                     // inference). Instead mark every register unwritten so reads
                     // return their spawn seed (a0=tid, a1..a4=args, else 0).
                     for (int l = 0; l < NL; l++) begin
-                        for (int r = 0; r < 32; r++) begin
-                            reg_written[fill_w][l][r]  <= 1'b0;
-                            freg_written[fill_w][l][r] <= 1'b0;   // M14.0: f-regs unwritten
-                        end
+                        // Separate single-statement r-loops (see BLKLOOPINIT note above).
+                        for (int r = 0; r < 32; r++) reg_written[fill_w][l][r]  <= 1'b0;
+                        for (int r = 0; r < 32; r++) freg_written[fill_w][l][r] <= 1'b0;
                         tmask[l] = ((sbase + l[31:0]) < arg_n);   // tail mask
                     end
                     warp_base[fill_w]        <= sbase;
@@ -905,10 +907,11 @@ module warp_pool
                 // 3b) Mark written registers valid. The VRF data write itself happens
                 //     in the per-lane distributed-RAM banks (see the generate block);
                 //     here we only record that the register is no longer at its seed.
-                for (int l = 0; l < NL; l++) begin
+                //     Kept as two single-statement loops (see BLKLOOPINIT note above).
+                for (int l = 0; l < NL; l++)
                     if (v_we[l])  reg_written [v_ww[l]][l][v_wr[l]] <= 1'b1;
+                for (int l = 0; l < NL; l++)
                     if (fv_we[l]) freg_written[fv_ww[l]][l][fv_wr[l]] <= 1'b1;
-                end
 
                 // 4) Completion: nothing left to spawn and no slot running.
                 if (!any_busy) begin
