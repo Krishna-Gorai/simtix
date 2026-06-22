@@ -33,6 +33,7 @@ module tb_fpu
     import "DPI-C" function int unsigned ref_hfma(input int unsigned a, input int unsigned b,
                                                   input int unsigned c, input int np, input int nc);
 
+    logic        clk = 0;
     logic [4:0]  funct5;
     logic        cvt_unsigned;
     logic        cvt_src_h;
@@ -45,7 +46,13 @@ module tb_fpu
     logic        int_dest;       // exercised by integration; not checked here
     /* verilator lint_on UNUSEDSIGNAL */
 
-    simt_fpu dut (.funct5(funct5), .cvt_unsigned(cvt_unsigned), .cvt_src_h(cvt_src_h),
+    // simt_fpu is a 2-stage pipeline (M15): inputs presented in a cycle yield `res`
+    // one clock later.  ck() drives one posedge per check.
+    /* verilator lint_off BLKSEQ */
+    always #5 clk = ~clk;
+    /* verilator lint_on BLKSEQ */
+
+    simt_fpu dut (.clk(clk), .funct5(funct5), .cvt_unsigned(cvt_unsigned), .cvt_src_h(cvt_src_h),
                   .rm(rm), .fmt(fmt),
                   .is_fma(is_fma), .fma_np(fma_np), .fma_nc(fma_nc),
                   .a(a), .b(b), .c(c), .xa(xa), .res(res), .int_dest(int_dest));
@@ -104,13 +111,18 @@ module tb_fpu
         return {s, e, m};
     endfunction
 
+    // The caller sets the operands/controls, then ck() clocks one cycle so the
+    // 2-stage FPU latches them (stage 1) and presents `res` (stage 2) for the check.
     task automatic ck(input logic [31:0] exp, input string tag);
+        logic [31:0] sa, sb, sc, sxa;
         checks++;
-        #1;
+        sa = a; sb = b; sc = c; sxa = xa;   // remember inputs for the message
+        @(posedge clk);                     // stage-1 latches the operands
+        #1;                                 // stage-2 combinational settles
         if (res !== exp) begin
             if (errors < 12)
                 $display("  [FAIL] %-10s a=%08h b=%08h c=%08h xa=%08h -> %08h exp %08h",
-                         tag, a, b, c, xa, res, exp);
+                         tag, sa, sb, sc, sxa, res, exp);
             errors++;
         end
     endtask

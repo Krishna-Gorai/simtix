@@ -100,9 +100,10 @@ module warp_pool
     localparam logic [31:0] RPC_BOTTOM = 32'hFFFF_FFFF;  // base frame never pops
 
     // ── Per-slot architectural state ──────────────────────────────────────────────
-    // W_SFU: parked on the multi-cycle divide/sqrt unit (M14.3), exactly like W_MEM
-    // parks on the background memory engine — the scheduler keeps issuing others.
-    typedef enum logic [2:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_DONE } wstate_e;
+    // W_SFU: parked on the multi-cycle divide/sqrt unit (M14.3). W_FPC: parked on the
+    // pipelined FP-compute unit (M15) — both mirror W_MEM's "park on a side engine
+    // while the scheduler keeps issuing other warps" pattern.
+    typedef enum logic [2:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_DONE } wstate_e;
     wstate_e        wstate    [0:NW-1];
 
     // Vector register file — one independent distributed-RAM (LUTRAM) bank per lane,
@@ -403,9 +404,8 @@ module warp_pool
     logic [31:0] addr  [0:NL-1];   // effective address / ALU result per lane
     logic [31:0] wb_val[0:NL-1];   // integer-VRF writeback value
     logic        wb_en [0:NL-1];   // integer-VRF writeback enable
-    logic [31:0] fwb_val[0:NL-1];  // FP-file writeback value (M14.1)
-    logic        fwb_en [0:NL-1];  // FP-file writeback enable
-    logic [31:0] fpu_res[0:NL-1];  // per-lane FP32 execute result
+    logic [NL-1:0] fwb_en;         // per-lane FP-compute writeback enable (-> fpc_we)
+    logic [31:0] fpu_res[0:NL-1];  // per-lane FP32 execute result (combinational)
 
     // ── M14.1: per-lane FP32 execute unit (combinational) ───────────────────────────
     // One simt_fpu per lane runs the OP-FP datapath (add/sub/mul, sign-inject,
@@ -418,6 +418,7 @@ module warp_pool
         for (gp = 0; gp < NL; gp++) begin : g_fpu
             /* verilator lint_off PINCONNECTEMPTY */
             simt_fpu u_fpu (
+                .clk(clk),
                 .funct5(fp_funct5), .cvt_unsigned(fp_cvt_unsigned),
                 .cvt_src_h(fp_cvt_src_h), .rm(fp_rm), .fmt(fp_fmt),
                 .is_fma(is_fma_op), .fma_np(fma_np), .fma_nc(fma_nc),
@@ -466,6 +467,26 @@ module warp_pool
     logic [31:0]      sfu_hold [0:NL-1];
     logic             sfu_wb_fire;    // SFU result drives the f-file this cycle
 
+    // ── M15: pipelined FP-compute (add/sub/mul/FMA/cvt/cmp/...) ──────────────────────
+    // The FPU combinational cone was the longest path in the design. simt_fpu is now
+    // a 2-STAGE pipeline (operands in cycle T -> result `fpu_res` in cycle T+1), which
+    // halves its critical path. To consume the 1-cycle-late result correctly, the
+    // issuing warp parks on a single-slot scoreboard (W_FPC) exactly like the SFU: at
+    // issue the warp parks; the next cycle the result is valid and is captured into
+    // the held `fpc_data`; then it is written back when the destination port is free
+    // (it YIELDS the f-file/VRF port to the memory and SFU engines, so it never
+    // collides). Only one FP-compute op is in flight at a time.
+    logic        do_fp;             // issue is an FP-compute op (not div/sqrt, not mem)
+    typedef enum logic [1:0] { FPC_IDLE, FPC_CAP, FPC_WB } fpc_st_e;
+    fpc_st_e          fpc_state;
+    logic [WIDXW-1:0] fpc_w;
+    logic [4:0]       fpc_rd;
+    logic             fpc_isfp;       // 1: result -> f-file; 0: -> integer VRF
+    logic [NL-1:0]    fpc_we;         // per-lane writeback enable (mask + x0 guard)
+    logic [31:0]      fpc_resume_pc;
+    logic [31:0]      fpc_data [0:NL-1];
+    logic             fpc_wb_fire;    // held FP-compute result drives its port this cycle
+
     always_comb begin
         for (int l = 0; l < NL; l++) begin
             logic [31:0] a, b, y;
@@ -512,11 +533,11 @@ module warp_pool
         end
     end
 
-    // Writeback value/enable for both register files, in a SEPARATE always_comb
-    // from the operand reads above. The FPU's result (fpu_res) depends on rv1 (the
-    // fmv.w.x / fcvt integer source feeds simt_fpu.xa); consuming fpu_res in the
-    // same block that drives rv1 makes Verilator see a (false) UNOPTFLAT loop, so
-    // the consumers live here while the operand block stays purely a producer.
+    // Integer-VRF writeback value/enable for the single-cycle INTEGER compute ops
+    // (ALU, jal/jalr link, csr tid). FP-compute results no longer commit here in the
+    // issue cycle — they are registered and written back through the FPC pipeline
+    // (W_FPC), so this block is integer-only. Kept SEPARATE from the operand reads
+    // above to avoid a false UNOPTFLAT loop (fpu_res depends on rv1).
     always_comb begin
         for (int l = 0; l < NL; l++) begin
             logic [31:0] tid_l;
@@ -529,17 +550,13 @@ module warp_pool
                 OP_SYSTEM: if (is_csr)             begin wb_val[l] = tid_l;         wb_en[l] = 1'b1; end
                 default: ;
             endcase
-            // FP op writing an integer register (feq/flt/fle, fcvt.w.s, fmv.x.w,
-            // fclass): take the FPU result onto the integer-VRF path.
-            if (fp_int_dest) begin wb_val[l] = fpu_res[l]; wb_en[l] = 1'b1; end
             if (rd == 5'd0)        wb_en[l] = 1'b0;
             if (!cur_mask[l])      wb_en[l] = 1'b0;   // masked-off lanes do nothing
 
-            // FP op writing an f-register (add/sub/mul/sgnj/min/max/fcvt.s.w/fmv.w.x):
-            // take the FPU result onto the f-file path. f0 is a real register, so no
-            // x0 guard; masked-off lanes still do nothing.
-            fwb_val[l] = fpu_res[l];
-            fwb_en[l]  = wb_is_fp && cur_mask[l] && !is_sfu_op;
+            // Per-lane FP-compute writeback enable, captured at issue into fpc_we:
+            // f-dest writes f0..f31 (no x0 guard), int-dest (cmp/cvt.w/fmv.x.w)
+            // honors rd!=x0. Masked-off lanes never write.
+            fwb_en[l]  = cur_mask[l] && (wb_is_fp || (rd != 5'd0));
         end
     end
 
@@ -672,7 +689,7 @@ module warp_pool
         any_busy = (next_wid != total_warps);   // warps still to spawn
         for (int k = 0; k < NW; k++)
             if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM) ||
-                (wstate[k] == W_SFU)) any_busy = 1'b1;
+                (wstate[k] == W_SFU) || (wstate[k] == W_FPC)) any_busy = 1'b1;
     end
 
     // ── VRF write arbiter (one write port per lane bank) ────────────────────────────
@@ -724,9 +741,13 @@ module warp_pool
         end
     end
     assign mem_wb_act     = |mem_wb_lane;
-    // A committing single-cycle compute: not a pop/ecall/memory op, and NOT a
-    // divide/sqrt (those retire through the multi-cycle SFU, below).
-    assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem && !is_sfu_op;
+    // An FP-compute op (add/sub/mul/FMA/sgnj/min/max/cmp/cvt/fmv/fclass — NOT div/
+    // sqrt, NOT a load/store): retires through the pipelined FPC unit (W_FPC).
+    assign do_fp          = issue_valid && !do_pop && !is_ecall && !is_mem &&
+                            ((is_fp_op && !is_sfu_op) || is_fma_op);
+    // A single-cycle INTEGER compute: not a pop/ecall/memory/divide-sqrt/FP-compute.
+    assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem &&
+                            !is_sfu_op && !do_fp;
 
     // Launch an fdiv/fsqrt: the issuing warp's f-operands are live this cycle, so a
     // 1-cycle start pulse latches them into the per-lane cores (which then iterate
@@ -736,13 +757,19 @@ module warp_pool
     // memory engine is not using the FP port this cycle (mem wins; SFU result waits).
     assign sfu_wb_fire = (sfu_state == SFU_WB) && !(mem_busy && mem_is_fp);
 
-    // A compute writeback is squashed when it contends for the SAME file port as the
-    // memory writeback (integer VRF if both integer, f-file if both FP), OR when an
-    // FP-dest compute contends with the SFU's f-file writeback this cycle. Ports that
-    // differ (e.g. an FP compute alongside an integer load) both proceed.
+    // The held FP-compute result drives its destination port when ready. It YIELDS to
+    // the (non-deferrable) memory engine on the relevant port, and to the SFU on the
+    // f-file — so it never collides; if blocked, it simply waits (the warp stays
+    // parked and the result is held in fpc_data).
+    assign fpc_wb_fire = (fpc_state == FPC_WB) &&
+                         ( fpc_isfp ? !((mem_wb_act && mem_is_fp) || sfu_wb_fire)
+                                    : !(mem_wb_act && !mem_is_fp) );
+
+    // A single-cycle integer compute (always integer-VRF dest now) is squashed when
+    // its port is taken this cycle by an integer memory load or the integer-dest FPC
+    // writeback. It re-issues next cycle (idempotent).
     assign squash_wb      = do_compute &&
-                            ((mem_wb_act && (wb_is_fp == mem_is_fp)) ||
-                             (sfu_wb_fire && wb_is_fp));
+                            ((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp));
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -756,14 +783,10 @@ module warp_pool
             fv_wd[l] = 32'd0;
             fv_ww[l] = '0;
             fv_wr[l] = 5'd0;
-            // The FP file (fv_we) and the integer VRF (v_we) are SEPARATE write ports,
-            // so they arbitrate INDEPENDENTLY. On each port the memory writeback wins
-            // and the compute writeback is squashed only when both target that port
-            // (squash_wb already encodes the wb_is_fp == mem_is_fp conflict). An FP
-            // compute alongside an integer load — or vice versa — both commit.
-            //
-            // FP-file port: flw load result, else an FP-dest compute (add/sub/mul/
-            // sgnj/min/max/fcvt.s.w/fmv.w.x). fwb_en already folds in wb_is_fp & mask.
+            // The FP file (fv_we) and the integer VRF (v_we) are SEPARATE write ports.
+            // FP-file port priority: flw load result > SFU div/sqrt > pipelined
+            // FP-compute (fpc, f-dest). The two deferrable engines (SFU, FPC) yield to
+            // the memory engine and, for FPC, to the SFU — see *_wb_fire above.
             if (mem_wb_lane[l] && mem_is_fp) begin                     // FP load writeback
                 fv_we[l] = 1'b1;
                 fv_ww[l] = mem_w;
@@ -776,23 +799,29 @@ module warp_pool
                 fv_wr[l] = sfu_rd;
                 fv_wa[l] = vaddr(sfu_w, sfu_rd);
                 fv_wd[l] = sfu_hold[l];
-            end else if (do_compute && !squash_wb && fwb_en[l]) begin  // FP compute writeback
+            end else if (fpc_wb_fire && fpc_isfp && fpc_we[l]) begin   // pipelined FP-compute (f)
                 fv_we[l] = 1'b1;
-                fv_ww[l] = issue_w;
-                fv_wr[l] = rd;
-                fv_wa[l] = vaddr(issue_w, rd);
-                fv_wd[l] = fwb_val[l];
+                fv_ww[l] = fpc_w;
+                fv_wr[l] = fpc_rd;
+                fv_wa[l] = vaddr(fpc_w, fpc_rd);
+                fv_wd[l] = fpc_data[l];
             end
-            // Integer VRF port: integer load result, else an integer-dest compute
-            // (ALU ops, jal/jalr link, csr tid, and FP compares / float->int / fmv.x.w
-            // which land here via wb_en). wb_en already excludes rd==x0 and masked lanes.
+            // Integer VRF port priority: integer load result > pipelined FP-compute
+            // (fpc, int-dest: cmp/cvt.w/fmv.x.w/fclass) > single-cycle integer compute
+            // (ALU/jal/jalr/csr). A colliding integer compute is squashed (squash_wb).
             if (mem_wb_lane[l] && !mem_is_fp) begin                    // integer mem writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = mem_w;
                 v_wr[l] = mem_rd;
                 v_wa[l] = vaddr(mem_w, mem_rd);
                 v_wd[l] = mem_wb_data[l];
-            end else if (do_compute && !squash_wb && !wb_is_fp && wb_en[l]) begin // int compute writeback
+            end else if (fpc_wb_fire && !fpc_isfp && fpc_we[l]) begin  // pipelined FP-compute (int)
+                v_we[l] = 1'b1;
+                v_ww[l] = fpc_w;
+                v_wr[l] = fpc_rd;
+                v_wa[l] = vaddr(fpc_w, fpc_rd);
+                v_wd[l] = fpc_data[l];
+            end else if (do_compute && !squash_wb && wb_en[l]) begin   // int compute writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = issue_w;
                 v_wr[l] = rd;
@@ -864,6 +893,7 @@ module warp_pool
             mem_is_scratch <= 1'b0;
             mem_pending    <= '0;
             sfu_state      <= SFU_IDLE;
+            fpc_state      <= FPC_IDLE;
             dbg_retire_a0  <= 32'd0;
             dbg_mem_txns   <= 32'd0;
             dbg_divergences<= 32'd0;
@@ -895,6 +925,7 @@ module warp_pool
                 rr_ptr         <= '0;
                 mem_busy       <= 1'b0;
                 sfu_state      <= SFU_IDLE;
+            fpc_state      <= FPC_IDLE;
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
                 dbg_scratch_txns<= 32'd0;
@@ -935,7 +966,8 @@ module warp_pool
                     // bookkeeping (no datapath); a memory op or an fdiv/fsqrt that
                     // finds its engine busy re-attempts later (don't count the stall).
                     if (!do_pop && !(is_mem && mem_busy) && !squash_wb &&
-                        !(is_sfu_op && sfu_state != SFU_IDLE)) begin
+                        !(is_sfu_op && sfu_state != SFU_IDLE) &&
+                        !(do_fp && fpc_state != FPC_IDLE)) begin
                         dbg_issued_insns <= dbg_issued_insns + 32'd1;
                         dbg_active_lanes <= dbg_active_lanes +
                                             {{(31-LIDXW){1'b0}}, n_active};
@@ -947,6 +979,21 @@ module warp_pool
                     end else if (is_ecall) begin
                         wstate[issue_w] <= W_DONE;
                         dbg_retire_a0   <= warp_base[issue_w];
+                    end else if (do_fp) begin
+                        // FP-compute: the operands feed the 2-stage FPU this cycle (its
+                        // result is valid next cycle); park the warp on the single-slot
+                        // FPC pipeline (the result is captured in FPC_CAP next cycle).
+                        // If FPC is busy with another warp, this warp waits (stays W_RUN).
+                        if (fpc_state == FPC_IDLE) begin
+                            fpc_w           <= issue_w;
+                            fpc_rd          <= rd;
+                            fpc_isfp        <= wb_is_fp;
+                            fpc_we          <= fwb_en;
+                            fpc_resume_pc   <= fallthru;
+                            wstate[issue_w] <= W_FPC;
+                            fpc_state       <= FPC_CAP;
+                        end
+                        // else: FPC busy → warp waits.
                     end else if (is_sfu_op) begin
                         // Divide / square-root: hand the warp to the multi-cycle SFU
                         // (per-lane cores started combinationally via sfu_start) and
@@ -1075,6 +1122,27 @@ module warp_pool
                         sfu_state                 <= SFU_IDLE;
                     end
                     default: sfu_state <= SFU_IDLE;
+                endcase
+
+                // 3d) FPC (pipelined FP-compute) engine step. CAP: take the held copy
+                //     of the registered FPU result (fpu_res_q, which captured it the
+                //     cycle the op issued). WB: drive it onto the f-file/VRF when the
+                //     port is free (yields to the memory + SFU engines), then resume
+                //     the parked warp after the FP op.
+                unique case (fpc_state)
+                    FPC_IDLE: ;   // launched in the issue step (sets FPC_CAP)
+                    FPC_CAP: begin
+                        // The 2-stage FPU result for the op issued last cycle is valid
+                        // this cycle; hold it for the writeback.
+                        for (int l = 0; l < NL; l++) fpc_data[l] <= fpu_res[l];
+                        fpc_state <= FPC_WB;
+                    end
+                    FPC_WB: if (fpc_wb_fire) begin
+                        stk_npc[fpc_w][sp[fpc_w]] <= fpc_resume_pc;
+                        wstate[fpc_w]             <= W_RUN;
+                        fpc_state                 <= FPC_IDLE;
+                    end
+                    default: fpc_state <= FPC_IDLE;
                 endcase
 
                 // 3b) Mark written registers valid. The VRF data write itself happens

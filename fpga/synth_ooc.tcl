@@ -48,11 +48,16 @@ read_xdc [list [file normalize ./constr/simt_accel_ooc.xdc]]
 # and a per-lane iterative div/sqrt SFU, so the netlist is markedly larger than the
 # M9 integer design. On this 8 GB host the timing-optimization phase would peak
 # above available RAM, so we synthesize -no_timing_driven (the M7b host-proven
-# low-memory recipe): area (LUT/FF/DSP/LUTRAM) and power are exact, and for this
-# largely single-cycle datapath the raw critical-path delay is a realistic Fmax
-# floor (reported below). flatten none still bounds peak RAM per module.
+# low-memory recipe): area (LUT/FF/DSP/LUTRAM) and power are exact. flatten none
+# still bounds peak RAM per module.
+#
+# M15: simt_fpu is now a 2-STAGE pipeline (the add/FMA datapath is split at its
+# `mag` boundary), roughly halving the FP critical path to close 100 MHz. This run
+# is TIMING-DRIVEN (no -no_timing_driven) so the post-synth Fmax is realistic;
+# -retiming lets the tool further balance the two FP stages. flatten none +
+# maxThreads 2 keep peak RAM bounded on the 8 GB host.
 synth_design -top simt_accel -part $part -mode out_of_context \
-    -flatten_hierarchy none -no_timing_driven
+    -flatten_hierarchy none -retiming
 
 # ── Reports: area, timing (Fmax), power ─────────────────────────────────────────
 report_utilization      -file $out_dir/post_synth_util.rpt
