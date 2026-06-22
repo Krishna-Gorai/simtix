@@ -100,7 +100,9 @@ module warp_pool
     localparam logic [31:0] RPC_BOTTOM = 32'hFFFF_FFFF;  // base frame never pops
 
     // ── Per-slot architectural state ──────────────────────────────────────────────
-    typedef enum logic [1:0] { W_EMPTY, W_RUN, W_MEM, W_DONE } wstate_e;
+    // W_SFU: parked on the multi-cycle divide/sqrt unit (M14.3), exactly like W_MEM
+    // parks on the background memory engine — the scheduler keeps issuing others.
+    typedef enum logic [2:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_DONE } wstate_e;
     wstate_e        wstate    [0:NW-1];
 
     // Vector register file — one independent distributed-RAM (LUTRAM) bank per lane,
@@ -342,6 +344,13 @@ module warp_pool
 
     assign wb_is_fp    = (is_fp_op && !fp_int_dest) || is_fma_op;
 
+    // M14.3: divide / square-root go to the multi-cycle shared-style SFU (one
+    // fp_divsqrt per lane behind a stall scoreboard), NOT the single-cycle FPU.
+    logic is_fdiv, is_fsqrt, is_sfu_op;
+    assign is_fdiv   = is_fp_op && (fp_funct5 == FP_DIV);
+    assign is_fsqrt  = is_fp_op && (fp_funct5 == FP_SQRT);
+    assign is_sfu_op = is_fdiv || is_fsqrt;
+
     // ── ALU control decode (shared) ────────────────────────────────────────────────
     logic [3:0] alu_ctrl;
     always_comb begin
@@ -419,6 +428,44 @@ module warp_pool
         end
     endgenerate
 
+    // ── M14.3: per-lane iterative divide/sqrt cores behind a stall scoreboard ────────
+    // One fp_divsqrt per lane. They all begin together when a warp issues an
+    // fdiv/fsqrt (sfu_start) on that warp's f-operands, iterate for ~26 (div) / 37
+    // (sqrt) cycles while the scheduler issues OTHER warps, and complete in the same
+    // cycle (uniform op across the warp). At most one warp's div/sqrt is in flight,
+    // mirroring the single-data-port memory engine. Building per-lane cores first
+    // (correctness); folding them into ONE shared serial unit is a later PPA trade.
+    logic        sfu_start;        // 1-cycle launch pulse (operands are issue_w's)
+    logic [31:0] sfu_res  [0:NL-1];
+    logic        sfu_done_l [0:NL-1];
+    logic        sfu_done;         // all lanes finish together; lane 0 is the witness
+    assign sfu_done = sfu_done_l[0];
+
+    genvar gs;
+    generate
+        for (gs = 0; gs < NL; gs++) begin : g_sfu
+            /* verilator lint_off PINCONNECTEMPTY */
+            fp_divsqrt u_sfu (    // per-warp scoreboard tracks busy; the pin is unused
+                .clk(clk), .rst(rst),
+                .start(sfu_start), .is_sqrt(is_fsqrt), .fmt(fp_fmt),
+                .a(frv1[gs]), .b(frv2[gs]),
+                .busy(), .done(sfu_done_l[gs]), .res(sfu_res[gs])
+            );
+            /* verilator lint_on PINCONNECTEMPTY */
+        end
+    endgenerate
+
+    // SFU scoreboard: which warp is parked, its active mask + dest f-reg + resume PC,
+    // and the held result between `done` and its f-file writeback.
+    typedef enum logic [1:0] { SFU_IDLE, SFU_RUN, SFU_WB } sfu_st_e;
+    sfu_st_e          sfu_state;
+    logic [WIDXW-1:0] sfu_w;
+    logic [NL-1:0]    sfu_mask;
+    logic [4:0]       sfu_rd;
+    logic [31:0]      sfu_resume_pc;
+    logic [31:0]      sfu_hold [0:NL-1];
+    logic             sfu_wb_fire;    // SFU result drives the f-file this cycle
+
     always_comb begin
         for (int l = 0; l < NL; l++) begin
             logic [31:0] a, b, y;
@@ -492,7 +539,7 @@ module warp_pool
             // take the FPU result onto the f-file path. f0 is a real register, so no
             // x0 guard; masked-off lanes still do nothing.
             fwb_val[l] = fpu_res[l];
-            fwb_en[l]  = wb_is_fp && cur_mask[l];
+            fwb_en[l]  = wb_is_fp && cur_mask[l] && !is_sfu_op;
         end
     end
 
@@ -624,7 +671,8 @@ module warp_pool
     always_comb begin
         any_busy = (next_wid != total_warps);   // warps still to spawn
         for (int k = 0; k < NW; k++)
-            if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM)) any_busy = 1'b1;
+            if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM) ||
+                (wstate[k] == W_SFU)) any_busy = 1'b1;
     end
 
     // ── VRF write arbiter (one write port per lane bank) ────────────────────────────
@@ -676,13 +724,25 @@ module warp_pool
         end
     end
     assign mem_wb_act     = |mem_wb_lane;
-    assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem;
-    // A compute writeback is squashed only when it contends for the SAME file port as
-    // the memory writeback: the integer VRF if the compute is integer-dest and the mem
-    // op is integer, or the f-file if the compute is FP-dest and the mem op is FP. When
-    // they target different files (e.g. an FP compute alongside an integer load) both
-    // proceed — the two ports are independent, so there is no conflict and no defer.
-    assign squash_wb      = do_compute && mem_wb_act && (wb_is_fp == mem_is_fp);
+    // A committing single-cycle compute: not a pop/ecall/memory op, and NOT a
+    // divide/sqrt (those retire through the multi-cycle SFU, below).
+    assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem && !is_sfu_op;
+
+    // Launch an fdiv/fsqrt: the issuing warp's f-operands are live this cycle, so a
+    // 1-cycle start pulse latches them into the per-lane cores (which then iterate
+    // independently of the scheduler). Only one div/sqrt is in flight at a time.
+    assign sfu_start   = issue_valid && !do_pop && is_sfu_op && (sfu_state == SFU_IDLE);
+    // The held SFU result drives the f-file when the unit is in writeback and the
+    // memory engine is not using the FP port this cycle (mem wins; SFU result waits).
+    assign sfu_wb_fire = (sfu_state == SFU_WB) && !(mem_busy && mem_is_fp);
+
+    // A compute writeback is squashed when it contends for the SAME file port as the
+    // memory writeback (integer VRF if both integer, f-file if both FP), OR when an
+    // FP-dest compute contends with the SFU's f-file writeback this cycle. Ports that
+    // differ (e.g. an FP compute alongside an integer load) both proceed.
+    assign squash_wb      = do_compute &&
+                            ((mem_wb_act && (wb_is_fp == mem_is_fp)) ||
+                             (sfu_wb_fire && wb_is_fp));
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -710,6 +770,12 @@ module warp_pool
                 fv_wr[l] = mem_rd;
                 fv_wa[l] = vaddr(mem_w, mem_rd);
                 fv_wd[l] = mem_wb_data[l];
+            end else if (sfu_wb_fire && sfu_mask[l]) begin             // SFU div/sqrt result
+                fv_we[l] = 1'b1;
+                fv_ww[l] = sfu_w;
+                fv_wr[l] = sfu_rd;
+                fv_wa[l] = vaddr(sfu_w, sfu_rd);
+                fv_wd[l] = sfu_hold[l];
             end else if (do_compute && !squash_wb && fwb_en[l]) begin  // FP compute writeback
                 fv_we[l] = 1'b1;
                 fv_ww[l] = issue_w;
@@ -797,6 +863,7 @@ module warp_pool
             mem_busy       <= 1'b0;
             mem_is_scratch <= 1'b0;
             mem_pending    <= '0;
+            sfu_state      <= SFU_IDLE;
             dbg_retire_a0  <= 32'd0;
             dbg_mem_txns   <= 32'd0;
             dbg_divergences<= 32'd0;
@@ -827,6 +894,7 @@ module warp_pool
                 next_wid       <= 32'd0;
                 rr_ptr         <= '0;
                 mem_busy       <= 1'b0;
+                sfu_state      <= SFU_IDLE;
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
                 dbg_scratch_txns<= 32'd0;
@@ -864,9 +932,10 @@ module warp_pool
                 if (issue_valid) begin
                     // M7 energy accounting: a committed datapath instruction clocks
                     // n_active lanes under gating vs all NL lanes ungated. A pop is
-                    // bookkeeping (no datapath), and a memory op that finds the port
-                    // busy re-attempts later (don't double-count the stall).
-                    if (!do_pop && !(is_mem && mem_busy) && !squash_wb) begin
+                    // bookkeeping (no datapath); a memory op or an fdiv/fsqrt that
+                    // finds its engine busy re-attempts later (don't count the stall).
+                    if (!do_pop && !(is_mem && mem_busy) && !squash_wb &&
+                        !(is_sfu_op && sfu_state != SFU_IDLE)) begin
                         dbg_issued_insns <= dbg_issued_insns + 32'd1;
                         dbg_active_lanes <= dbg_active_lanes +
                                             {{(31-LIDXW){1'b0}}, n_active};
@@ -878,6 +947,19 @@ module warp_pool
                     end else if (is_ecall) begin
                         wstate[issue_w] <= W_DONE;
                         dbg_retire_a0   <= warp_base[issue_w];
+                    end else if (is_sfu_op) begin
+                        // Divide / square-root: hand the warp to the multi-cycle SFU
+                        // (per-lane cores started combinationally via sfu_start) and
+                        // park it; the scheduler keeps issuing other warps. If the SFU
+                        // is busy with another warp, this warp waits (stays W_RUN).
+                        if (sfu_state == SFU_IDLE) begin
+                            sfu_w         <= issue_w;
+                            sfu_mask      <= cur_mask;
+                            sfu_rd        <= rd;
+                            sfu_resume_pc <= fallthru;
+                            wstate[issue_w] <= W_SFU;
+                        end
+                        // else: SFU busy → warp waits.
                     end else if (is_mem) begin
                         if (!mem_busy) begin
                             // Hand the coalesced access to the background engine.
@@ -975,6 +1057,25 @@ module warp_pool
                         end
                     end
                 end
+
+                // 3c) SFU (divide/sqrt) engine step. RUN: the per-lane cores iterate;
+                //     when they complete (uniform timing → lane-0 is the witness) latch
+                //     every lane's result. WB: drive the held result onto the f-file
+                //     (the arbiter gives the memory engine priority, so this may wait a
+                //     cycle), then resume the parked warp after the fdiv/fsqrt.
+                unique case (sfu_state)
+                    SFU_IDLE: if (sfu_start) sfu_state <= SFU_RUN;
+                    SFU_RUN:  if (sfu_done) begin
+                        for (int l = 0; l < NL; l++) sfu_hold[l] <= sfu_res[l];
+                        sfu_state <= SFU_WB;
+                    end
+                    SFU_WB:   if (sfu_wb_fire) begin
+                        stk_npc[sfu_w][sp[sfu_w]] <= sfu_resume_pc;
+                        wstate[sfu_w]             <= W_RUN;
+                        sfu_state                 <= SFU_IDLE;
+                    end
+                    default: sfu_state <= SFU_IDLE;
+                endcase
 
                 // 3b) Mark written registers valid. The VRF data write itself happens
                 //     in the per-lane distributed-RAM banks (see the generate block);

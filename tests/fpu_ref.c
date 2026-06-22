@@ -41,6 +41,18 @@ uint32_t ref_fmaf(uint32_t a, uint32_t b, uint32_t c, int np, int nc) {
     return ftz32(f2b(z));
 }
 
+// FP32 divide and square root (single-rounded host float ops), FTZ + canonical NaN.
+uint32_t ref_div(uint32_t a, uint32_t b) {
+    float z = b2f(a) / b2f(b);
+    if (z != z) return 0x7fc00000u;
+    return ftz32(f2b(z));
+}
+uint32_t ref_sqrt(uint32_t a) {
+    float z = sqrtf(b2f(a));
+    if (z != z) return 0x7fc00000u;
+    return ftz32(f2b(z));
+}
+
 // int32 -> float (RNE) and uint32 -> float (RNE)
 uint32_t ref_cvt_sw (uint32_t x) { return f2b((float)(int32_t)x);  }
 uint32_t ref_cvt_swu(uint32_t x) { return f2b((float)(uint32_t)x); }
@@ -85,6 +97,12 @@ static uint16_t d2h(double v) {
 uint32_t ref_hadd(uint32_t a, uint32_t b) { return d2h(h2d((uint16_t)a) + h2d((uint16_t)b)); }
 uint32_t ref_hsub(uint32_t a, uint32_t b) { return d2h(h2d((uint16_t)a) - h2d((uint16_t)b)); }
 uint32_t ref_hmul(uint32_t a, uint32_t b) { return d2h(h2d((uint16_t)a) * h2d((uint16_t)b)); }
+
+// FP16 divide / sqrt: compute in double (correctly rounded to 53 bits), then
+// narrow once to FP16. 53 >= 2*11+2, so the double rounding is innocuous and this
+// equals a true half-precision divide / sqrt (matching widen-FP32-narrow in HW).
+uint32_t ref_hdiv(uint32_t a, uint32_t b) { return d2h(h2d((uint16_t)a) / h2d((uint16_t)b)); }
+uint32_t ref_hsqrt(uint32_t a)            { return d2h(sqrt(h2d((uint16_t)a))); }
 
 // FP16 fused multiply-add: compute a*b+c with ONE rounding to double (host fma,
 // which is exact for these small operands), then narrow once to FP16. Double

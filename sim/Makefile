@@ -16,7 +16,7 @@ VERILATOR ?= verilator
 ACCEL_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
-	../rtl/accel/simt_fpu.sv \
+	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
 	../rtl/accel/warp_pool.sv \
 	../rtl/accel/simt_accel.sv
 
@@ -33,7 +33,7 @@ WARP_RTL := \
 # warp_pool.sv is the M3 multi-warp engine (used by simt_accel).
 POOL_RTL := \
 	../rtl/accel/simtix_pkg.sv \
-	../rtl/accel/simt_fpu.sv \
+	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
 	../rtl/accel/warp_pool.sv
 
 # Host CPU RTL (reused, Verilog-2001) — linted permissively (3rd-party style).
@@ -45,7 +45,7 @@ SOC_CPU_RTL := $(filter-out ../rtl/cpu/top.v, $(CPU_RTL))
 SOC_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
-	../rtl/accel/simt_fpu.sv \
+	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
 	../rtl/accel/warp_pool.sv \
 	../rtl/accel/simt_accel.sv \
 	../rtl/soc/soc_top.sv \
@@ -60,7 +60,7 @@ CHIP_CPU_RTL := $(filter-out ../rtl/cpu/top.v ../rtl/cpu/riscv_soc.v \
 CHIP_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
-	../rtl/accel/simt_fpu.sv \
+	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
 	../rtl/accel/warp_pool.sv \
 	../rtl/accel/simt_accel.sv \
 	../rtl/soc/shared_mem.sv \
@@ -83,7 +83,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fpfma test-fparith16 test-soc test-chip bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-soc test-chip bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -123,10 +123,10 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fpfma test-fparith16 test-soc test-chip
+test: test-accel test-lane test-warp test-pool test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-soc test-chip
 
 test-accel:
-	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
+	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
 
 test-lane:
 	$(call run_tb,tb_lane,$(PKG) ../rtl/accel/lane.sv ../tests/tb_lane.sv)
@@ -135,11 +135,11 @@ test-warp:
 	$(call run_tb,tb_warp,$(PKG) ../rtl/accel/warp.sv ../tests/tb_warp.sv)
 
 test-pool:
-	$(call run_tb,tb_warp_pool,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_warp_pool.sv)
+	$(call run_tb,tb_warp_pool,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_warp_pool.sv)
 
 # M14.0: floating-point load/store data path (flw/fsw through the f-regfile).
 test-fp:
-	$(call run_tb,tb_fp,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fp.sv)
+	$(call run_tb,tb_fp,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fp.sv)
 
 # M14.1: standalone bit-exact verification of the per-lane FP32 unit against a
 # DPI-C IEEE-754 single-precision reference. Verilator compiles the DPI .c with
@@ -150,9 +150,29 @@ test-fpu:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpu \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../tests/tb_fpu.sv $(FPU_REF_SRC) -o tb_fpu
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../tests/tb_fpu.sv $(FPU_REF_SRC) -o tb_fpu
 	@echo "[test] running tb_fpu..."
 	$(MDIR)/tb_fpu
+
+# M14.3: standalone bit-exact verification of the iterative divide/sqrt core
+# against a DPI-C reference (host float divide/sqrtf; double then narrow for FP16).
+test-divsqrt:
+	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_divsqrt \
+		$(PKG) ../rtl/accel/fp_divsqrt.sv ../tests/tb_divsqrt.sv $(FPU_REF_SRC) -o tb_divsqrt
+	@echo "[test] running tb_divsqrt..."
+	$(MDIR)/tb_divsqrt
+
+# M14.3: end-to-end divide + sqrt (fdiv.s then fsqrt.s) through warp_pool with the
+# stall scoreboard, checked bit-exact against sqrt(div(A,B)).
+test-fpdivsqrt:
+	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpdivsqrt \
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpdivsqrt.sv $(FPU_REF_SRC) -o tb_fpdivsqrt
+	@echo "[test] running tb_fpdivsqrt..."
+	$(MDIR)/tb_fpdivsqrt
 
 # M14.1: end-to-end FP arithmetic (fmul.s + fadd.s) through warp_pool, checked
 # bit-exact against the same DPI IEEE-754 reference (staged space-free, as above).
@@ -160,7 +180,7 @@ test-fparith:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fparith \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith.sv $(FPU_REF_SRC) -o tb_fparith
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith.sv $(FPU_REF_SRC) -o tb_fparith
 	@echo "[test] running tb_fparith..."
 	$(MDIR)/tb_fparith
 
@@ -170,7 +190,7 @@ test-fpfma:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpfma \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpfma.sv $(FPU_REF_SRC) -o tb_fpfma
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpfma.sv $(FPU_REF_SRC) -o tb_fpfma
 	@echo "[test] running tb_fpfma..."
 	$(MDIR)/tb_fpfma
 
@@ -180,7 +200,7 @@ test-fparith16:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fparith16 \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith16.sv $(FPU_REF_SRC) -o tb_fparith16
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith16.sv $(FPU_REF_SRC) -o tb_fparith16
 	@echo "[test] running tb_fparith16..."
 	$(MDIR)/tb_fparith16
 
@@ -202,7 +222,7 @@ test-chip:
 # verifies golden results, and prints a metrics table + CSV rows. Capture with:
 #   make bench | grep '^CSV,' > ../docs/bench.csv
 bench:
-	$(call run_tb,tb_bench,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_bench.sv)
+	$(call run_tb,tb_bench,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_bench.sv)
 
 # FP benchmark (M14 evaluation): FP32 + FP16 streaming kernels, golden-checked
 # against the DPI reference. Capture with:
@@ -211,7 +231,7 @@ fp-bench:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpbench \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpbench.sv $(FPU_REF_SRC) -o tb_fpbench
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpbench.sv $(FPU_REF_SRC) -o tb_fpbench
 	@echo "[bench] running tb_fpbench..."
 	$(MDIR)/tb_fpbench
 
@@ -232,7 +252,7 @@ WARPS ?= 4
 dse:
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(SOC_VFLAGS) +define+SIMTIX_NUM_LANES=$(LANES) +define+SIMTIX_NUM_WARPS=$(WARPS) \
-		--Mdir $(MDIR) --top-module tb_dse $(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_dse.sv -o tb_dse
+		--Mdir $(MDIR) --top-module tb_dse $(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_dse.sv -o tb_dse
 	@echo "[dse] running tb_dse LANES=$(LANES) WARPS=$(WARPS)..."
 	$(MDIR)/tb_dse
 
