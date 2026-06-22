@@ -11,6 +11,7 @@
 //     fcvt.w / fcvt.wu  (float -> int, RTZ),  fcvt.w/wu -> float (RNE)
 //     fcvt.s.h / fcvt.h.s                        (format convert, S<->H)
 //     fmv.x  fclass  (-> int),  fmv.*.x          (bit move int -> float)
+//     fmadd  fmsub  fnmsub  fnmadd               (fused multiply-add, 1 rounding)
 //
 // HALF PRECISION via WIDEN-COMPUTE-NARROW: FP16 operands are NaN-box-checked,
 // widened to FP32 (exact), run through the FP32 datapath, then the FP-result is
@@ -26,8 +27,8 @@
 // throughput choice that keeps the per-lane datapath small. NaN/inf/signed-zero
 // per IEEE-754; a mis-NaN-boxed FP16 operand reads as the canonical FP16 NaN.
 //
-// NOT here (by design): fused multiply-add (M14.1b — exact single rounding), div/
-// sqrt (shared SFU, M14.3). No FCSR yet, so exception flags are not produced.
+// NOT here (by design): div/sqrt (shared multi-cycle SFU, M14.3). No FCSR yet, so
+// exception flags are not produced.
 //
 // Verified standalone (tests/tb_fpu.sv) bit-exact against a DPI-C IEEE reference
 // over tens of thousands of random vectors plus directed inf/NaN/zero/FTZ corners,
@@ -43,8 +44,12 @@ module simt_fpu
     input  logic        cvt_src_h,    // fcvt.f.f: source operand is half (rs2==H)
     input  logic [2:0]  rm,           // funct3 — rounding mode / group sub-select
     input  logic [1:0]  fmt,          // format of the op: FMT_S (FP32) / FMT_H (FP16)
+    input  logic        is_fma,       // M14.1b: this is a fused multiply-add op
+    input  logic        fma_np,       // FMA: negate the product (fnmsub/fnmadd)
+    input  logic        fma_nc,       // FMA: negate the addend  (fmsub/fnmadd)
     input  logic [31:0] a,        // f[rs1] (NaN-boxed if half)
     input  logic [31:0] b,        // f[rs2] (NaN-boxed if half)
+    input  logic [31:0] c,        // f[rs3] (NaN-boxed if half) — FMA addend
     input  logic [31:0] xa,       // x[rs1]  (int->float, fmv.*.x)
     output logic [31:0] res,      // result bits (FP or int per int_dest)
     output logic        int_dest  // 1: result goes to the integer register file
@@ -57,16 +62,20 @@ module simt_fpu
     //   this is fmt==H; for the format-convert op it follows the SOURCE format.
     // dst_is_h: the FP result is FP16 (and narrowed + NaN-boxed) — always fmt==H.
     logic op_is_h, dst_is_h;
-    assign op_is_h  = (funct5 == FP_CVT_FF) ? cvt_src_h : (fmt == FMT_H);
+    // For FMA the funct5 field is actually rs3, so the FP_CVT_FF test must be gated
+    // off; an FMA's format is simply fmt (and dst follows it).
+    assign op_is_h  = (!is_fma && funct5 == FP_CVT_FF) ? cvt_src_h : (fmt == FMT_H);
     assign dst_is_h = (fmt == FMT_H);
 
     // ── FP16 operand bits, NaN-box checked (upper half must be all ones) ──────────
-    logic        a_box_ok, b_box_ok;
+    logic        a_box_ok, b_box_ok, c_box_ok;
     assign a_box_ok = (a[31:16] == 16'hffff);
     assign b_box_ok = (b[31:16] == 16'hffff);
-    logic [15:0] a16, b16;
+    assign c_box_ok = (c[31:16] == 16'hffff);
+    logic [15:0] a16, b16, c16;
     assign a16 = a_box_ok ? a[15:0] : CANON_QNAN_H;
     assign b16 = b_box_ok ? b[15:0] : CANON_QNAN_H;
+    assign c16 = c_box_ok ? c[15:0] : CANON_QNAN_H;
 
     // FP16 unpack + classify (FTZ: subnormal exponent reads as zero).
     logic        hsa, hsb;
@@ -139,9 +148,10 @@ module simt_fpu
     // ── Effective FP32 operands feeding the shared datapath ──────────────────────
     // For FP32 ops these are a/b unchanged, so all FP32 behaviour is preserved
     // bit-for-bit; for FP16 ops they are the widened operands.
-    logic [31:0] opa, opb;
+    logic [31:0] opa, opb, opc;
     assign opa = op_is_h ? widen_h(a16) : a;
     assign opb = op_is_h ? widen_h(b16) : b;
+    assign opc = op_is_h ? widen_h(c16) : c;   // FMA addend (FP32 domain)
 
     // ── Unpack + classify the FP32-domain operands (FTZ) ─────────────────────────
     logic        sa, sb;
@@ -301,6 +311,130 @@ module simt_fpu
         end
     end
 
+    // ═══════════════════════════ FUSED MULTIPLY-ADD ═════════════════════════════
+    // Computes ±(a*b) ± c with a SINGLE rounding (M14.1b). The product significand
+    // P = siga*sigb is EXACT (48 bits); P is anchored in a 128-bit accumulator at
+    // bits [75:28], and the addend is shifted to its true relative position d (with
+    // a sticky bit capturing any addend bits driven below bit 0). One normalize +
+    // pack_round gives the single rounding. When the addend out-ranges the product
+    // by the full rounding window (d>=50, i.e. addend MSB >= product MSB + ~26) the
+    // product is provably below half a ULP of the addend, so the result is the
+    // sign-adjusted addend exactly — which also bounds the accumulator shift.
+    // Effective subtraction with a non-zero addend sticky borrows one LSB and forces
+    // the result sticky (true = (big-small) - frac, frac in (0,1)).
+    // FP16 FMA reuses this via widen->FP32-fused->narrow: 24 >= 2*11+2, so the FP16
+    // result is single-rounded (Figueroa), matching a half-precision fused FMA.
+    logic [31:0] fma_res;
+    always_comb begin
+        logic               sc;
+        logic [7:0]         ec;
+        logic [22:0]        mc;
+        logic               c_zero, c_inf, c_nan;
+        logic [23:0]        sigc;
+        logic [47:0]        P;
+        logic               prod_zero, prod_inf, prod_nan;
+        logic               psign, csign, samesign, addend_bigger, force_s;
+        logic signed [11:0] d, pos0;
+        logic [127:0]       prod_acc, add_acc, mag, acc_norm;
+        logic [127:0]       cfull;
+        logic               sticky_c;
+        logic [7:0]         rsh;
+        logic [7:0]         m;             // index of the result MSB (<= ~101)
+        logic signed [11:0] biased;
+        logic [23:0]        sigr;
+        logic               g, r, s, rsign;
+
+        sc = opc[31]; ec = opc[30:23]; mc = opc[22:0];
+        c_zero = (ec == 8'd0);                       // FTZ subnormal -> zero
+        c_inf  = (ec == 8'hff) && (mc == 23'd0);
+        c_nan  = (ec == 8'hff) && (mc != 23'd0);
+        sigc   = c_zero ? 24'd0 : {1'b1, mc};
+
+        P = siga * sigb;                             // exact 48-bit product
+        prod_zero = a_zero || b_zero;
+        prod_inf  = a_inf  || b_inf;
+        prod_nan  = a_nan  || b_nan;
+
+        psign = (sa ^ sb) ^ fma_np;                  // effective product sign
+        csign = sc ^ fma_nc;                         // effective addend  sign
+
+        // defaults (avoid latch)
+        d = 12'sd0; pos0 = 12'sd0; prod_acc = '0; add_acc = '0; cfull = '0;
+        mag = '0; acc_norm = '0; sticky_c = 1'b0; rsh = 8'd0; m = 8'd0;
+        biased = 12'sd0; sigr = 24'd0; g = 1'b0; r = 1'b0; s = 1'b0;
+        samesign = 1'b0; addend_bigger = 1'b0; force_s = 1'b0; rsign = 1'b0;
+
+        if (prod_nan || c_nan)                            fma_res = CANON_QNAN;
+        else if ((a_inf && b_zero) || (b_inf && a_zero))  fma_res = CANON_QNAN; // 0*inf
+        else if (prod_inf && c_inf && (psign != csign))   fma_res = CANON_QNAN; // inf-inf
+        else if (prod_inf)                                fma_res = {psign, 8'hff, 23'd0};
+        else if (c_inf)                                   fma_res = {csign, 8'hff, 23'd0};
+        else if (prod_zero) begin
+            // product == 0 -> result is the sign-adjusted addend (exact); signed-zero
+            // rule when the addend is zero too.
+            if (c_zero) fma_res = (psign == csign) ? {psign, 31'd0} : 32'd0;
+            else        fma_res = {csign, opc[30:0]};
+        end else begin
+            // finite non-zero product. d = (addend LSB exp) - (product LSB exp).
+            d    = $signed({4'd0, ec}) - $signed({4'd0, ea}) - $signed({4'd0, eb}) + 12'sd150;
+            pos0 = 12'sd28 + d;                       // addend LSB index in accumulator
+            prod_acc = {80'd0, P} << 28;              // P[47:0] -> bits [75:28]
+            cfull    = {104'd0, sigc};                // addend at bits [23:0]
+
+            // Addend-dominant: its LSB index pos0 is high enough that the whole
+            // product (MSB at accumulator bit <=75) sits below half a ULP of the
+            // addend (ULP at bit pos0, half-ULP at pos0-1): product < 2^76 <=
+            // 2^(pos0-1) iff pos0 >= 77. Then the result is the addend exactly, and
+            // the accumulator never has to hold an addend above bit ~99.
+            if (pos0 >= 12'sd77 && !c_zero) begin
+                fma_res = {csign, opc[30:0]};
+            end else begin
+                if (c_zero) begin
+                    add_acc = 128'd0; sticky_c = 1'b0;
+                end else if (pos0 >= 0) begin
+                    add_acc = cfull << pos0[6:0];     // pos0 in [0,49] -> top bit <= 72
+                    sticky_c = 1'b0;
+                end else begin
+                    rsh      = (-pos0 >= 12'sd128) ? 8'd127 : 8'((-pos0));
+                    add_acc  = cfull >> rsh;
+                    sticky_c = |(cfull & ((128'd1 << rsh) - 128'd1));
+                end
+
+                samesign      = (psign == csign);
+                addend_bigger = (add_acc > prod_acc);
+                if (samesign) begin
+                    mag     = prod_acc + add_acc;     // magnitudes add
+                    force_s = sticky_c;
+                end else if (addend_bigger) begin
+                    mag     = add_acc - prod_acc;     // (sticky_c==0 in this regime)
+                    force_s = 1'b0;
+                end else begin
+                    // product >= truncated addend; the lost addend frac borrows 1 LSB
+                    // and leaves a positive sub-LSB remainder -> force result sticky.
+                    mag     = prod_acc - add_acc - {127'd0, sticky_c};
+                    force_s = sticky_c;
+                end
+                rsign = samesign ? psign : (addend_bigger ? csign : psign);
+
+                if (mag == 128'd0) fma_res = 32'd0;   // exact cancellation -> +0
+                else begin
+                    m = 8'd0;
+                    for (int i = 0; i < 128; i++) if (mag[i]) m = i[7:0];
+                    acc_norm = mag << (8'd127 - m);
+                    sigr = acc_norm[127:104];
+                    g    = acc_norm[103];
+                    r    = acc_norm[102];
+                    s    = (|acc_norm[101:0]) | force_s;
+                    // value MSB unbiased exponent E = (ea+eb-300) - 28 + m;
+                    // biased = E + 127 = ea + eb + m - 201.
+                    biased = $signed({4'd0, ea}) + $signed({4'd0, eb})
+                             + $signed({4'd0, m}) - 12'sd201;
+                    fma_res = pack_round(rsign, biased, sigr, g, r, s);
+                end
+            end
+        end
+    end
+
     // ═══════════════════════════ SGNJ / MINMAX / CMP ════════════════════════════
     // Sign-inject is a bit op, done natively per format (FP32 on a/b, FP16 on a16/
     // b16) so it never canonicalises a NaN operand's payload.
@@ -435,31 +569,31 @@ module simt_fpu
     // sNaN/qNaN split survives (widening canonicalises NaNs to quiet).
     logic [31:0] class_res;
     always_comb begin
-        logic [9:0] c;
-        c = 10'd0;
-        if      (a_inf && sa)                                  c[0] = 1'b1;  // -inf
-        else if (sa && !a_zero && !a_nan && !a_inf)            c[1] = 1'b1;  // -normal
-        else if (a_zero && sa)                                 c[3] = 1'b1;  // -0
-        else if (a_zero && !sa)                                c[4] = 1'b1;  // +0
-        else if (!sa && !a_zero && !a_nan && !a_inf)           c[6] = 1'b1;  // +normal
-        else if (a_inf && !sa)                                 c[7] = 1'b1;  // +inf
-        if (a_snan)            c[8] = 1'b1;                                   // sNaN
-        if (a_nan && !a_snan)  c[9] = 1'b1;                                   // qNaN
-        class_res = {22'd0, c};
+        logic [9:0] cl;
+        cl = 10'd0;
+        if      (a_inf && sa)                                  cl[0] = 1'b1;  // -inf
+        else if (sa && !a_zero && !a_nan && !a_inf)            cl[1] = 1'b1;  // -normal
+        else if (a_zero && sa)                                 cl[3] = 1'b1;  // -0
+        else if (a_zero && !sa)                                cl[4] = 1'b1;  // +0
+        else if (!sa && !a_zero && !a_nan && !a_inf)           cl[6] = 1'b1;  // +normal
+        else if (a_inf && !sa)                                 cl[7] = 1'b1;  // +inf
+        if (a_snan)            cl[8] = 1'b1;                                   // sNaN
+        if (a_nan && !a_snan)  cl[9] = 1'b1;                                   // qNaN
+        class_res = {22'd0, cl};
     end
     logic [9:0] class16;
     always_comb begin
-        logic [9:0] c;
-        c = 10'd0;
-        if      (ha_inf && hsa)                                   c[0] = 1'b1;  // -inf
-        else if (hsa && !ha_zero && !ha_nan && !ha_inf)           c[1] = 1'b1;  // -normal
-        else if (ha_zero && hsa)                                  c[3] = 1'b1;  // -0
-        else if (ha_zero && !hsa)                                 c[4] = 1'b1;  // +0
-        else if (!hsa && !ha_zero && !ha_nan && !ha_inf)          c[6] = 1'b1;  // +normal
-        else if (ha_inf && !hsa)                                  c[7] = 1'b1;  // +inf
-        if (ha_snan)            c[8] = 1'b1;                                    // sNaN
-        if (ha_nan && !ha_snan) c[9] = 1'b1;                                    // qNaN
-        class16 = c;
+        logic [9:0] cl;
+        cl = 10'd0;
+        if      (ha_inf && hsa)                                   cl[0] = 1'b1;  // -inf
+        else if (hsa && !ha_zero && !ha_nan && !ha_inf)           cl[1] = 1'b1;  // -normal
+        else if (ha_zero && hsa)                                  cl[3] = 1'b1;  // -0
+        else if (ha_zero && !hsa)                                 cl[4] = 1'b1;  // +0
+        else if (!hsa && !ha_zero && !ha_nan && !ha_inf)          cl[6] = 1'b1;  // +normal
+        else if (ha_inf && !hsa)                                  cl[7] = 1'b1;  // +inf
+        if (ha_snan)            cl[8] = 1'b1;                                    // sNaN
+        if (ha_nan && !ha_snan) cl[9] = 1'b1;                                    // qNaN
+        class16 = cl;
     end
 
     // ════════════════════════════ Final result mux ═════════════════════════════
@@ -468,6 +602,10 @@ module simt_fpu
     always_comb begin
         int_dest = 1'b0;
         res      = 32'd0;
+        if (is_fma) begin
+            // Fused multiply-add (writes the f-file; funct5 here is actually rs3).
+            res = dst_is_h ? boxH(narrow_h(fma_res)) : fma_res;
+        end else
         unique case (funct5)
             FP_ADD, FP_SUB: res = dst_is_h ? boxH(narrow_h(add_res))   : add_res;
             FP_MUL:         res = dst_is_h ? boxH(narrow_h(mul_res))   : mul_res;

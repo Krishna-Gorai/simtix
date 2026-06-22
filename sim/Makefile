@@ -83,7 +83,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fparith16 test-soc test-chip bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fpfma test-fparith16 test-soc test-chip bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -123,7 +123,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fparith16 test-soc test-chip
+test: test-accel test-lane test-warp test-pool test-fp test-fpu test-fparith test-fpfma test-fparith16 test-soc test-chip
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -163,6 +163,16 @@ test-fparith:
 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith.sv $(FPU_REF_SRC) -o tb_fparith
 	@echo "[test] running tb_fparith..."
 	$(MDIR)/tb_fparith
+
+# M14.1b: end-to-end fused multiply-add (fmadd.s) through warp_pool, checked
+# bit-exact against the single-rounded DPI fmaf reference.
+test-fpfma:
+	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpfma \
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpfma.sv $(FPU_REF_SRC) -o tb_fpfma
+	@echo "[test] running tb_fpfma..."
+	$(MDIR)/tb_fpfma
 
 # M14.2: end-to-end FP16 (half) arithmetic (fmul.h + fadd.h) through warp_pool,
 # checked bit-exact against the DPI half reference (NaN-boxed operands via flw/fsw).

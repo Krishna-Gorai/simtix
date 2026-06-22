@@ -27,13 +27,19 @@ module tb_fpu
     import "DPI-C" function int unsigned ref_cvt_hs(input int unsigned a);  // FP32 -> half
     import "DPI-C" function int unsigned ref_cvt_wh(input int unsigned h);  // half -> int32
     import "DPI-C" function int unsigned ref_cvt_hw(input int unsigned x);  // int32 -> half
+    // Fused multiply-add (single rounding): np/nc select the four variants.
+    import "DPI-C" function int unsigned ref_fmaf(input int unsigned a, input int unsigned b,
+                                                  input int unsigned c, input int np, input int nc);
+    import "DPI-C" function int unsigned ref_hfma(input int unsigned a, input int unsigned b,
+                                                  input int unsigned c, input int np, input int nc);
 
     logic [4:0]  funct5;
     logic        cvt_unsigned;
     logic        cvt_src_h;
+    logic        is_fma, fma_np, fma_nc;
     logic [2:0]  rm;
     logic [1:0]  fmt;
-    logic [31:0] a, b, xa;
+    logic [31:0] a, b, c, xa;
     logic [31:0] res;
     /* verilator lint_off UNUSEDSIGNAL */
     logic        int_dest;       // exercised by integration; not checked here
@@ -41,7 +47,8 @@ module tb_fpu
 
     simt_fpu dut (.funct5(funct5), .cvt_unsigned(cvt_unsigned), .cvt_src_h(cvt_src_h),
                   .rm(rm), .fmt(fmt),
-                  .a(a), .b(b), .xa(xa), .res(res), .int_dest(int_dest));
+                  .is_fma(is_fma), .fma_np(fma_np), .fma_nc(fma_nc),
+                  .a(a), .b(b), .c(c), .xa(xa), .res(res), .int_dest(int_dest));
 
     // NaN-box a 16-bit half into a 32-bit f-register value.
     function automatic logic [31:0] boxh(input logic [15:0] h);
@@ -74,20 +81,44 @@ module tb_fpu
         return {s, e, m};
     endfunction
 
+    // Random FP32 with the biased exponent in [lo, lo+span). A wide, separately
+    // chosen exponent for each FMA operand exercises the aligner across product-
+    // dominant, balanced (cancellation), and addend-dominant regimes.
+    function automatic logic [31:0] rand_fp(input int lo, input int span);
+        logic        s;
+        logic [7:0]  e;
+        logic [22:0] m;
+        s = 1'($random);
+        e = 8'(lo + ($unsigned($random) % span));
+        m = 23'($random);
+        return {s, e, m};
+    endfunction
+    // Random FP16 with biased exponent in [lo, lo+span).
+    function automatic logic [15:0] rand_hp(input int lo, input int span);
+        logic       s;
+        logic [4:0] e;
+        logic [9:0] m;
+        s = 1'($random);
+        e = 5'(lo + ($unsigned($random) % span));
+        m = 10'($random);
+        return {s, e, m};
+    endfunction
+
     task automatic ck(input logic [31:0] exp, input string tag);
         checks++;
         #1;
         if (res !== exp) begin
             if (errors < 12)
-                $display("  [FAIL] %-10s a=%08h b=%08h xa=%08h -> %08h exp %08h",
-                         tag, a, b, xa, res, exp);
+                $display("  [FAIL] %-10s a=%08h b=%08h c=%08h xa=%08h -> %08h exp %08h",
+                         tag, a, b, c, xa, res, exp);
             errors++;
         end
     endtask
 
     initial begin
         fmt = FMT_S; rm = 3'b000; cvt_unsigned = 1'b0; cvt_src_h = 1'b0;
-        a = 0; b = 0; xa = 0; funct5 = FP_ADD;
+        is_fma = 1'b0; fma_np = 1'b0; fma_nc = 1'b0;
+        a = 0; b = 0; c = 0; xa = 0; funct5 = FP_ADD;
 
         $display("[tb_fpu] random normal-range add/sub/mul vs DPI float golden");
         for (int i = 0; i < 8000; i++) begin
@@ -138,6 +169,42 @@ module tb_fpu
             fv = rand_normal();
             funct5 = FP_CVT_W; cvt_unsigned = 1'b0; a = fv; ck(ref_cvt_ws(fv),  "cvt.w.s");
         end
+
+        // ── Fused multiply-add (FP32), all four variants, vs single-rounded fmaf ──
+        $display("[tb_fpu] FP32 fused FMA vs DPI fmaf golden (all 4 variants)");
+        is_fma = 1'b1; fmt = FMT_S; rm = 3'b000; cvt_unsigned = 1'b0;
+        for (int i = 0; i < 12000; i++) begin
+            logic [31:0] av, bv, cv;
+            logic [1:0]  v;
+            av = rand_fp(115, 26);          // a,b: exp [115,140]
+            bv = rand_fp(115, 26);
+            cv = rand_fp(95, 66);           // c : exp [95,160] -> wide alignment range
+            v  = 2'($unsigned($random));    // 0:fmadd 1:fmsub 2:fnmsub 3:fnmadd
+            fma_np = v[1]; fma_nc = v[0];
+            a = av; b = bv; c = cv;
+            ck(ref_fmaf(av, bv, cv, {31'd0, v[1]}, {31'd0, v[0]}), "fma");
+        end
+        // Directed FMA corners: exact products, cancellation, inf/nan, FTZ-ish.
+        fma_np = 1'b0; fma_nc = 1'b0;
+        a = 32'h3f800000; b = 32'h40000000; c = 32'h3f800000; ck(ref_fmaf(a,b,c,0,0), "1*2+1");   // 3
+        a = 32'h40000000; b = 32'h40000000; c = 32'hc0800000; ck(ref_fmaf(a,b,c,0,0), "2*2-4=0"); // exact cancel
+        a = 32'h3f800000; b = 32'h3f800000; c = 32'hbf800000; ck(ref_fmaf(a,b,c,0,0), "1*1-1=0");
+        a = 32'h4b800000; b = 32'h4b800000; c = 32'h3f800000; ck(ref_fmaf(a,b,c,0,0), "big*big+1"); // c tiny vs prod
+        a = 32'h3f800000; b = 32'h3f800000; c = 32'h4b800000; ck(ref_fmaf(a,b,c,0,0), "1+big");     // c dom
+        a = 32'h7f800000; b = 32'h3f800000; c = 32'h3f800000; ck(ref_fmaf(a,b,c,0,0), "inf*1+1");
+        a = 32'h00000000; b = 32'h7f800000; c = 32'h3f800000; ck(ref_fmaf(a,b,c,0,0), "0*inf+1=nan");
+        a = 32'h7f800000; b = 32'h3f800000; c = 32'hff800000; ck(ref_fmaf(a,b,c,0,0), "inf-inf=nan");
+        a = 32'h7fc00000; b = 32'h3f800000; c = 32'h3f800000; ck(ref_fmaf(a,b,c,0,0), "nan*1+1");
+        a = 32'h00000000; b = 32'h3f800000; c = 32'h40000000; ck(ref_fmaf(a,b,c,0,0), "0*1+2=2");
+        a = 32'h3f800000; b = 32'h3f800000; c = 32'h00000000; ck(ref_fmaf(a,b,c,0,0), "1*1+0=1");
+        fma_nc = 1'b1;  // fmsub: a*b - c
+        a = 32'h40000000; b = 32'h40000000; c = 32'h40800000; ck(ref_fmaf(a,b,c,0,1), "2*2-4=0(sub)");
+        fma_np = 1'b1; fma_nc = 1'b0;  // fnmsub: -(a*b) + c
+        a = 32'h3f800000; b = 32'h40000000; c = 32'h40000000; ck(ref_fmaf(a,b,c,1,0), "-(1*2)+2=0");
+        fma_np = 1'b1; fma_nc = 1'b1;  // fnmadd: -(a*b) - c
+        a = 32'h3f800000; b = 32'h40000000; c = 32'h3f800000; ck(ref_fmaf(a,b,c,1,1), "-(2)-1=-3");
+        is_fma = 1'b0; fma_np = 1'b0; fma_nc = 1'b0;
+        $display("  %0d checks, %0d errors so far", checks, errors);
 
         // ══════════════════════════ FP16 (HALF) ═══════════════════════════════════
         fmt = FMT_H; rm = 3'b000; cvt_unsigned = 1'b0; cvt_src_h = 1'b0;
@@ -206,6 +273,29 @@ module tb_fpu
             funct5 = FP_CVT_S; fmt = FMT_H; cvt_src_h = 1'b0; xa = iv;
             ck(boxh(16'(ref_cvt_hw(iv))), "cvt.h.w");
         end
+
+        // ── Fused multiply-add (FP16), all four variants, vs single-rounded fma ──
+        $display("[tb_fpu] FP16 fused FMA vs DPI half-fma golden (all 4 variants)");
+        is_fma = 1'b1; fmt = FMT_H; rm = 3'b000; cvt_unsigned = 1'b0; cvt_src_h = 1'b0;
+        for (int i = 0; i < 8000; i++) begin
+            logic [15:0] av, bv, cv;
+            logic [1:0]  v;
+            av = rand_hp(12, 8);            // a,b: exp [12,19]
+            bv = rand_hp(12, 8);
+            cv = rand_hp(5, 22);           // c : exp [5,26] -> wide alignment range
+            v  = 2'($unsigned($random));
+            fma_np = v[1]; fma_nc = v[0];
+            a = boxh(av); b = boxh(bv); c = boxh(cv);
+            ck(boxh(16'(ref_hfma(32'(av), 32'(bv), 32'(cv), {31'd0, v[1]}, {31'd0, v[0]}))), "hfma");
+        end
+        // Directed FP16 FMA corners.
+        fma_np = 1'b0; fma_nc = 1'b0;
+        a = boxh(16'h3c00); b = boxh(16'h4000); c = boxh(16'h3c00); ck(boxh(16'(ref_hfma(32'h3c00,32'h4000,32'h3c00,0,0))), "h1*2+1");
+        a = boxh(16'h4000); b = boxh(16'h4000); c = boxh(16'hc400); ck(boxh(16'(ref_hfma(32'h4000,32'h4000,32'hc400,0,0))), "h2*2-4=0");
+        a = boxh(16'h7c00); b = boxh(16'h3c00); c = boxh(16'hfc00); ck(boxh(16'h7e00), "hinf-inf=nan");
+        a = boxh(16'h0000); b = boxh(16'h7c00); c = boxh(16'h3c00); ck(boxh(16'h7e00), "h0*inf=nan");
+        is_fma = 1'b0; fma_np = 1'b0; fma_nc = 1'b0;
+        $display("  %0d checks, %0d errors so far", checks, errors);
 
         $display("[tb_fpu] total %0d checks, %0d errors", checks, errors);
         if (errors == 0) $display("[tb_fpu] PASS");

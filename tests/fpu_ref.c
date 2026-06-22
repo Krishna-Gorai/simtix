@@ -25,6 +25,22 @@ uint32_t ref_add(uint32_t a, uint32_t b) { return f2b(b2f(a) + b2f(b)); }
 uint32_t ref_sub(uint32_t a, uint32_t b) { return f2b(b2f(a) - b2f(b)); }
 uint32_t ref_mul(uint32_t a, uint32_t b) { return f2b(b2f(a) * b2f(b)); }
 
+// FP32 fused multiply-add, single rounding (host fmaf). np/nc negate product/addend
+// to cover fmadd/fmsub/fnmsub/fnmadd.  flush-to-zero is applied to a result that
+// underflows to a subnormal, matching the engine's FTZ policy.
+static uint32_t ftz32(uint32_t x) {
+    if (((x >> 23) & 0xff) == 0) return x & 0x80000000u;   // subnormal/zero -> signed 0
+    return x;
+}
+uint32_t ref_fmaf(uint32_t a, uint32_t b, uint32_t c, int np, int nc) {
+    float fa = b2f(a), fb = b2f(b), fc = b2f(c);
+    if (np) fa = -fa;                       // negate one product factor = negate product
+    if (nc) fc = -fc;
+    float z = fmaf(fa, fb, fc);
+    if (z != z) return 0x7fc00000u;         // RISC-V canonical qNaN (host NaN sign varies)
+    return ftz32(f2b(z));
+}
+
 // int32 -> float (RNE) and uint32 -> float (RNE)
 uint32_t ref_cvt_sw (uint32_t x) { return f2b((float)(int32_t)x);  }
 uint32_t ref_cvt_swu(uint32_t x) { return f2b((float)(uint32_t)x); }
@@ -69,6 +85,17 @@ static uint16_t d2h(double v) {
 uint32_t ref_hadd(uint32_t a, uint32_t b) { return d2h(h2d((uint16_t)a) + h2d((uint16_t)b)); }
 uint32_t ref_hsub(uint32_t a, uint32_t b) { return d2h(h2d((uint16_t)a) - h2d((uint16_t)b)); }
 uint32_t ref_hmul(uint32_t a, uint32_t b) { return d2h(h2d((uint16_t)a) * h2d((uint16_t)b)); }
+
+// FP16 fused multiply-add: compute a*b+c with ONE rounding to double (host fma,
+// which is exact for these small operands), then narrow once to FP16. Double
+// rounding exact->double(53)->half(11) is innocuous (53 >= 2*11+2), so this equals
+// a true half-precision fused FMA, matching the engine's widen-fuse-narrow path.
+uint32_t ref_hfma(uint32_t a, uint32_t b, uint32_t c, int np, int nc) {
+    double da = h2d((uint16_t)a), db = h2d((uint16_t)b), dc = h2d((uint16_t)c);
+    if (np) da = -da;
+    if (nc) dc = -dc;
+    return d2h(fma(da, db, dc));
+}
 
 // half -> FP32 (exact widen; NaN/inf canonicalised to match the engine)
 uint32_t ref_cvt_sh(uint32_t h) {

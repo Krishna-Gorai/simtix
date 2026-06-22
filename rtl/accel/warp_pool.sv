@@ -327,7 +327,20 @@ module warp_pool
     assign fp_int_dest = is_fp_op && ((fp_funct5 == FP_CMP)   ||
                                       (fp_funct5 == FP_CVT_W) ||
                                       (fp_funct5 == FP_FMVXW));
-    assign wb_is_fp    = is_fp_op && !fp_int_dest;
+
+    // M14.1b: fused multiply-add majors (fmadd/fmsub/fnmsub/fnmadd). The opcode bits
+    // encode the variant: opcode[3]=negate-product, opcode[2]=negate-addend
+    //   fmadd 1000011 (np=0,nc=0)  fmsub 1000111 (np=0,nc=1)
+    //   fnmsub 1001011(np=1,nc=0)  fnmadd 1001111(np=1,nc=1)
+    // The third f-source is rs3 (instr[31:27]); fmt/rm reuse the OP-FP fields. An
+    // FMA always writes the f-register file.
+    logic is_fma_op, fma_np, fma_nc;
+    assign is_fma_op = (opcode == OP_FMADD) || (opcode == OP_FMSUB) ||
+                       (opcode == OP_FNMSUB) || (opcode == OP_FNMADD);
+    assign fma_np    = opcode[3];
+    assign fma_nc    = opcode[2];
+
+    assign wb_is_fp    = (is_fp_op && !fp_int_dest) || is_fma_op;
 
     // ── ALU control decode (shared) ────────────────────────────────────────────────
     logic [3:0] alu_ctrl;
@@ -377,9 +390,7 @@ module warp_pool
     logic [31:0] rv2   [0:NL-1];
     logic [31:0] frv1  [0:NL-1];   // f-source 1 (fs1) — FPU operand a  (M14.1)
     logic [31:0] frv2  [0:NL-1];   // f-source 2 (fs2) — FPU operand b / fsw data
-    /* verilator lint_off UNUSEDSIGNAL */
     logic [31:0] frv3  [0:NL-1];   // f-source 3 (fs3) — FMA addend     (M14.1b)
-    /* verilator lint_on UNUSEDSIGNAL */
     logic [31:0] addr  [0:NL-1];   // effective address / ALU result per lane
     logic [31:0] wb_val[0:NL-1];   // integer-VRF writeback value
     logic        wb_en [0:NL-1];   // integer-VRF writeback enable
@@ -399,8 +410,9 @@ module warp_pool
             /* verilator lint_off PINCONNECTEMPTY */
             simt_fpu u_fpu (
                 .funct5(fp_funct5), .cvt_unsigned(fp_cvt_unsigned),
-                .cvt_src_h(fp_cvt_src_h), .rm(fp_rm),
-                .fmt(fp_fmt), .a(frv1[gp]), .b(frv2[gp]), .xa(rv1[gp]),
+                .cvt_src_h(fp_cvt_src_h), .rm(fp_rm), .fmt(fp_fmt),
+                .is_fma(is_fma_op), .fma_np(fma_np), .fma_nc(fma_nc),
+                .a(frv1[gp]), .b(frv2[gp]), .c(frv3[gp]), .xa(rv1[gp]),
                 .res(fpu_res[gp]), .int_dest()      // recomputed as fp_int_dest in decode
             );
             /* verilator lint_on PINCONNECTEMPTY */
