@@ -83,7 +83,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-soc test-chip bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -123,7 +123,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-soc test-chip
+test: test-accel test-lane test-warp test-pool test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -173,6 +173,17 @@ test-fpdivsqrt:
 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpdivsqrt.sv $(FPU_REF_SRC) -o tb_fpdivsqrt
 	@echo "[test] running tb_fpdivsqrt..."
 	$(MDIR)/tb_fpdivsqrt
+
+# M14.4: realistic FP application kernels (fsaxpy/fsaxpy16/fnorm/fdot) through
+# warp_pool, golden-checked vs the DPI reference. Also prints FPKCSV metric rows:
+#   make test-fpkernels | grep '^FPKCSV,' > ../docs/fp_kernels.csv
+test-fpkernels:
+	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpkernels \
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpkernels.sv $(FPU_REF_SRC) -o tb_fpkernels
+	@echo "[test] running tb_fpkernels..."
+	$(MDIR)/tb_fpkernels
 
 # M14.1: end-to-end FP arithmetic (fmul.s + fadd.s) through warp_pool, checked
 # bit-exact against the same DPI IEEE-754 reference (staged space-free, as above).
