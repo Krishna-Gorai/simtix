@@ -25,13 +25,17 @@ set_param general.maxThreads 2
 
 set part    xczu7ev-ffvc1156-2-e
 set rtl_dir [file normalize ../rtl/accel]
-set out_dir [file normalize ./reports]
+# M14.5: write the FP-enabled PPA to a separate dir so the M9 integer-baseline
+# reports under ./reports are preserved for the before/after comparison.
+set out_dir [file normalize ./reports_fp]
 file mkdir $out_dir
 
 # ── RTL (package first, then leaf-to-top) ───────────────────────────────────────
 read_verilog -sv [list \
     $rtl_dir/simtix_pkg.sv \
     $rtl_dir/mmio_regs.sv  \
+    $rtl_dir/simt_fpu.sv   \
+    $rtl_dir/fp_divsqrt.sv \
     $rtl_dir/warp_pool.sv  \
     $rtl_dir/simt_accel.sv ]
 
@@ -39,12 +43,16 @@ read_verilog -sv [list \
 # "Verilog Projects" parent directory (it would otherwise see two files).
 read_xdc [list [file normalize ./constr/simt_accel_ooc.xdc]]
 
-# ── Out-of-context synthesis (timing-driven) ────────────────────────────────────
-# With the VRF (M8) and scratchpad (M9) in LUTRAM, the register count and mux trees
-# are small enough that timing-driven optimization fits in the host's RAM. flatten
-# none still bounds peak memory by optimizing each module independently.
+# ── Out-of-context synthesis ────────────────────────────────────────────────────
+# M14.5: the FP-enabled accelerator adds a per-lane FPU (add/sub/mul/FMA/cvt/cmp)
+# and a per-lane iterative div/sqrt SFU, so the netlist is markedly larger than the
+# M9 integer design. On this 8 GB host the timing-optimization phase would peak
+# above available RAM, so we synthesize -no_timing_driven (the M7b host-proven
+# low-memory recipe): area (LUT/FF/DSP/LUTRAM) and power are exact, and for this
+# largely single-cycle datapath the raw critical-path delay is a realistic Fmax
+# floor (reported below). flatten none still bounds peak RAM per module.
 synth_design -top simt_accel -part $part -mode out_of_context \
-    -flatten_hierarchy none
+    -flatten_hierarchy none -no_timing_driven
 
 # ── Reports: area, timing (Fmax), power ─────────────────────────────────────────
 report_utilization      -file $out_dir/post_synth_util.rpt
@@ -54,7 +62,7 @@ report_power            -file $out_dir/post_synth_power.rpt
 # ── Console summary (also captured in vivado.log) ───────────────────────────────
 set clk_period 10.000
 set paths [get_timing_paths -max_paths 1 -nworst 1 -setup]
-puts "================ M9 PPA SUMMARY (xczu7ev / ZCU104) ================="
+puts "========== M14.5 FP-ENABLED PPA SUMMARY (xczu7ev / ZCU104) =========="
 if {[llength $paths] > 0} {
     set wns  [get_property SLACK $paths]
     set raw  [expr {$clk_period - $wns}]

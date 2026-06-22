@@ -493,7 +493,9 @@ single-cycle memory model offers little latency to hide.}
 The base engine is integer-only. We extend it with floating point in both
 single (FP32) and half (FP16) precision, keeping the same SIMT structure: the
 extension is a per-lane execute unit and a second per-lane register file, not a
-new pipeline.
+new pipeline. It covers the full common arithmetic set---add, subtract, multiply,
+the fused multiply-add, and division and square root---plus the sign, compare,
+convert, and move operations, all in both precisions.
 
 \subsection{Per-lane FP unit and register file}
 Each lane gains a compact, single-cycle floating-point unit beside its integer
@@ -501,14 +503,15 @@ ALU, and a second per-lane register file holds the 32 floating-point registers
 in distributed RAM, addressed by \{warp, register\} exactly like the integer VRF.
 The two files have independent write ports, so an FP compute result and an
 integer load can retire in the same cycle; only same-file collisions defer.
-The unit implements add, subtract, multiply, sign-injection, min/max, the
-ordered compares, integer$\leftrightarrow$float conversion, the
-FP32$\leftrightarrow$FP16 format conversions, the integer/FP bit-moves, and
-classify, in both precisions. Rounding is round-to-nearest-even; float-to-integer
-truncates; subnormals are flushed to zero in both formats, a deliberate
-throughput-oriented choice that keeps each lane small. Fused multiply-add and
-division/square-root are deferred to a shared per-warp special-function unit
-(Section~\ref{sec:future}).
+The single-cycle unit implements add, subtract, multiply, the fused multiply-add
+(all four sign variants), sign-injection, min/max, the ordered compares,
+integer$\leftrightarrow$float conversion, the FP32$\leftrightarrow$FP16 format
+conversions, the integer/FP bit-moves, and classify, in both precisions. Rounding
+is round-to-nearest-even; float-to-integer truncates; subnormals are flushed to
+zero in both formats, a deliberate throughput-oriented choice that keeps each lane
+small. Division and square root are inherently multi-cycle and are handled by a
+separate iterative unit behind a stall scoreboard
+(Section~\ref{sec:fpsfu}).
 
 \subsection{Half precision via NaN-boxed widen--compute--narrow}
 Half precision is not a second arithmetic datapath. A 16-bit half lives in a
@@ -525,16 +528,52 @@ bit-moves are done natively at 16 bits so NaN payloads and the signalling/quiet
 distinction survive. Half precision thus reuses the verified single-precision
 logic almost entirely, adding only the widen, narrow, and box steps.
 
+\subsection{Fused multiply-add}
+The fused multiply-add computes $\pm(a\cdot b)\pm c$ with a \emph{single} rounding,
+so it cannot be built by chaining the multiplier and adder (that would round
+twice). The unit forms the exact $48$-bit product, anchors it in a wide
+fixed-point accumulator, aligns the addend to it while capturing a sticky bit,
+and normalizes and rounds once. When the addend out-ranges the product beyond the
+rounding window the product is provably below half a unit in the last place, so
+the result is the addend exactly---which also bounds the alignment shifter. It
+stays single-cycle and commits through the ordinary writeback path. Half-precision
+FMA again uses widen--compute--narrow: the FP32 fused result of the widened
+operands, rounded once to FP16, is correctly rounded because the same $24\ge
+2\cdot 11+2$ bound applies~\cite{figueroa}.
+
+\subsection{Multi-cycle divide and square root}\label{sec:fpsfu}
+Division and square root are produced one quotient/root bit per cycle by a
+digit-recurrence, so they are the engine's first multi-cycle operations. We give
+each lane a small iterative unit (restoring division of the significands; a
+restoring integer square root of the radicand scaled for the fractional bits) and
+park the issuing warp on a \emph{stall scoreboard} while it iterates---the same
+mechanism the background memory engine already uses for latency hiding. When a
+warp issues a divide or square root, its lanes' units start on the live operands
+and the warp enters a waiting state; the round-robin scheduler keeps issuing
+\emph{other} warps onto the idle datapath, and the parked warp resumes when its
+units complete and write the f-file (the memory engine keeps write-port priority,
+so the result waits a cycle if they collide). At most one warp's divide/square
+root is in flight, exactly as at most one memory access is. Half precision reuses
+the FP32 core by the same widen--compute--narrow argument (the $24\ge2\cdot11+2$
+bound holds for divide and square root too). We build one unit \emph{per lane}
+here for correctness; because a divide/square root unit is comparatively large,
+folding the lanes onto one shared serial unit is an area/throughput trade we leave
+to the PPA study (Section~\ref{sec:future}).
+
 \subsection{Verification}
-The unit is verified standalone against a DPI-C IEEE-754 reference: FP32 against
-the host's hardware \texttt{float}, and FP16 against a \texttt{double}-based
+Each unit is verified standalone against a DPI-C IEEE-754 reference: FP32 against
+the host's correctly-rounded \texttt{float} operations (including \texttt{fmaf}
+for the fused FMA and \texttt{sqrtf}), and FP16 against a \texttt{double}-based
 reference that is independent of, and was cross-checked against, the host
-\texttt{\_Float16} type. Over random normal-range vectors plus directed
-infinity/NaN/zero/flush-to-zero/overflow corners, a mis-NaN-boxed-operand case,
-and all conversions, $76{,}048$ results match bit-for-bit with zero mismatches
-(Table~\ref{tab:fpverif}). Two end-to-end kernels---$C_i=A_i+B_i$ and
-$C_i=A_iB_i+B_i$---then run through the complete warp pool in each precision and
-match the reference bit-exact up to 1024 threads.
+\texttt{\_Float16} type. Over random vectors spanning the product-dominant,
+balanced (cancellation), and addend-dominant regimes, plus directed
+infinity/NaN/zero/flush-to-zero/overflow, divide-by-zero, square-root-of-negative,
+mis-NaN-boxed-operand, and conversion corners, the single-cycle unit passes
+$96{,}066$ checks and the iterative divide/square-root unit a further $20{,}023$,
+all bit-exact with zero mismatches (Table~\ref{tab:fpverif}). End-to-end kernels
+then run the complete warp pool: streaming add and multiply-add in each precision,
+a fused $C_i=A_iB_i+C_i$, and---through the stall scoreboard---$C_i=\sqrt{A_i/B_i}$
+(two dependent multi-cycle ops per thread), all bit-exact to 1024 threads.
 
 \begin{table}[t]
 \caption{Floating-point operation coverage. Every operation is implemented and
@@ -548,12 +587,15 @@ reference.}
 Category & Operations (each in FP32 \emph{and} FP16)\\
 \midrule
 Arithmetic     & \texttt{fadd}, \texttt{fsub}, \texttt{fmul}\\
+Fused          & \texttt{fmadd}, \texttt{fmsub}, \texttt{fnmsub}, \texttt{fnmadd}\\
+Divide / root  & \texttt{fdiv}, \texttt{fsqrt} (iterative, multi-cycle)\\
 Sign / select  & \texttt{fsgnj\{,n,x\}}, \texttt{fmin}, \texttt{fmax}\\
 Compare        & \texttt{feq}, \texttt{flt}, \texttt{fle}\\
 Convert        & float$\leftrightarrow$int (signed/unsigned), FP32$\leftrightarrow$FP16\\
 Move / classify& \texttt{fmv.x.\_}, \texttt{fmv.\_.x}, \texttt{fclass}\\
 \midrule
-\multicolumn{2}{l}{Bit-exact checks vs IEEE reference: \textbf{76{,}048} (0 mismatches)}\\
+\multicolumn{2}{l}{Bit-exact checks vs IEEE reference:
+\textbf{116{,}089} (0 mismatches)}\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -569,8 +611,7 @@ curves lie exactly on the FP32 curves, and the cycle counts are identical
 (Figure~\ref{fig:fpcost}): half precision shares the single-cycle datapath, so it
 costs no extra time. Half precision therefore delivers reduced storage and
 bandwidth and ISA-level FP16 support at \emph{no} throughput penalty; its area
-benefit is quantified in the forthcoming per-configuration PPA sweep
-(Section~\ref{sec:future}).
+benefit is part of the PPA discussion below.
 
 \begin{figure}[t]
 \centering
@@ -589,6 +630,99 @@ single-cycle datapath.}
 confirming half precision adds no compute-time cost on the single-cycle FP unit.}
 \label{fig:fpcost}
 \end{figure}
+
+\subsection{FP application kernels}\label{sec:fpkernels}
+To exercise the whole datapath we run four toolchain-assembled FP kernels through
+the engine, each verified bit-exact (Table~\ref{tab:fpkernels}): \texttt{fsaxpy}
+($C=\alpha A+B$, one fused multiply-add per element, in FP32 and FP16);
+\texttt{fnorm} ($C=A/\sqrt{B}$, both multi-cycle SFU operations per element); and
+\texttt{fdot}, a per-warp dot product that stages each lane's product in the
+scratchpad and reduces them on lane~0---the building block of a fully-connected
+layer. Two effects stand out (Figures~\ref{fig:fpkcost},~\ref{fig:fpkenergy}).
+First, the iterative SFU is visible: \texttt{fnorm} takes about $6\times$ the
+cycles of the streaming \texttt{fsaxpy} at the same size, the honest price of
+correctly-rounded divide and square root on a small iterative unit (well hidden
+across warps, but real). Second, divergence interacts with the now-larger lane
+datapath: \texttt{fdot}'s reduction leaves only one of eight lanes active during
+the collapse, so it runs at $45\%$ lane utilization---and by Eq.~\eqref{eq:energy}
+that idle $55\%$ is lane-datapath dynamic energy a mask-gated design clocks away.
+Because the floating-point unit makes each lane substantially larger than the
+integer-only baseline, the \emph{absolute} energy that divergence-aware gating
+saves on such kernels grows accordingly.
+
+\begin{table}[t]
+\caption{FP application kernels (FP32 unless noted), verified bit-exact. Cycles,
+global line transactions, and lane utilization at $N{=}256$.}
+\label{tab:fpkernels}
+\centering
+\footnotesize
+\begin{tabular}{llrrr}
+\toprule
+Kernel & Computation & Cycles & Gmem & Lane-util\\
+\midrule
+\texttt{fsaxpy}   & $\alpha A_i + B_i$ (fmadd) & 393  & 96 & 100\%\\
+\texttt{fsaxpy16} & $\alpha A_i + B_i$ (FP16)  & 425  & 96 & 100\%\\
+\texttt{fnorm}    & $A_i/\sqrt{B_i}$ (div+sqrt)& 2{,}396 & 96 & 100\%\\
+\texttt{fdot}     & $\sum_l A_{8w+l}B_{8w+l}$  & 1{,}587 & 96 & 45\%\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fpk_cost.png}
+\caption{Cycles at $N{=}256$ for the FP application kernels. The multi-cycle
+divide/square-root SFU makes \texttt{fnorm} about $6\times$ the streaming
+\texttt{fsaxpy}; \texttt{fdot} pays for its scratchpad reduction.}
+\label{fig:fpkcost}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\columnwidth]{fpk_energy.png}
+\caption{SIMT lane utilization per FP kernel. Streaming kernels keep all lanes
+busy; \texttt{fdot}'s single-lane reduction idles $55\%$ of the (now FP-enlarged)
+lane datapath, which mask-driven clock-gating removes.}
+\label{fig:fpkenergy}
+\end{figure}
+
+\subsection{FP area cost}\label{sec:fppa}
+Table~\ref{tab:fppa} gives the cost of the extension: an out-of-context synthesis
+of the FP-enabled accelerator on the same \texttt{xczu7ev}, against the
+integer-only baseline. Floating point raises LUTs from 30{,}088 to 74{,}342
+($2.5\times$), flip-flops from 4{,}590 to 7{,}894, and DSP blocks from 24 to 40
+(the FP multipliers), at 1.34~W. The increase is dominated by the
+\emph{single-cycle} unit---eight per-lane copies of the add/multiply/FMA/convert
+datapath, the fused multiply-add being the largest single block---rather than the
+iterative divide/square-root units, which synthesize to only $689$ LUTs each
+($\approx$5{,}500 LUTs across eight lanes, $\sim$7\% of the design). Folding those
+eight onto one shared serial unit would therefore recover only a few percent of
+the area; the single-cycle FMA is both the dominant area term and, as a long
+combinational chain, the new critical path (a conservative non-timing-driven
+estimate puts the raw path at 16.2~ns). Pipelining the FMA---and sharing the
+divide/square-root unit at high lane counts---are the clear paths to closing
+100~MHz on the FP design, and are left as future work; the area and power figures
+here are exact.
+
+\begin{table}[t]
+\caption{FP extension area cost: out-of-context synthesis of the accelerator on
+\texttt{xczu7ev}, integer baseline versus FP-enabled.}
+\label{tab:fppa}
+\centering
+\footnotesize
+\begin{tabular}{lrrr}
+\toprule
+Resource & Integer & FP-enabled & $\Delta$\\
+\midrule
+LUTs            & 30{,}088 & 74{,}342 & $2.5\times$\\
+\quad LUTRAM    & 1{,}428  & 3{,}348  & ---\\
+Flip-flops      & 4{,}590  & 7{,}894  & $1.7\times$\\
+DSP48E2         & 24       & 40       & $+16$\\
+BRAM            & 0        & 0        & ---\\
+Power           & 0.81~W   & 1.34~W   & ---\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 %==============================================================================
 \section{Related Work}\label{sec:related}
@@ -614,14 +748,15 @@ throughput below the lane-count ideal; multiple memory ports or banked access
 would raise the saturation point. The \texttt{reduce} result motivates a
 dedicated cross-lane reduction primitive. The lane clock-gating model is
 analytic from counters; a gate-level power simulation would confirm the realized
-savings. The floating-point unit (Section~\ref{sec:fp}) currently covers
-add/multiply/convert in both precisions; a shared per-warp special-function unit
-for division, square root, and fused multiply-add---with the multi-cycle
-issue/writeback scoreboard those require---is the next extension, after which the
-FP-enabled design enters the PPA sweep. The throughput design-space sweep
-(Section~\ref{sec:dse}) establishes how performance scales with lanes and warps;
-the complementary piece in progress is a per-configuration FPGA and ASIC PPA
-sweep to complete the area/frequency/throughput Pareto. Finally, an open-source ASIC path through the
+savings. The floating-point unit (Section~\ref{sec:fp}) now covers the full
+arithmetic set including the fused multiply-add and iterative divide/square root
+in both precisions; its one remaining trade is the divide/square-root unit, built
+per-lane here for correctness---folding the lanes onto a single shared serial unit
+would trade throughput for a large area saving and is the natural next step at
+high lane counts. The throughput design-space sweep (Section~\ref{sec:dse})
+establishes how performance scales with lanes and warps; the complementary piece
+in progress is a per-configuration FPGA and ASIC PPA sweep to complete the
+area/frequency/throughput Pareto. Finally, an open-source ASIC path through the
 SkyWater~130\,nm PDK~\cite{sky130} using OpenLane~\cite{openlane} would turn the
 FPGA PPA numbers into silicon-relevant area, frequency, and power.
 
