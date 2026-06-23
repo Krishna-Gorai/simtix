@@ -713,7 +713,9 @@ single-cycle block its raw path is 16.2~ns (61~MHz, a conservative
 non-timing-driven estimate), making it the frequency bottleneck of the FP
 extension.
 
-\paragraph{Timing closure.} To recover frequency we pipeline the FP unit into two
+\paragraph{Timing closure.} Table~\ref{tab:fpclose} summarizes the placed
+utilization and frequency of each step in the closure; we walk through them in turn.
+To recover frequency we first pipeline the FP unit into two
 stages, split at the FMA accumulator (\texttt{mag}) boundary: the first stage
 forms the 48-bit product and aligns it into the 128-bit fixed-point accumulator,
 the second normalizes and rounds. The warp pool absorbs the extra cycle with a
@@ -721,9 +723,10 @@ single-slot scoreboard (\texttt{W\_FPC})---the issuing warp parks one slot and
 resumes when the result commits, the same park-and-resume mechanism already used
 for memory accesses and the iterative divide/square-root unit, so no new
 structural hazard arises and SIMT interleaving hides the latency on streaming work
-(Figure~\ref{fig:fpthr}). The pipeline registers raise flip-flops from 7.9k to
-12.4k---the registered datapath is wide, eight lanes each holding a 128-bit
-accumulator---but leave LUTs, DSPs, and power essentially unchanged. Timing-driven
+(Figure~\ref{fig:fpthr}). The pipeline registers raise flip-flops to
+12.3k---the registered datapath is wide, eight lanes each holding a 128-bit
+accumulator---but leave LUTs and DSPs essentially unchanged (Table~\ref{tab:fpclose},
+step~1). Timing-driven
 synthesis with retiming cuts the FP \emph{logic} depth from 16.2~ns to 5.3~ns;
 place-and-route on the \texttt{xczu7ev}, however, closes at 12.8~ns
 (\textbf{78~MHz}), short of the 100~MHz target. The placed critical path is still
@@ -745,8 +748,8 @@ direct confirmation that interconnect, not logic depth, bounds this design.
 
 \paragraph{Frequency does not scale with fabric size.} If congestion is the limit,
 a natural question is whether \emph{trimming} the FP fabric relieves it further. It
-does not. Placing the FP design at four lanes (Table~\ref{tab:fpdse}) halves its
-area---37k versus 69k LUTs, 20 versus 40 DSPs---but reaches only 79.7~MHz,
+does not. Placing the FP design at four lanes (Table~\ref{tab:fpclose}, last row)
+halves its area---37k versus 69k LUTs, 20 versus 40 DSPs---but reaches only 79.7~MHz,
 marginally \emph{below} the eight-lane 84.1~MHz, and the router still reports CLB
 congestion. The reason is that the critical path is a \emph{single} lane's FMA cone,
 whose logic depth and locally-dense 128-bit datapath are independent of the lane
@@ -763,9 +766,10 @@ FMA across \emph{three} stages---product, 128-bit align-and-add, and
 normalize-and-round---so no single stage carries the whole cone (the two-stage split
 had left product, align, and add together in stage one). The warp pool absorbs the
 extra cycle with the same single-slot scoreboard, now a two-cycle writeback latency
-that SIMT interleaving continues to hide on streaming work; the added pipeline
-registers raise flip-flops to 15.0k but leave LUTs, DSPs, and the bit-exact results
-unchanged. Place-and-route now \emph{meets} timing at 100~MHz (worst setup slack
+that SIMT interleaving continues to hide on streaming work; the added third-stage
+registers raise flip-flops to 15.0k (Table~\ref{tab:fpclose}) while leaving LUTs
+(marginally up, to 70.0k), DSPs, power (1.22~W), and the bit-exact results unchanged.
+Place-and-route now \emph{meets} timing at 100~MHz (worst setup slack
 $+0.071$~ns; Table~\ref{tab:fpclose} traces $78\rightarrow84\rightarrow100.7$~MHz
 across the three closure steps), and decisively the critical path moves \emph{off}
 the FMA onto the vector-register-file LUTRAM read mux---the same structure that
@@ -773,40 +777,33 @@ bounds the \emph{integer} design (Section~\ref{sec:impl}). The floating-point
 datapath is no longer the frequency limiter, confirming that FMA logic depth---the
 lever the design-space exploration identified---was the true constraint all along.
 
-\begin{table}[t]
-\caption{FP timing closure on \texttt{xczu7ev} (placed, 8 lanes / 4 warps). Pipelining
-the FMA from two to three stages moves the critical path off the FMA and meets
-100~MHz; the shared SFU and lane trimming alone did not.}
+\begin{table*}[t]
+\caption{Placed post-route PPA of the FP-enabled accelerator across the
+timing-closure steps and the lane design-space point (\texttt{xczu7ev},
+out-of-context place-and-route, 100~MHz constraint). Steps~1--3 hold the lane count
+at eight and progressively pipeline the datapath; the final row (DSE) trims to four
+lanes. Pipelining the FMA from two to three stages (step~3) is what meets 100~MHz
+and moves the critical path off the FP datapath; the shared SFU (step~2) and lane
+trimming (DSE) help area and power but not the frequency floor. LUTRAM is the
+distributed-RAM subset of the LUT count; the design uses zero block RAM throughout.
+Utilization percentages are of the \texttt{xczu7ev} (230{,}400 LUTs, 460{,}800 FFs,
+1{,}728 DSPs).}
 \label{tab:fpclose}
 \centering
 \footnotesize
-\begin{tabular}{llrrrl}
+\begin{tabular}{llrrrrrrrrl}
 \toprule
-Step & FP datapath & Fmax & WNS & FF & Critical path\\
+\# & FP datapath & Lanes & LUT & LUTRAM & FF & DSP & BRAM & Power & Fmax & Crit.\ path\\
+   &             &       & (31\%) &       & (3\%) & (2\%) & & (W) & (MHz) & \\
 \midrule
-1 & 2-stage FMA      & 78.0  & $-2.816$ & 12.3k & FMA cone\\
-2 & {}+ shared SFU   & 84.1  & $-1.890$ & 11.2k & FMA cone\\
-3 & 3-stage FMA      & \textbf{100.7} & $\mathbf{+0.071}$ & 15.0k & VRF LUTRAM\\
+1 & Two-stage FMA          & 8 & 72{,}573 & 3{,}348 & 12{,}347 & 40 & 0 & 1.53 & 78.0  & FMA cone\\
+2 & {}+ shared serial SFU  & 8 & 68{,}914 & 3{,}348 & 11{,}153 & 40 & 0 & 1.22 & 84.1  & FMA cone\\
+3 & Three-stage FMA        & 8 & 69{,}987 & 3{,}348 & 14{,}954 & 40 & 0 & 1.22 & \textbf{100.7} & VRF LUTRAM\\
+\midrule
+  & \emph{DSE:} four lanes & 4 & 36{,}785 & 1{,}748 &  6{,}953 & 20 & 0 & 0.98 & 79.7  & FMA cone\\
 \bottomrule
 \end{tabular}
-\end{table}
-
-\begin{table}[t]
-\caption{FP design-space exploration: placed PPA of the FP-enabled accelerator on
-\texttt{xczu7ev} versus lane count (4 warps). Area halves with the lanes but the
-placed frequency does not improve---the per-lane FMA cone is the floor.}
-\label{tab:fpdse}
-\centering
-\footnotesize
-\begin{tabular}{lrrrrr}
-\toprule
-Lanes & LUT & DSP & Power & Placed Fmax & Thr.\ (w/cyc)\\
-\midrule
-4 & 36{,}785 & 20 & 0.98~W & 79.7~MHz & 3.06\\
-8 & 68{,}914 & 40 & 1.22~W & 84.1~MHz & 5.85\\
-\bottomrule
-\end{tabular}
-\end{table}
+\end{table*}
 
 \begin{table}[t]
 \caption{FP extension area cost: out-of-context synthesis of the accelerator on
