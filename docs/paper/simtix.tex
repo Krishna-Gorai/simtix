@@ -60,7 +60,7 @@ divergence-heavy kernel, and---reported honestly---a slowdown on a serial
 reduction, exposing where the SIMT model does and does not pay off. Using the
 SIMT active mask as a per-lane clock-enable, we quantify the lane-datapath
 dynamic energy a divergence-aware gated design saves (up to 22.5\% on a
-divergent kernel). We further extend each lane with a single-cycle
+divergent kernel). We further extend each lane with a pipelined
 floating-point unit supporting both single and half precision (FP32 and FP16):
 half precision reuses the single-precision datapath through NaN-boxed
 widen--compute--narrow, which we show is correctly single-rounded and adds no
@@ -117,7 +117,9 @@ saved as a function of control divergence (Sections~\ref{sec:arch},
 half precision is obtained almost for free from the single-precision path via
 NaN-boxed widen--compute--narrow (which we show is correctly single-rounded),
 verified bit-exact and shown to sustain the engine's full lane-parallel
-throughput (Section~\ref{sec:fp}).
+throughput; we pipeline the unit and analyze its timing, finding that in the
+FP-enlarged fabric \emph{interconnect}, not logic depth, bounds the achievable
+frequency (Section~\ref{sec:fp}).
 \end{itemize}
 
 %==============================================================================
@@ -498,12 +500,12 @@ the fused multiply-add, and division and square root---plus the sign, compare,
 convert, and move operations, all in both precisions.
 
 \subsection{Per-lane FP unit and register file}
-Each lane gains a compact, single-cycle floating-point unit beside its integer
+Each lane gains a compact, fixed-latency floating-point unit beside its integer
 ALU, and a second per-lane register file holds the 32 floating-point registers
 in distributed RAM, addressed by \{warp, register\} exactly like the integer VRF.
 The two files have independent write ports, so an FP compute result and an
 integer load can retire in the same cycle; only same-file collisions defer.
-The single-cycle unit implements add, subtract, multiply, the fused multiply-add
+The unit implements add, subtract, multiply, the fused multiply-add
 (all four sign variants), sign-injection, min/max, the ordered compares,
 integer$\leftrightarrow$float conversion, the FP32$\leftrightarrow$FP16 format
 conversions, the integer/FP bit-moves, and classify, in both precisions. Rounding
@@ -536,7 +538,9 @@ fixed-point accumulator, aligns the addend to it while capturing a sticky bit,
 and normalizes and rounds once. When the addend out-ranges the product beyond the
 rounding window the product is provably below half a unit in the last place, so
 the result is the addend exactly---which also bounds the alignment shifter. It
-stays single-cycle and commits through the ordinary writeback path. Half-precision
+has fixed latency---unlike the iterative divide and square root---and commits
+through the ordinary writeback path; Section~\ref{sec:fppa} describes how this
+combinational chain is pipelined for timing closure. Half-precision
 FMA again uses widen--compute--narrow: the FP32 fused result of the widened
 operands, rounded once to FP16, is correctly rounded because the same $24\ge
 2\cdot 11+2$ bound applies~\cite{figueroa}.
@@ -568,7 +572,7 @@ reference that is independent of, and was cross-checked against, the host
 \texttt{\_Float16} type. Over random vectors spanning the product-dominant,
 balanced (cancellation), and addend-dominant regimes, plus directed
 infinity/NaN/zero/flush-to-zero/overflow, divide-by-zero, square-root-of-negative,
-mis-NaN-boxed-operand, and conversion corners, the single-cycle unit passes
+mis-NaN-boxed-operand, and conversion corners, the pipelined unit passes
 $96{,}066$ checks and the iterative divide/square-root unit a further $20{,}023$,
 all bit-exact with zero mismatches (Table~\ref{tab:fpverif}). End-to-end kernels
 then run the complete warp pool: streaming add and multiply-add in each precision,
@@ -601,17 +605,21 @@ Move / classify& \texttt{fmv.x.\_}, \texttt{fmv.\_.x}, \texttt{fclass}\\
 \end{table}
 
 \subsection{Floating-point throughput}
-Because the FP unit is single-cycle, floating-point work flows through the SIMT
-pipeline exactly like integer work. Figure~\ref{fig:fpthr} plots throughput
-against problem size for streaming add and multiply-add kernels in both
-precisions. The curves show the same latency-hiding ramp as the integer suite
-and saturate near 7 work-items per cycle at full (100\%) lane utilization, with
-coalesced traffic of three line transactions per warp. Critically, the FP16
-curves lie exactly on the FP32 curves, and the cycle counts are identical
-(Figure~\ref{fig:fpcost}): half precision shares the single-cycle datapath, so it
-costs no extra time. Half precision therefore delivers reduced storage and
-bandwidth and ISA-level FP16 support at \emph{no} throughput penalty; its area
-benefit is part of the PPA discussion below.
+The FP unit is pipelined over two stages (Section~\ref{sec:fppa}): an FP
+instruction commits one cycle after issue, and the issuing warp parks a single
+slot until it does. On streaming kernels this added latency is fully hidden by
+SIMT warp interleaving. Figure~\ref{fig:fpthr} plots throughput against problem
+size for streaming add and multiply-add kernels in both precisions; the curves
+show the same latency-hiding ramp as the integer suite and saturate near 7
+work-items per cycle at full (100\%) lane utilization, with coalesced traffic of
+three line transactions per warp. The extra pipeline stage costs throughput only
+where a dependent FP result is consumed immediately---the tight reductions of
+Section~\ref{sec:fpkernels}---and leaves these streaming kernels unaffected at
+scale. Critically, the FP16 curves lie exactly on the FP32 curves, and the cycle
+counts are identical (Figure~\ref{fig:fpcost}): half precision shares the same
+pipelined datapath, so it costs no extra time. Half precision therefore delivers
+reduced storage and bandwidth and ISA-level FP16 support at \emph{no} throughput
+penalty; its area and timing cost is part of the PPA discussion below.
 
 \begin{figure}[t]
 \centering
@@ -619,7 +627,7 @@ benefit is part of the PPA discussion below.
 \caption{Floating-point throughput versus problem size for streaming add and
 multiply-add kernels. The ramp is the same latency-hiding behavior as the
 integer suite; the FP16 curves coincide with the FP32 ones because both use the
-single-cycle datapath.}
+same pipelined datapath.}
 \label{fig:fpthr}
 \end{figure}
 
@@ -627,7 +635,7 @@ single-cycle datapath.}
 \centering
 \includegraphics[width=0.74\columnwidth]{fp_cost.png}
 \caption{Cycles to completion at $N{=}1024$: FP16 equals FP32 for both kernels,
-confirming half precision adds no compute-time cost on the single-cycle FP unit.}
+confirming half precision adds no compute-time cost on the shared FP datapath.}
 \label{fig:fpcost}
 \end{figure}
 
@@ -660,10 +668,10 @@ global line transactions, and lane utilization at $N{=}256$.}
 \toprule
 Kernel & Computation & Cycles & Gmem & Lane-util\\
 \midrule
-\texttt{fsaxpy}   & $\alpha A_i + B_i$ (fmadd) & 393  & 96 & 100\%\\
-\texttt{fsaxpy16} & $\alpha A_i + B_i$ (FP16)  & 425  & 96 & 100\%\\
+\texttt{fsaxpy}   & $\alpha A_i + B_i$ (fmadd) & 419  & 96 & 100\%\\
+\texttt{fsaxpy16} & $\alpha A_i + B_i$ (FP16)  & 451  & 96 & 100\%\\
 \texttt{fnorm}    & $A_i/\sqrt{B_i}$ (div+sqrt)& 2{,}396 & 96 & 100\%\\
-\texttt{fdot}     & $\sum_l A_{8w+l}B_{8w+l}$  & 1{,}587 & 96 & 45\%\\
+\texttt{fdot}     & $\sum_l A_{8w+l}B_{8w+l}$  & 1{,}991 & 96 & 45\%\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -691,18 +699,38 @@ Table~\ref{tab:fppa} gives the cost of the extension: an out-of-context synthesi
 of the FP-enabled accelerator on the same \texttt{xczu7ev}, against the
 integer-only baseline. Floating point raises LUTs from 30{,}088 to 74{,}342
 ($2.5\times$), flip-flops from 4{,}590 to 7{,}894, and DSP blocks from 24 to 40
-(the FP multipliers), at 1.34~W. The increase is dominated by the
-\emph{single-cycle} unit---eight per-lane copies of the add/multiply/FMA/convert
-datapath, the fused multiply-add being the largest single block---rather than the
-iterative divide/square-root units, which synthesize to only $689$ LUTs each
+(the FP multipliers), at 1.34~W. The increase is dominated by the common-case
+arithmetic unit---eight per-lane copies of the add/multiply/FMA/convert datapath,
+the fused multiply-add being the largest single block---rather than the iterative
+divide/square-root units, which synthesize to only $689$ LUTs each
 ($\approx$5{,}500 LUTs across eight lanes, $\sim$7\% of the design). Folding those
 eight onto one shared serial unit would therefore recover only a few percent of
-the area; the single-cycle FMA is both the dominant area term and, as a long
-combinational chain, the new critical path (a conservative non-timing-driven
-estimate puts the raw path at 16.2~ns). Pipelining the FMA---and sharing the
-divide/square-root unit at high lane counts---are the clear paths to closing
-100~MHz on the FP design, and are left as future work; the area and power figures
-here are exact.
+the area. The FMA is also the longest combinational chain in the design: as a
+single-cycle block its raw path is 16.2~ns (61~MHz, a conservative
+non-timing-driven estimate), making it the frequency bottleneck of the FP
+extension.
+
+\paragraph{Timing closure.} To recover frequency we pipeline the FP unit into two
+stages, split at the FMA accumulator (\texttt{mag}) boundary: the first stage
+forms the 48-bit product and aligns it into the 128-bit fixed-point accumulator,
+the second normalizes and rounds. The warp pool absorbs the extra cycle with a
+single-slot scoreboard (\texttt{W\_FPC})---the issuing warp parks one slot and
+resumes when the result commits, the same park-and-resume mechanism already used
+for memory accesses and the iterative divide/square-root unit, so no new
+structural hazard arises and SIMT interleaving hides the latency on streaming work
+(Figure~\ref{fig:fpthr}). The pipeline registers raise flip-flops from 7.9k to
+12.4k---the registered datapath is wide, eight lanes each holding a 128-bit
+accumulator---but leave LUTs, DSPs, and power essentially unchanged. Timing-driven
+synthesis with retiming cuts the FP \emph{logic} depth from 16.2~ns to 5.3~ns;
+place-and-route on the \texttt{xczu7ev}, however, closes at 12.8~ns
+(\textbf{78~MHz}), short of the 100~MHz target. The placed critical path is still
+the first FMA stage, but it is now \emph{routing}-dominated---7.4 of 12.8~ns
+(58\%) is wire delay---because in the FP-enlarged fabric ($2.5\times$ the integer
+LUTs spread across eight wide FP lanes) interconnect, not logic depth, has become
+the binding constraint. Closing 100~MHz therefore calls for reducing FP area and
+congestion---the shared serial SFU and the lane/warp design-space exploration of
+Section~\ref{sec:dse}---or a third pipeline stage that further subdivides the
+product/align cone. The area and power figures here are exact.
 
 \begin{table}[t]
 \caption{FP extension area cost: out-of-context synthesis of the accelerator on
@@ -753,7 +781,11 @@ arithmetic set including the fused multiply-add and iterative divide/square root
 in both precisions; its one remaining trade is the divide/square-root unit, built
 per-lane here for correctness---folding the lanes onto a single shared serial unit
 would trade throughput for a large area saving and is the natural next step at
-high lane counts. The throughput design-space sweep (Section~\ref{sec:dse})
+high lane counts. That same area reduction is the lever for FP frequency: the
+pipelined FP unit closes 78~MHz post-route and is interconnect-bound in the
+enlarged fabric (Section~\ref{sec:fppa}), so shrinking the FP footprint---or
+adding a third FMA pipeline stage to subdivide the product/align cone---is the
+route to 100~MHz. The throughput design-space sweep (Section~\ref{sec:dse})
 establishes how performance scales with lanes and warps; the complementary piece
 in progress is a per-configuration FPGA and ASIC PPA sweep to complete the
 area/frequency/throughput Pareto. Finally, an open-source ASIC path through the
