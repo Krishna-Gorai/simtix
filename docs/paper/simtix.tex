@@ -117,9 +117,11 @@ saved as a function of control divergence (Sections~\ref{sec:arch},
 half precision is obtained almost for free from the single-precision path via
 NaN-boxed widen--compute--narrow (which we show is correctly single-rounded),
 verified bit-exact and shown to sustain the engine's full lane-parallel
-throughput; we pipeline the unit and analyze its timing, finding that in the
-FP-enlarged fabric \emph{interconnect}, not logic depth, bounds the achievable
-frequency (Section~\ref{sec:fp}).
+throughput. A placed timing study isolates the per-lane fused multiply-add as the
+frequency bottleneck and, via a design-space exploration showing the limit is
+intra-lane rather than fabric-wide, pipelines the FMA into three stages to
+\emph{meet} 100~MHz---moving the critical path off the FP datapath entirely
+(Section~\ref{sec:fp}).
 \end{itemize}
 
 %==============================================================================
@@ -756,6 +758,39 @@ modestly and identifies the true frequency lever as the FMA \emph{microarchitect
 (a deeper FMA pipeline), not the fabric size. The area and power figures here are
 exact.
 
+\paragraph{Closing 100~MHz: a three-stage FMA.} Acting on that finding, we split the
+FMA across \emph{three} stages---product, 128-bit align-and-add, and
+normalize-and-round---so no single stage carries the whole cone (the two-stage split
+had left product, align, and add together in stage one). The warp pool absorbs the
+extra cycle with the same single-slot scoreboard, now a two-cycle writeback latency
+that SIMT interleaving continues to hide on streaming work; the added pipeline
+registers raise flip-flops to 15.0k but leave LUTs, DSPs, and the bit-exact results
+unchanged. Place-and-route now \emph{meets} timing at 100~MHz (worst setup slack
+$+0.071$~ns; Table~\ref{tab:fpclose} traces $78\rightarrow84\rightarrow100.7$~MHz
+across the three closure steps), and decisively the critical path moves \emph{off}
+the FMA onto the vector-register-file LUTRAM read mux---the same structure that
+bounds the \emph{integer} design (Section~\ref{sec:impl}). The floating-point
+datapath is no longer the frequency limiter, confirming that FMA logic depth---the
+lever the design-space exploration identified---was the true constraint all along.
+
+\begin{table}[t]
+\caption{FP timing closure on \texttt{xczu7ev} (placed, 8 lanes / 4 warps). Pipelining
+the FMA from two to three stages moves the critical path off the FMA and meets
+100~MHz; the shared SFU and lane trimming alone did not.}
+\label{tab:fpclose}
+\centering
+\footnotesize
+\begin{tabular}{llrrrl}
+\toprule
+Step & FP datapath & Fmax & WNS & FF & Critical path\\
+\midrule
+1 & 2-stage FMA      & 78.0  & $-2.816$ & 12.3k & FMA cone\\
+2 & {}+ shared SFU   & 84.1  & $-1.890$ & 11.2k & FMA cone\\
+3 & 3-stage FMA      & \textbf{100.7} & $\mathbf{+0.071}$ & 15.0k & VRF LUTRAM\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \begin{table}[t]
 \caption{FP design-space exploration: placed PPA of the FP-enabled accelerator on
 \texttt{xczu7ev} versus lane count (4 warps). Area halves with the lanes but the
@@ -819,15 +854,12 @@ dedicated cross-lane reduction primitive. The lane clock-gating model is
 analytic from counters; a gate-level power simulation would confirm the realized
 savings. The floating-point unit (Section~\ref{sec:fp}) now covers the full
 arithmetic set including the fused multiply-add and iterative divide/square root
-in both precisions, with the divide/square-root cores folded onto a single shared
-serial unit that recovered both area and frequency (84~MHz post-route,
-Section~\ref{sec:fppa}). The FP design-space exploration then localized the
-remaining barrier: trimming the FP fabric does \emph{not} raise the frequency
-(four lanes places below eight), because the critical path is a single lane's FMA
-cone. The path to 100~MHz is therefore the FMA \emph{microarchitecture}---a deeper,
-more finely balanced FMA pipeline---rather than fewer lanes or further area cuts;
-that, and an ASIC-flow re-balancing where wire delay is less dominant, are the
-clear next steps. The throughput design-space sweep (Section~\ref{sec:dse})
+in both precisions, and its timing closure is complete: a design-space exploration
+localized the bottleneck to a single lane's FMA cone (trimming the fabric did not
+help), and pipelining that FMA into three stages meets 100~MHz with the critical
+path moved off the FP datapath (Section~\ref{sec:fppa}). The remaining FP headroom
+is therefore in the now-binding vector-register-file read mux, shared with the
+integer design. The throughput design-space sweep (Section~\ref{sec:dse})
 establishes how performance scales with lanes and warps, and the FP PPA sweep
 (Section~\ref{sec:fppa}) completes the area/frequency/throughput picture. Finally, an open-source ASIC path through the
 SkyWater~130\,nm PDK~\cite{sky130} using OpenLane~\cite{openlane} would turn the
