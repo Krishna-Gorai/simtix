@@ -1,5 +1,5 @@
 // =============================================================================
-// simt_fpu.sv  -  per-lane floating-point execute unit (FP32 + FP16), 2-stage
+// simt_fpu.sv  -  per-lane floating-point execute unit (FP32 + FP16), 3-stage
 //
 // A pipelined RV32F + Zfh execute datapath for the COMMON floating-point ops,
 // instantiated once per SIMT lane. Single (S, FP32) and half (H, FP16) precision
@@ -13,14 +13,15 @@
 //     fmv.x  fclass  (-> int),  fmv.*.x          (bit move int -> float)
 //     fmadd  fmsub  fnmsub  fnmadd               (fused multiply-add, 1 rounding)
 //
-// PIPELINING (M15): the add/sub and fused-multiply-add datapaths have the longest
-// combinational depth (the wide significand align/add and the leading-zero
-// normalize), so the unit is split into TWO cycles with a register at each op's
-// `mag` boundary: stage 1 unpacks and computes the aligned magnitude (and the full
-// result of every shallow op); stage 2 does the normalize + round + format mux.
-// Operands sampled in cycle T produce `res` in cycle T+1. The arithmetic is
-// IDENTICAL to the previous single-cycle unit (same bit-exact results); only the
-// register boundary is new, which roughly halves the critical path.
+// PIPELINING (M15 -> M17): the fused-multiply-add cone is the design's critical
+// path (an FPGA DSE showed it is intra-lane, independent of lane count), so the
+// unit is split into THREE cycles. For the FMA: stage 1 forms the 48-bit product,
+// the alignment amount, and the special cases; stage 2 does the 128-bit align +
+// add; stage 3 does the leading-zero normalize + round. ADD/SUB and the shallow
+// ops compute fully in stage 1 and ride two registers to the stage-3 format mux,
+// so every op has uniform 3-cycle latency. Operands sampled in cycle T produce
+// `res` in cycle T+2. The arithmetic is IDENTICAL to the single-cycle unit (same
+// bit-exact results); only the register boundaries are new.
 //
 // HALF PRECISION via WIDEN-COMPUTE-NARROW: FP16 operands are NaN-box-checked,
 // widened to FP32 (exact), run through the FP32 datapath, then the FP-result is
@@ -55,7 +56,7 @@ module simt_fpu
     input  logic [31:0] b,        // f[rs2] (NaN-boxed if half)
     input  logic [31:0] c,        // f[rs3] (NaN-boxed if half) — FMA addend
     input  logic [31:0] xa,       // x[rs1]  (int->float, fmv.*.x)
-    output logic [31:0] res,      // result bits (FP or int per int_dest) — 1 cycle late
+    output logic [31:0] res,      // result bits (FP or int per int_dest) — 2 cycles late
     output logic        int_dest  // 1: result goes to the integer register file
 );
     localparam logic [31:0] CANON_QNAN   = 32'h7fc0_0000;  // canonical quiet NaN (FP32)
@@ -250,69 +251,86 @@ module simt_fpu
         end
     end
 
-    // ── STAGE 1: FMA front — aligned 128-bit magnitude (normalize deferred) ─────────
-    logic [127:0] s1_fma_mag;
-    logic         s1_fma_rsign, s1_fma_fs, s1_fma_spec;
-    logic [8:0]   s1_fma_eab;          // ea + eb (for the stage-2 exponent)
-    logic [31:0]  s1_fma_specval;
+    // ── STAGE 1: FMA front-A — exact product, alignment amount, and specials ────────
+    // M17: the FMA is split across THREE pipeline stages, since the per-lane FMA cone
+    // was the design's critical path. Stage-1 forms the 48-bit product and the addend
+    // alignment position and resolves the special cases; stage-2 (below) does the
+    // 128-bit align + add; stage-3 normalizes + rounds. Each stage is shallow.
+    logic [47:0]        s1f_P;          // exact 48-bit significand product
+    logic signed [11:0] s1f_pos0;       // addend anchor in the 128-bit accumulator
+    logic [23:0]        s1f_sigc;       // addend significand
+    logic               s1f_psign, s1f_csign, s1f_c_zero;
+    logic [8:0]         s1f_eab;        // ea + eb (for the final exponent)
+    logic               s1f_fma_spec;   // 1: an early special is ready (skip align/add)
+    logic [31:0]        s1f_fma_specval;
     always_comb begin
         logic               sc;
         logic [7:0]         ec;
         logic [22:0]        mc;
-        logic               c_zero, c_inf, c_nan;
-        logic [23:0]        sigc;
-        logic [47:0]        P;
+        logic               c_inf, c_nan;
         logic               prod_zero, prod_inf, prod_nan;
-        logic               psign, csign, samesign, addend_bigger;
-        logic signed [11:0] d, pos0;
-        logic [127:0]       prod_acc, add_acc, mag, cfull;
-        logic               sticky_c;
-        logic [7:0]         rsh;
+        logic signed [11:0] d;
         sc = opc[31]; ec = opc[30:23]; mc = opc[22:0];
-        c_zero = (ec == 8'd0); c_inf = (ec == 8'hff) && (mc == 23'd0);
-        c_nan  = (ec == 8'hff) && (mc != 23'd0);
-        sigc   = c_zero ? 24'd0 : {1'b1, mc};
-        P = siga * sigb;
-        prod_zero = a_zero || b_zero; prod_inf = a_inf || b_inf; prod_nan = a_nan || b_nan;
-        psign = (sa ^ sb) ^ fma_np; csign = sc ^ fma_nc;
-        // defaults
-        d = 12'sd0; pos0 = 12'sd0; prod_acc = '0; add_acc = '0; cfull = '0;
-        mag = '0; sticky_c = 1'b0; rsh = 8'd0; samesign = 1'b0; addend_bigger = 1'b0;
-        s1_fma_mag = '0; s1_fma_rsign = 1'b0; s1_fma_fs = 1'b0;
-        s1_fma_eab = ea + eb; s1_fma_spec = 1'b1; s1_fma_specval = 32'd0;
-        if (prod_nan || c_nan)                            s1_fma_specval = CANON_QNAN;
-        else if ((a_inf && b_zero) || (b_inf && a_zero))  s1_fma_specval = CANON_QNAN;
-        else if (prod_inf && c_inf && (psign != csign))   s1_fma_specval = CANON_QNAN;
-        else if (prod_inf)                                s1_fma_specval = {psign, 8'hff, 23'd0};
-        else if (c_inf)                                   s1_fma_specval = {csign, 8'hff, 23'd0};
+        s1f_c_zero = (ec == 8'd0); c_inf = (ec == 8'hff) && (mc == 23'd0);
+        c_nan      = (ec == 8'hff) && (mc != 23'd0);
+        s1f_sigc   = s1f_c_zero ? 24'd0 : {1'b1, mc};
+        s1f_P      = siga * sigb;
+        prod_zero  = a_zero || b_zero; prod_inf = a_inf || b_inf; prod_nan = a_nan || b_nan;
+        s1f_psign  = (sa ^ sb) ^ fma_np; s1f_csign = sc ^ fma_nc;
+        d = 12'sd0; s1f_pos0 = 12'sd0;
+        s1f_eab = ea + eb; s1f_fma_spec = 1'b1; s1f_fma_specval = 32'd0;
+        if (prod_nan || c_nan)                                  s1f_fma_specval = CANON_QNAN;
+        else if ((a_inf && b_zero) || (b_inf && a_zero))        s1f_fma_specval = CANON_QNAN;
+        else if (prod_inf && c_inf && (s1f_psign != s1f_csign)) s1f_fma_specval = CANON_QNAN;
+        else if (prod_inf)                                      s1f_fma_specval = {s1f_psign, 8'hff, 23'd0};
+        else if (c_inf)                                         s1f_fma_specval = {s1f_csign, 8'hff, 23'd0};
         else if (prod_zero)
-            s1_fma_specval = c_zero ? ((psign == csign) ? {psign, 31'd0} : 32'd0)
-                                    : {csign, opc[30:0]};
+            s1f_fma_specval = s1f_c_zero ? ((s1f_psign == s1f_csign) ? {s1f_psign, 31'd0} : 32'd0)
+                                         : {s1f_csign, opc[30:0]};
         else begin
-            d    = $signed({4'd0, ec}) - $signed({4'd0, ea}) - $signed({4'd0, eb}) + 12'sd150;
-            pos0 = 12'sd28 + d;
-            prod_acc = {80'd0, P} << 28;
-            cfull    = {104'd0, sigc};
-            if (pos0 >= 12'sd77 && !c_zero) begin
-                s1_fma_specval = {csign, opc[30:0]};   // addend-dominant -> exact addend
+            d        = $signed({4'd0, ec}) - $signed({4'd0, ea}) - $signed({4'd0, eb}) + 12'sd150;
+            s1f_pos0 = 12'sd28 + d;
+            if (s1f_pos0 >= 12'sd77 && !s1f_c_zero) begin
+                s1f_fma_specval = {s1f_csign, opc[30:0]};   // addend-dominant -> exact addend
             end else begin
-                if (c_zero) begin
-                    add_acc = 128'd0; sticky_c = 1'b0;
-                end else if (pos0 >= 0) begin
-                    add_acc = cfull << pos0[6:0]; sticky_c = 1'b0;
-                end else begin
-                    rsh = (-pos0 >= 12'sd128) ? 8'd127 : 8'((-pos0));
-                    add_acc = cfull >> rsh;
-                    sticky_c = |(cfull & ((128'd1 << rsh) - 128'd1));
-                end
-                samesign = (psign == csign); addend_bigger = (add_acc > prod_acc);
-                if (samesign)            begin mag = prod_acc + add_acc;                  s1_fma_fs = sticky_c; end
-                else if (addend_bigger)  begin mag = add_acc - prod_acc;                  s1_fma_fs = 1'b0; end
-                else                     begin mag = prod_acc - add_acc - {127'd0, sticky_c}; s1_fma_fs = sticky_c; end
-                s1_fma_rsign = samesign ? psign : (addend_bigger ? csign : psign);
-                if (mag == 128'd0) s1_fma_specval = 32'd0;         // exact cancellation -> +0
-                else begin s1_fma_spec = 1'b0; s1_fma_mag = mag; end
+                s1f_fma_spec = 1'b0;                        // arithmetic: stage-2 aligns + adds
             end
+        end
+    end
+
+    // ── STAGE 2: FMA front-B — 128-bit align + add (from the registered stage-1) ────
+    logic [127:0] s2_fma_mag;
+    logic         s2_fma_rsign, s2_fma_fs, s2_fma_spec;
+    logic [8:0]   s2_fma_eab;
+    logic [31:0]  s2_fma_specval;
+    always_comb begin
+        logic [127:0] prod_acc, add_acc, mag, cfull;
+        logic         sticky_c, samesign, addend_bigger;
+        logic [7:0]   rsh;
+        prod_acc = '0; add_acc = '0; mag = '0; cfull = '0;
+        sticky_c = 1'b0; samesign = 1'b0; addend_bigger = 1'b0; rsh = 8'd0;
+        s2_fma_eab     = r1f_eab;
+        s2_fma_rsign   = 1'b0; s2_fma_fs = 1'b0; s2_fma_mag = '0;
+        s2_fma_spec    = r1f_fma_spec; s2_fma_specval = r1f_fma_specval;
+        if (!r1f_fma_spec) begin
+            prod_acc = {80'd0, r1f_P} << 28;
+            cfull    = {104'd0, r1f_sigc};
+            if (r1f_c_zero) begin
+                add_acc = 128'd0; sticky_c = 1'b0;
+            end else if (r1f_pos0 >= 0) begin
+                add_acc = cfull << r1f_pos0[6:0]; sticky_c = 1'b0;
+            end else begin
+                rsh = (-r1f_pos0 >= 12'sd128) ? 8'd127 : 8'((-r1f_pos0));
+                add_acc = cfull >> rsh;
+                sticky_c = |(cfull & ((128'd1 << rsh) - 128'd1));
+            end
+            samesign = (r1f_psign == r1f_csign); addend_bigger = (add_acc > prod_acc);
+            if (samesign)           begin mag = prod_acc + add_acc;                      s2_fma_fs = sticky_c; end
+            else if (addend_bigger) begin mag = add_acc - prod_acc;                      s2_fma_fs = 1'b0; end
+            else                    begin mag = prod_acc - add_acc - {127'd0, sticky_c}; s2_fma_fs = sticky_c; end
+            s2_fma_rsign = samesign ? r1f_psign : (addend_bigger ? r1f_csign : r1f_psign);
+            if (mag == 128'd0) begin s2_fma_spec = 1'b1; s2_fma_specval = 32'd0; end  // cancellation -> +0
+            else               begin s2_fma_spec = 1'b0; s2_fma_mag = mag;        end
         end
     end
 
@@ -442,14 +460,19 @@ module simt_fpu
         s1_class16 = cl;
     end
 
-    // ════════════════════════ Pipeline register (stage 1 -> 2) ═════════════════════
-    // Free-running: every cycle latches the stage-1 results for the op presented this
-    // cycle; the consumer (warp_pool) samples `res` the next cycle.
+    // ════════════════════ Pipeline register 1 (stage 1 -> stage 2) ═════════════════
+    // M17: FMA carries its stage-1 front-A outputs (product, alignment amount, sigc,
+    // signs, specials); ADD and the shallow ops carry their full stage-1 result and
+    // ride through reg2 to the stage-3 back-end so every op has uniform 3-cycle latency.
     logic [63:0]  r_add_mag;     logic r_add_sbig, r_add_spec; logic [7:0] r_add_ebig;
     logic [31:0]  r_add_specval;
     logic [31:0]  r_mul_res;
-    logic [127:0] r_fma_mag;     logic r_fma_rsign, r_fma_fs, r_fma_spec; logic [8:0] r_fma_eab;
-    logic [31:0]  r_fma_specval;
+    logic [47:0]        r1f_P;
+    logic signed [11:0] r1f_pos0;
+    logic [23:0]        r1f_sigc;
+    logic               r1f_psign, r1f_csign, r1f_c_zero;
+    logic [8:0]         r1f_eab;
+    logic               r1f_fma_spec; logic [31:0] r1f_fma_specval;
     logic [31:0]  r_sgnj_res, r_minmax_res, r_cmp_res, r_cvt_w_res, r_cvt_s_res, r_class_res;
     logic [15:0]  r_sgnj_res_h, r_minmax_res_h;
     logic [9:0]   r_class16;
@@ -461,8 +484,9 @@ module simt_fpu
         r_add_mag <= s1_add_mag; r_add_sbig <= s1_add_sbig; r_add_ebig <= s1_add_ebig;
         r_add_spec <= s1_add_spec; r_add_specval <= s1_add_specval;
         r_mul_res <= s1_mul_res;
-        r_fma_mag <= s1_fma_mag; r_fma_rsign <= s1_fma_rsign; r_fma_fs <= s1_fma_fs;
-        r_fma_eab <= s1_fma_eab; r_fma_spec <= s1_fma_spec; r_fma_specval <= s1_fma_specval;
+        r1f_P <= s1f_P; r1f_pos0 <= s1f_pos0; r1f_sigc <= s1f_sigc;
+        r1f_psign <= s1f_psign; r1f_csign <= s1f_csign; r1f_c_zero <= s1f_c_zero;
+        r1f_eab <= s1f_eab; r1f_fma_spec <= s1f_fma_spec; r1f_fma_specval <= s1f_fma_specval;
         r_sgnj_res <= s1_sgnj_res; r_sgnj_res_h <= s1_sgnj_res_h;
         r_minmax_res <= s1_minmax_res; r_minmax_res_h <= s1_minmax_res_h;
         r_cmp_res <= s1_cmp_res; r_cvt_w_res <= s1_cvt_w_res; r_cvt_s_res <= s1_cvt_s_res;
@@ -472,7 +496,37 @@ module simt_fpu
         r_is_fma <= is_fma; r_dst_is_h <= dst_is_h; r_op_is_h <= op_is_h;
     end
 
-    // ════════════════════════════ STAGE 2: normalize ═══════════════════════════════
+    // ════════════════════ Pipeline register 2 (stage 2 -> stage 3) ═════════════════
+    // FMA now holds its post-align magnitude (s2_*); ADD and the shallow ops are simply
+    // forwarded one more cycle so they reach the stage-3 back-end together with the FMA.
+    logic [63:0]  r2_add_mag;    logic r2_add_sbig, r2_add_spec; logic [7:0] r2_add_ebig;
+    logic [31:0]  r2_add_specval;
+    logic [31:0]  r2_mul_res;
+    logic [127:0] r2_fma_mag;    logic r2_fma_rsign, r2_fma_fs, r2_fma_spec; logic [8:0] r2_fma_eab;
+    logic [31:0]  r2_fma_specval;
+    logic [31:0]  r2_sgnj_res, r2_minmax_res, r2_cmp_res, r2_cvt_w_res, r2_cvt_s_res, r2_class_res;
+    logic [15:0]  r2_sgnj_res_h, r2_minmax_res_h;
+    logic [9:0]   r2_class16;
+    logic [31:0]  r2_a, r2_xa, r2_opa;
+    logic [4:0]   r2_funct5;
+    logic [2:0]   r2_rm;
+    logic         r2_is_fma, r2_dst_is_h, r2_op_is_h;
+    always_ff @(posedge clk) begin
+        r2_add_mag <= r_add_mag; r2_add_sbig <= r_add_sbig; r2_add_ebig <= r_add_ebig;
+        r2_add_spec <= r_add_spec; r2_add_specval <= r_add_specval;
+        r2_mul_res <= r_mul_res;
+        r2_fma_mag <= s2_fma_mag; r2_fma_rsign <= s2_fma_rsign; r2_fma_fs <= s2_fma_fs;
+        r2_fma_eab <= s2_fma_eab; r2_fma_spec <= s2_fma_spec; r2_fma_specval <= s2_fma_specval;
+        r2_sgnj_res <= r_sgnj_res; r2_sgnj_res_h <= r_sgnj_res_h;
+        r2_minmax_res <= r_minmax_res; r2_minmax_res_h <= r_minmax_res_h;
+        r2_cmp_res <= r_cmp_res; r2_cvt_w_res <= r_cvt_w_res; r2_cvt_s_res <= r_cvt_s_res;
+        r2_class_res <= r_class_res; r2_class16 <= r_class16;
+        r2_a <= r_a; r2_xa <= r_xa; r2_opa <= r_opa;
+        r2_funct5 <= r_funct5; r2_rm <= r_rm;
+        r2_is_fma <= r_is_fma; r2_dst_is_h <= r_dst_is_h; r2_op_is_h <= r_op_is_h;
+    end
+
+    // ════════════════════════════ STAGE 3: normalize ═══════════════════════════════
     // ADD/SUB normalize + round (or the registered special result).
     logic [31:0] add_res;
     always_comb begin
@@ -484,14 +538,14 @@ module simt_fpu
         logic signed [11:0] e_res;
         logic [23:0] sig_f;
         logic g, r, s;
-        mag = r_add_mag;
+        mag = r2_add_mag;
         msb = 0;
         for (int i = 0; i < 64; i++) if (mag[i]) msb = i;
-        e_res = $signed({4'd0, r_add_ebig}) + $signed({6'd0, msb[5:0]}) - 12'sd49;
+        e_res = $signed({4'd0, r2_add_ebig}) + $signed({6'd0, msb[5:0]}) - 12'sd49;
         if (msb >= 49) norm = mag >> (msb - 49);
         else           norm = mag << (49 - msb);
         sig_f = norm[49:26]; g = norm[25]; r = norm[24]; s = |norm[23:0];
-        add_res = r_add_spec ? r_add_specval : pack_round(r_add_sbig, e_res, sig_f, g, r, s);
+        add_res = r2_add_spec ? r2_add_specval : pack_round(r2_add_sbig, e_res, sig_f, g, r, s);
     end
 
     // FMA normalize + round (or the registered special result).
@@ -502,36 +556,36 @@ module simt_fpu
         logic signed [11:0] biased;
         logic [23:0]  sigr;
         logic g, r, s;
-        mag = r_fma_mag;
+        mag = r2_fma_mag;
         m = 8'd0;
         for (int i = 0; i < 128; i++) if (mag[i]) m = i[7:0];
         acc_norm = mag << (8'd127 - m);
         sigr = acc_norm[127:104]; g = acc_norm[103]; r = acc_norm[102];
-        s = (|acc_norm[101:0]) | r_fma_fs;
-        biased = $signed({3'd0, r_fma_eab}) + $signed({4'd0, m}) - 12'sd201;
-        fma_res = r_fma_spec ? r_fma_specval : pack_round(r_fma_rsign, biased, sigr, g, r, s);
+        s = (|acc_norm[101:0]) | r2_fma_fs;
+        biased = $signed({3'd0, r2_fma_eab}) + $signed({4'd0, m}) - 12'sd201;
+        fma_res = r2_fma_spec ? r2_fma_specval : pack_round(r2_fma_rsign, biased, sigr, g, r, s);
     end
 
-    // ── Final result mux (stage 2) ─────────────────────────────────────────────────
+    // ── Final result mux (stage 3) ─────────────────────────────────────────────────
     always_comb begin
         int_dest = 1'b0;
         res      = 32'd0;
-        if (r_is_fma) begin
-            res = r_dst_is_h ? boxH(narrow_h(fma_res)) : fma_res;
+        if (r2_is_fma) begin
+            res = r2_dst_is_h ? boxH(narrow_h(fma_res)) : fma_res;
         end else
-        unique case (r_funct5)
-            FP_ADD, FP_SUB: res = r_dst_is_h ? boxH(narrow_h(add_res))     : add_res;
-            FP_MUL:         res = r_dst_is_h ? boxH(narrow_h(r_mul_res))   : r_mul_res;
-            FP_SGNJ:        res = r_dst_is_h ? boxH(r_sgnj_res_h)          : r_sgnj_res;
-            FP_MINMAX:      res = r_dst_is_h ? boxH(r_minmax_res_h)        : r_minmax_res;
-            FP_CVT_S:       res = r_dst_is_h ? boxH(narrow_h(r_cvt_s_res)) : r_cvt_s_res;
-            FP_CVT_FF:      res = r_dst_is_h ? boxH(narrow_h(r_opa))       : r_opa;
-            FP_FMVWX:       res = r_dst_is_h ? boxH(r_xa[15:0])            : r_xa;
-            FP_CMP:    begin res = r_cmp_res;   int_dest = 1'b1; end
-            FP_CVT_W:  begin res = r_cvt_w_res; int_dest = 1'b1; end
+        unique case (r2_funct5)
+            FP_ADD, FP_SUB: res = r2_dst_is_h ? boxH(narrow_h(add_res))     : add_res;
+            FP_MUL:         res = r2_dst_is_h ? boxH(narrow_h(r2_mul_res))   : r2_mul_res;
+            FP_SGNJ:        res = r2_dst_is_h ? boxH(r2_sgnj_res_h)          : r2_sgnj_res;
+            FP_MINMAX:      res = r2_dst_is_h ? boxH(r2_minmax_res_h)        : r2_minmax_res;
+            FP_CVT_S:       res = r2_dst_is_h ? boxH(narrow_h(r2_cvt_s_res)) : r2_cvt_s_res;
+            FP_CVT_FF:      res = r2_dst_is_h ? boxH(narrow_h(r2_opa))       : r2_opa;
+            FP_FMVWX:       res = r2_dst_is_h ? boxH(r2_xa[15:0])            : r2_xa;
+            FP_CMP:    begin res = r2_cmp_res;   int_dest = 1'b1; end
+            FP_CVT_W:  begin res = r2_cvt_w_res; int_dest = 1'b1; end
             FP_FMVXW:  begin
-                if (r_rm == 3'b000) res = r_op_is_h ? {{16{r_a[15]}}, r_a[15:0]} : r_a;
-                else                res = r_op_is_h ? {22'd0, r_class16}         : r_class_res;
+                if (r2_rm == 3'b000) res = r2_op_is_h ? {{16{r2_a[15]}}, r2_a[15:0]} : r2_a;
+                else                 res = r2_op_is_h ? {22'd0, r2_class16}          : r2_class_res;
                 int_dest = 1'b1;
             end
             default:        res = 32'd0;

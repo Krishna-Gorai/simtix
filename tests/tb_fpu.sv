@@ -46,8 +46,8 @@ module tb_fpu
     logic        int_dest;       // exercised by integration; not checked here
     /* verilator lint_on UNUSEDSIGNAL */
 
-    // simt_fpu is a 2-stage pipeline (M15): inputs presented in a cycle yield `res`
-    // one clock later.  ck() drives one posedge per check.
+    // simt_fpu is a 3-stage pipeline (M17): inputs presented in a cycle yield `res`
+    // two clocks later.  ck() holds the operands and drives two posedges per check.
     /* verilator lint_off BLKSEQ */
     always #5 clk = ~clk;
     /* verilator lint_on BLKSEQ */
@@ -111,14 +111,15 @@ module tb_fpu
         return {s, e, m};
     endfunction
 
-    // The caller sets the operands/controls, then ck() clocks one cycle so the
-    // 2-stage FPU latches them (stage 1) and presents `res` (stage 2) for the check.
+    // The caller sets the operands/controls (held stable here), then ck() clocks two
+    // cycles so the 3-stage FPU latches them (reg1, reg2) and presents `res` (stage 3).
     task automatic ck(input logic [31:0] exp, input string tag);
         logic [31:0] sa, sb, sc, sxa;
         checks++;
         sa = a; sb = b; sc = c; sxa = xa;   // remember inputs for the message
-        @(posedge clk);                     // stage-1 latches the operands
-        #1;                                 // stage-2 combinational settles
+        @(posedge clk);                     // reg1 latches the stage-1 result
+        @(posedge clk);                     // reg2 latches the stage-2 result
+        #1;                                 // stage-3 combinational settles
         if (res !== exp) begin
             if (errors < 12)
                 $display("  [FAIL] %-10s a=%08h b=%08h c=%08h xa=%08h -> %08h exp %08h",

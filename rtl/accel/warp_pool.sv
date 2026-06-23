@@ -496,7 +496,7 @@ module warp_pool
     // (it YIELDS the f-file/VRF port to the memory and SFU engines, so it never
     // collides). Only one FP-compute op is in flight at a time.
     logic        do_fp;             // issue is an FP-compute op (not div/sqrt, not mem)
-    typedef enum logic [1:0] { FPC_IDLE, FPC_CAP, FPC_WB } fpc_st_e;
+    typedef enum logic [1:0] { FPC_IDLE, FPC_W1, FPC_CAP, FPC_WB } fpc_st_e;
     fpc_st_e          fpc_state;
     logic [WIDXW-1:0] fpc_w;
     logic [4:0]       fpc_rd;
@@ -997,10 +997,10 @@ module warp_pool
                         wstate[issue_w] <= W_DONE;
                         dbg_retire_a0   <= warp_base[issue_w];
                     end else if (do_fp) begin
-                        // FP-compute: the operands feed the 2-stage FPU this cycle (its
-                        // result is valid next cycle); park the warp on the single-slot
-                        // FPC pipeline (the result is captured in FPC_CAP next cycle).
-                        // If FPC is busy with another warp, this warp waits (stays W_RUN).
+                        // FP-compute: the operands feed the 3-stage FPU this cycle (its
+                        // result is valid two cycles later); park the warp on the single-
+                        // slot FPC pipeline. FPC_W1 burns the extra latency cycle, then
+                        // FPC_CAP captures the result. If FPC is busy, the warp waits.
                         if (fpc_state == FPC_IDLE) begin
                             fpc_w           <= issue_w;
                             fpc_rd          <= rd;
@@ -1008,7 +1008,7 @@ module warp_pool
                             fpc_we          <= fwb_en;
                             fpc_resume_pc   <= fallthru;
                             wstate[issue_w] <= W_FPC;
-                            fpc_state       <= FPC_CAP;
+                            fpc_state       <= FPC_W1;
                         end
                         // else: FPC busy → warp waits.
                     end else if (is_sfu_op) begin
@@ -1161,15 +1161,16 @@ module warp_pool
                     default: sfu_state <= SFU_IDLE;
                 endcase
 
-                // 3d) FPC (pipelined FP-compute) engine step. CAP: take the held copy
-                //     of the registered FPU result (fpu_res_q, which captured it the
-                //     cycle the op issued). WB: drive it onto the f-file/VRF when the
-                //     port is free (yields to the memory + SFU engines), then resume
-                //     the parked warp after the FP op.
+                // 3d) FPC (pipelined FP-compute) engine step. W1: burn the extra latency
+                //     cycle of the 3-stage FPU. CAP: the result of the op issued two
+                //     cycles ago is now valid; hold it. WB: drive it onto the f-file/VRF
+                //     when the port is free (yields to the memory + SFU engines), then
+                //     resume the parked warp after the FP op.
                 unique case (fpc_state)
-                    FPC_IDLE: ;   // launched in the issue step (sets FPC_CAP)
+                    FPC_IDLE: ;   // launched in the issue step (sets FPC_W1)
+                    FPC_W1:  fpc_state <= FPC_CAP;   // 3-stage FPU: result valid next cycle
                     FPC_CAP: begin
-                        // The 2-stage FPU result for the op issued last cycle is valid
+                        // The 3-stage FPU result for the op issued two cycles ago is valid
                         // this cycle; hold it for the writeback.
                         for (int l = 0; l < NL; l++) fpc_data[l] <= fpu_res[l];
                         fpc_state <= FPC_WB;
