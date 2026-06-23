@@ -429,32 +429,51 @@ module warp_pool
         end
     endgenerate
 
-    // ── M14.3: per-lane iterative divide/sqrt cores behind a stall scoreboard ────────
-    // One fp_divsqrt per lane. They all begin together when a warp issues an
-    // fdiv/fsqrt (sfu_start) on that warp's f-operands, iterate for ~26 (div) / 37
-    // (sqrt) cycles while the scheduler issues OTHER warps, and complete in the same
-    // cycle (uniform op across the warp). At most one warp's div/sqrt is in flight,
-    // mirroring the single-data-port memory engine. Building per-lane cores first
-    // (correctness); folding them into ONE shared serial unit is a later PPA trade.
-    logic        sfu_start;        // 1-cycle launch pulse (operands are issue_w's)
-    logic [31:0] sfu_res  [0:NL-1];
-    logic        sfu_done_l [0:NL-1];
-    logic        sfu_done;         // all lanes finish together; lane 0 is the witness
-    assign sfu_done = sfu_done_l[0];
+    // ── M16: ONE shared serial divide/sqrt core, sequenced over the active lanes ─────
+    // M14.3 placed a full fp_divsqrt in EVERY lane (8 cores ~= 5.5k LUT) running in
+    // lockstep. Placed timing (M15) showed the FP datapath is interconnect-bound, so we
+    // fold the eight cores into ONE shared core fed lane-by-lane. At issue we CAPTURE
+    // every lane's operands (the live frv* read tracks the issuing warp and moves on to
+    // other warps while the SFU iterates for tens of cycles), then walk the active lanes
+    // serially through the single core, one result per ~26 (div) / 37 (sqrt) cycles.
+    // This trades latency (k active lanes -> ~k x slower) for ~5k LUT and the congestion
+    // relief that recovers Fmax. At most one warp's div/sqrt is in flight, as before.
+    logic [31:0]      sfu_opa [0:NL-1];   // captured per-lane dividend / radicand
+    logic [31:0]      sfu_opb [0:NL-1];   // captured per-lane divisor (unused for sqrt)
+    logic             sfu_is_sqrt_r;      // captured op (sqrt vs divide) for the warp
+    logic [1:0]       sfu_fmt_r;          // captured format (FP32 / FP16)
+    logic [LIDXW-1:0] sfu_lane;           // lane currently in the shared core
+    logic             sfu_core_start;     // 1-cycle launch pulse to the shared core
+    logic             sfu_core_done;
+    logic [31:0]      sfu_core_res;
 
-    genvar gs;
-    generate
-        for (gs = 0; gs < NL; gs++) begin : g_sfu
-            /* verilator lint_off PINCONNECTEMPTY */
-            fp_divsqrt u_sfu (    // per-warp scoreboard tracks busy; the pin is unused
-                .clk(clk), .rst(rst),
-                .start(sfu_start), .is_sqrt(is_fsqrt), .fmt(fp_fmt),
-                .a(frv1[gs]), .b(frv2[gs]),
-                .busy(), .done(sfu_done_l[gs]), .res(sfu_res[gs])
-            );
-            /* verilator lint_on PINCONNECTEMPTY */
-        end
-    endgenerate
+    /* verilator lint_off PINCONNECTEMPTY */
+    fp_divsqrt u_sfu (
+        .clk(clk), .rst(rst),
+        .start(sfu_core_start), .is_sqrt(sfu_is_sqrt_r), .fmt(sfu_fmt_r),
+        .a(sfu_opa[sfu_lane]), .b(sfu_opb[sfu_lane]),
+        .busy(), .done(sfu_core_done), .res(sfu_core_res)
+    );
+    /* verilator lint_on PINCONNECTEMPTY */
+
+    // Lane sequencer priority encoders (descending loop -> lowest matching index wins):
+    // sfu_first_lane = lowest active lane of the issuing warp; sfu_next_lane/sfu_more =
+    // the lowest active lane strictly above the one in flight, and whether one remains.
+    logic [LIDXW-1:0] sfu_first_lane, sfu_next_lane;
+    logic             sfu_more;
+    always_comb begin
+        sfu_first_lane = '0;
+        for (int l = NL-1; l >= 0; l--) if (cur_mask[l]) sfu_first_lane = l[LIDXW-1:0];
+    end
+    always_comb begin
+        sfu_next_lane = sfu_lane;
+        sfu_more      = 1'b0;
+        for (int l = NL-1; l >= 0; l--)
+            if ((l[LIDXW-1:0] > sfu_lane) && sfu_mask[l]) begin
+                sfu_next_lane = l[LIDXW-1:0];
+                sfu_more      = 1'b1;
+            end
+    end
 
     // SFU scoreboard: which warp is parked, its active mask + dest f-reg + resume PC,
     // and the held result between `done` and its f-file writeback.
@@ -749,10 +768,6 @@ module warp_pool
     assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem &&
                             !is_sfu_op && !do_fp;
 
-    // Launch an fdiv/fsqrt: the issuing warp's f-operands are live this cycle, so a
-    // 1-cycle start pulse latches them into the per-lane cores (which then iterate
-    // independently of the scheduler). Only one div/sqrt is in flight at a time.
-    assign sfu_start   = issue_valid && !do_pop && is_sfu_op && (sfu_state == SFU_IDLE);
     // The held SFU result drives the f-file when the unit is in writeback and the
     // memory engine is not using the FP port this cycle (mem wins; SFU result waits).
     assign sfu_wb_fire = (sfu_state == SFU_WB) && !(mem_busy && mem_is_fp);
@@ -893,6 +908,7 @@ module warp_pool
             mem_is_scratch <= 1'b0;
             mem_pending    <= '0;
             sfu_state      <= SFU_IDLE;
+            sfu_core_start <= 1'b0;
             fpc_state      <= FPC_IDLE;
             dbg_retire_a0  <= 32'd0;
             dbg_mem_txns   <= 32'd0;
@@ -925,6 +941,7 @@ module warp_pool
                 rr_ptr         <= '0;
                 mem_busy       <= 1'b0;
                 sfu_state      <= SFU_IDLE;
+                sfu_core_start <= 1'b0;
             fpc_state      <= FPC_IDLE;
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
@@ -995,16 +1012,26 @@ module warp_pool
                         end
                         // else: FPC busy → warp waits.
                     end else if (is_sfu_op) begin
-                        // Divide / square-root: hand the warp to the multi-cycle SFU
-                        // (per-lane cores started combinationally via sfu_start) and
-                        // park it; the scheduler keeps issuing other warps. If the SFU
-                        // is busy with another warp, this warp waits (stays W_RUN).
+                        // Divide / square-root: capture every lane's f-operands now (they
+                        // are live this cycle but move on with the scheduler), park the
+                        // warp, and arm the shared serial SFU on its first active lane.
+                        // The scheduler keeps issuing other warps. If the SFU is busy with
+                        // another warp, this warp waits (stays W_RUN).
                         if (sfu_state == SFU_IDLE) begin
                             sfu_w         <= issue_w;
                             sfu_mask      <= cur_mask;
                             sfu_rd        <= rd;
                             sfu_resume_pc <= fallthru;
+                            sfu_is_sqrt_r <= is_fsqrt;
+                            sfu_fmt_r     <= fp_fmt;
+                            for (int l = 0; l < NL; l++) begin
+                                sfu_opa[l] <= frv1[l];
+                                sfu_opb[l] <= frv2[l];
+                            end
+                            sfu_lane       <= sfu_first_lane;
+                            sfu_core_start <= 1'b1;        // launch the first lane next cycle
                             wstate[issue_w] <= W_SFU;
+                            sfu_state      <= SFU_RUN;
                         end
                         // else: SFU busy → warp waits.
                     end else if (is_mem) begin
@@ -1105,16 +1132,26 @@ module warp_pool
                     end
                 end
 
-                // 3c) SFU (divide/sqrt) engine step. RUN: the per-lane cores iterate;
-                //     when they complete (uniform timing → lane-0 is the witness) latch
-                //     every lane's result. WB: drive the held result onto the f-file
-                //     (the arbiter gives the memory engine priority, so this may wait a
-                //     cycle), then resume the parked warp after the fdiv/fsqrt.
+                // 3c) SFU (divide/sqrt) engine step. RUN: the single shared core works
+                //     one active lane at a time; on each core `done` latch that lane's
+                //     result and, if another active lane remains, advance and relaunch
+                //     (the core is back in S_IDLE the cycle it pulses done, so the restart
+                //     costs only a 1-cycle bubble); otherwise go to writeback. WB: drive
+                //     the held results onto the f-file (the arbiter gives the memory
+                //     engine priority, so this may wait a cycle), then resume the warp.
                 unique case (sfu_state)
-                    SFU_IDLE: if (sfu_start) sfu_state <= SFU_RUN;
-                    SFU_RUN:  if (sfu_done) begin
-                        for (int l = 0; l < NL; l++) sfu_hold[l] <= sfu_res[l];
-                        sfu_state <= SFU_WB;
+                    SFU_IDLE: ;   // armed in the issue step (captures operands, enters RUN)
+                    SFU_RUN: begin
+                        sfu_core_start <= 1'b0;            // 1-cycle launch pulse default-low
+                        if (sfu_core_done) begin
+                            sfu_hold[sfu_lane] <= sfu_core_res;
+                            if (sfu_more) begin
+                                sfu_lane       <= sfu_next_lane;
+                                sfu_core_start <= 1'b1;   // launch the next active lane
+                            end else begin
+                                sfu_state <= SFU_WB;
+                            end
+                        end
                     end
                     SFU_WB:   if (sfu_wb_fire) begin
                         stk_npc[sfu_w][sp[sfu_w]] <= sfu_resume_pc;
