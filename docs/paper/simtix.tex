@@ -456,8 +456,8 @@ cycle, so there is almost no latency for extra warps to hide; occupancy beyond
 the two warps needed to overlap the memory engine with the datapath pays off only
 under realistic multi-cycle memory. The two knobs are thus separable---lanes buy
 data-parallel throughput, warps buy latency tolerance---and both cost register-file
-area ($\propto\!\mathrm{lanes}\times\mathrm{warps}$), which motivates the
-area/frequency Pareto study (Section~\ref{sec:future}).
+area ($\propto\!\mathrm{lanes}\times\mathrm{warps}$); for the FP-enabled design we
+pair this with a placed area/frequency study in Section~\ref{sec:fppa}.
 
 \begin{table}[t]
 \caption{Geometric-mean throughput (work-items/cycle) over the five
@@ -739,10 +739,39 @@ it removes $\sim$3.7k LUTs and $\sim$1.2k flip-flops and drops power from 1.53 t
 de-congesting the fabric, cuts that path's \emph{routing} delay from 7.4 to 6.5~ns,
 raising the placed maximum from 78 to \textbf{84~MHz} and reducing near-critical
 endpoints from 8.7k to 3.2k. Same logic, less congestion, higher frequency: a
-direct confirmation that interconnect, not logic depth, bounds this design. Closing
-the remaining gap to 100~MHz points to further area and congestion reduction---fewer
-or narrower FP lanes, via the design-space exploration of Section~\ref{sec:dse}---rather
-than deeper FMA pipelining. The area and power figures here are exact.
+direct confirmation that interconnect, not logic depth, bounds this design.
+
+\paragraph{Frequency does not scale with fabric size.} If congestion is the limit,
+a natural question is whether \emph{trimming} the FP fabric relieves it further. It
+does not. Placing the FP design at four lanes (Table~\ref{tab:fpdse}) halves its
+area---37k versus 69k LUTs, 20 versus 40 DSPs---but reaches only 79.7~MHz,
+marginally \emph{below} the eight-lane 84.1~MHz, and the router still reports CLB
+congestion. The reason is that the critical path is a \emph{single} lane's FMA cone,
+whose logic depth and locally-dense 128-bit datapath are independent of the lane
+count; halving the lanes replicates the same cone fewer times and packs the smaller
+design into a denser region that gives the lone FMA no relief. The eight-lane
+configuration therefore Pareto-dominates the four-lane one---equal frequency at
+twice the throughput---which both explains why the shared-SFU saving helped only
+modestly and identifies the true frequency lever as the FMA \emph{microarchitecture}
+(a deeper FMA pipeline), not the fabric size. The area and power figures here are
+exact.
+
+\begin{table}[t]
+\caption{FP design-space exploration: placed PPA of the FP-enabled accelerator on
+\texttt{xczu7ev} versus lane count (4 warps). Area halves with the lanes but the
+placed frequency does not improve---the per-lane FMA cone is the floor.}
+\label{tab:fpdse}
+\centering
+\footnotesize
+\begin{tabular}{lrrrrr}
+\toprule
+Lanes & LUT & DSP & Power & Placed Fmax & Thr.\ (w/cyc)\\
+\midrule
+4 & 36{,}785 & 20 & 0.98~W & 79.7~MHz & 3.06\\
+8 & 68{,}914 & 40 & 1.22~W & 84.1~MHz & 5.85\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{table}[t]
 \caption{FP extension area cost: out-of-context synthesis of the accelerator on
@@ -791,15 +820,16 @@ analytic from counters; a gate-level power simulation would confirm the realized
 savings. The floating-point unit (Section~\ref{sec:fp}) now covers the full
 arithmetic set including the fused multiply-add and iterative divide/square root
 in both precisions, with the divide/square-root cores folded onto a single shared
-serial unit that recovered both area and frequency (Section~\ref{sec:fppa}). That
-result---84~MHz post-route, still interconnect-bound---makes the path to 100~MHz a
-matter of further FP area reduction: the lane and warp counts of the design-space
-exploration (Section~\ref{sec:dse}) directly set the FP fabric size, so a
-congestion-aware point on that sweep, rather than deeper FMA pipelining, is the
-most promising next step. The throughput design-space sweep (Section~\ref{sec:dse})
-establishes how performance scales with lanes and warps; the complementary piece
-in progress is a per-configuration FPGA and ASIC PPA sweep to complete the
-area/frequency/throughput Pareto. Finally, an open-source ASIC path through the
+serial unit that recovered both area and frequency (84~MHz post-route,
+Section~\ref{sec:fppa}). The FP design-space exploration then localized the
+remaining barrier: trimming the FP fabric does \emph{not} raise the frequency
+(four lanes places below eight), because the critical path is a single lane's FMA
+cone. The path to 100~MHz is therefore the FMA \emph{microarchitecture}---a deeper,
+more finely balanced FMA pipeline---rather than fewer lanes or further area cuts;
+that, and an ASIC-flow re-balancing where wire delay is less dominant, are the
+clear next steps. The throughput design-space sweep (Section~\ref{sec:dse})
+establishes how performance scales with lanes and warps, and the FP PPA sweep
+(Section~\ref{sec:fppa}) completes the area/frequency/throughput picture. Finally, an open-source ASIC path through the
 SkyWater~130\,nm PDK~\cite{sky130} using OpenLane~\cite{openlane} would turn the
 FPGA PPA numbers into silicon-relevant area, frequency, and power.
 

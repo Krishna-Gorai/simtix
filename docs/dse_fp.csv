@@ -1,0 +1,3 @@
+lanes,warps,LUT,FF,LUTRAM,DSP,BRAM,synth_WNS_ns,synth_Fmax_MHz,power_W,placed_Fmax_MHz
+4,4,36189,6955,1748,20,0,-1.406,87.7,0.933,79.7
+8,4,68914,11153,3348,40,0,,,1.219,84.1
