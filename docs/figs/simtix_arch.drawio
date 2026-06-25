@@ -1,0 +1,135 @@
+<mxfile host="app.diagrams.net" agent="SIMTiX" version="24.0.0">
+  <diagram id="simtix-arch" name="SIMTiX Architecture">
+    <mxGraphModel dx="900" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="700" pageHeight="720" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ===== Outer chip_top ===== -->
+        <mxCell id="chip" value="chip_top: self-contained SoC"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#333333;strokeWidth=2;verticalAlign=top;align=left;fontStyle=2;fontSize=11;spacingLeft=6;spacingTop=4;"
+          vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="620" height="660" as="geometry" />
+        </mxCell>
+
+        <!-- ===== SIMT accelerator container (drawn behind its children) ===== -->
+        <mxCell id="accg" value="SIMT accelerator"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0f6ff;strokeColor=#6c8ebf;verticalAlign=top;align=right;fontStyle=2;fontSize=11;spacingRight=6;spacingTop=4;"
+          vertex="1" parent="1">
+          <mxGeometry x="40" y="235" width="580" height="340" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Host subsystem (dashed) ===== -->
+        <mxCell id="hostg" value="Host subsystem"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;fontStyle=2;fontSize=10;spacingLeft=6;spacingTop=2;"
+          vertex="1" parent="1">
+          <mxGeometry x="50" y="55" width="560" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="cpu" value="RV32I five-stage host core"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="70" y="74" width="250" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="rom" value="Driver ROM"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e0e0;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="380" y="74" width="200" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- ===== MMIO ===== -->
+        <mxCell id="mmio" value="MMIO offload interface: kernel PC, base ptrs, N, GO / DONE"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="50" y="165" width="560" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Accelerator internals ===== -->
+        <mxCell id="sched" value="Warp pool &amp; round-robin scheduler&#10;(4 warps: PC, active mask, reconvergence stack)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="258" width="540" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="alu" value="Integer ALU  &#215; 8 lanes"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="328" width="540" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="fpu" value="Three-stage FP32 / FP16 unit  &#215; 8 lanes"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="368" width="540" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="memeng" value="Coalescing memory engine"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="425" width="255" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="sfu" value="Shared serial Div / Sqrt SFU"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="345" y="425" width="255" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="vrf" value="Int VRF&#10;(LUTRAM)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e0e0;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="505" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="frf" value="FP RF&#10;(LUTRAM)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="245" y="505" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="spad" value="Scratchpad&#10;(LUTRAM)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e0e0;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="430" y="505" width="170" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Shared memory ===== -->
+        <mxCell id="smem" value="Eight-bank on-chip shared memory (LUTRAM)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0e0e0;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="50" y="605" width="560" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Edges ===== -->
+        <mxCell id="e1" value="offload / poll"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.3;entryY=0;entryDx=0;entryDy=0;fontSize=10;"
+          edge="1" parent="1" source="cpu" target="mmio">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value=""
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" parent="1" source="mmio" target="sched">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value=""
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" parent="1" source="sched" target="alu">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="operands"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;"
+          edge="1" parent="1" source="fpu" target="frf">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="coalesced"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;fontSize=10;"
+          edge="1" parent="1" source="memeng" target="smem">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="operands / results"
+          style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;verticalLabelPosition=middle;"
+          edge="1" parent="1" source="cpu" target="smem">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="34" y="96" />
+              <mxPoint x="34" y="630" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

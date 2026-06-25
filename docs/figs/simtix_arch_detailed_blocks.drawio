@@ -1,0 +1,205 @@
+<mxfile host="app.diagrams.net" agent="SIMTiX" version="24.0.0">
+  <diagram id="simtix-arch-detailed-blocks" name="SIMTiX Detailed Architecture (blocks)">
+    <mxGraphModel dx="1100" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1060" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ===== Outer chip_top ===== -->
+        <mxCell id="chip" value="chip_top : self-contained SoC"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#333333;strokeWidth=2;verticalAlign=top;align=left;fontStyle=2;fontSize=12;spacingLeft=8;spacingTop=6;"
+          vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="540" height="810" as="geometry" />
+        </mxCell>
+
+        <!-- ===== SIMT accelerator container ===== -->
+        <mxCell id="accg" value="SIMT accelerator"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7faff;strokeColor=#6c8ebf;verticalAlign=top;align=right;fontStyle=2;fontSize=12;spacingRight=8;spacingTop=4;"
+          vertex="1" parent="1">
+          <mxGeometry x="40" y="240" width="520" height="505" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Host subsystem ===== -->
+        <mxCell id="hostg" value="Host subsystem"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#999999;dashed=1;verticalAlign=top;align=left;fontStyle=2;fontSize=10;spacingLeft=6;spacingTop=2;"
+          vertex="1" parent="1">
+          <mxGeometry x="40" y="48" width="510" height="94" as="geometry" />
+        </mxCell>
+        <mxCell id="cpu" value="RV32I five-stage host core&#10;(IF &#183; ID &#183; EX &#183; MEM &#183; WB)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="55" y="62" width="320" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="rom" value="Driver ROM"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="400" y="62" width="135" height="66" as="geometry" />
+        </mxCell>
+
+        <!-- ===== MMIO ===== -->
+        <mxCell id="mmio" value="MMIO offload registers: kernel PC, base ptrs A/B/C, N, GO / DONE / status"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="50" y="160" width="490" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Front-end ===== -->
+        <mxCell id="sched" value="Warp scheduler &#8212; round-robin issue, background memory engine (latency hiding)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="262" width="480" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="w0" value="Warp 0&#10;PC &#183; mask &#183; stack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="60" y="316" width="112" height="46" as="geometry" /></mxCell>
+        <mxCell id="w1" value="Warp 1&#10;PC &#183; mask &#183; stack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="182" y="316" width="112" height="46" as="geometry" /></mxCell>
+        <mxCell id="w2" value="Warp 2&#10;PC &#183; mask &#183; stack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="304" y="316" width="112" height="46" as="geometry" /></mxCell>
+        <mxCell id="w3" value="Warp 3&#10;PC &#183; mask &#183; stack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="426" y="316" width="112" height="46" as="geometry" /></mxCell>
+        <mxCell id="fetch" value="Fetch / Decode / Issue  (one runnable warp per cycle)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="372" width="480" height="36" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Register files ===== -->
+        <mxCell id="intvrf" value="Int VRF &#8212; per-lane LUTRAM bank"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="420" width="230" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="fprf" value="FP RF &#8212; per-lane LUTRAM bank"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="310" y="420" width="230" height="46" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Execute ===== -->
+        <mxCell id="alu8" value="Integer ALU  &#215; 8 lanes"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="478" width="230" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="fpu8" value="3-stage FP32 / FP16 FPU  &#215; 8 lanes"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="310" y="478" width="230" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="opseq" value="Operand collector / lane sequencer"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="534" width="230" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="sfu" value="Shared serial Div / Sqrt SFU  (&#215;1)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="310" y="534" width="230" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Memory subsystem ===== -->
+        <mxCell id="coal" value="Coalescing memory engine"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="586" width="230" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="scratch" value="Per-warp scratchpad (LUTRAM)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="310" y="586" width="230" height="46" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Writeback + counters ===== -->
+        <mxCell id="wbscb" value="Writeback + stall scoreboard  (W_MEM / W_SFU / W_FPC)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="646" width="480" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="perf" value="Hardware performance counters (per-mechanism, RTL-measurable)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;"
+          vertex="1" parent="1">
+          <mxGeometry x="60" y="696" width="480" height="34" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Shared memory ===== -->
+        <mxCell id="smem" value="Eight-bank on-chip shared memory (LUTRAM)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="50" y="765" width="490" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Per-lane detail panel (block style) ===== -->
+        <mxCell id="panel" value="Per-lane datapath  (1 of 8 lanes)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fcfcff;strokeColor=#6c8ebf;dashed=1;verticalAlign=top;align=center;fontStyle=2;fontSize=12;spacingTop=6;"
+          vertex="1" parent="1">
+          <mxGeometry x="600" y="240" width="360" height="400" as="geometry" />
+        </mxCell>
+        <mxCell id="src_int" value="Int VRF read"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;"
+          vertex="1" parent="1"><mxGeometry x="615" y="288" width="120" height="40" as="geometry" /></mxCell>
+        <mxCell id="src_fp" value="FP RF read"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;"
+          vertex="1" parent="1"><mxGeometry x="805" y="288" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ialu" value="Integer ALU"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1"><mxGeometry x="615" y="350" width="120" height="42" as="geometry" /></mxCell>
+        <mxCell id="s1" value="FP S1 &#8212; exact product a&#215;b"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;"
+          vertex="1" parent="1"><mxGeometry x="805" y="350" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="s2" value="FP S2 &#8212; align + 128-bit add"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;"
+          vertex="1" parent="1"><mxGeometry x="805" y="406" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="s3" value="FP S3 &#8212; normalize + round (RNE)"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;"
+          vertex="1" parent="1"><mxGeometry x="805" y="462" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="divsq" value="div / sqrt &#8594; shared SFU"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;dashed=1;fontSize=10;"
+          vertex="1" parent="1"><mxGeometry x="615" y="460" width="120" height="44" as="geometry" /></mxCell>
+        <mxCell id="resmux" value="Result select mux"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1"><mxGeometry x="700" y="525" width="175" height="40" as="geometry" /></mxCell>
+        <mxCell id="wbk" value="Writeback &#8594; Int VRF / FP RF"
+          style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;"
+          vertex="1" parent="1"><mxGeometry x="690" y="585" width="205" height="40" as="geometry" /></mxCell>
+
+        <!-- ===== Legend ===== -->
+        <mxCell id="lg1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="852" width="24" height="16" as="geometry" /></mxCell>
+        <mxCell id="lg1t" value="Floating-point datapath" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1"><mxGeometry x="70" y="848" width="170" height="24" as="geometry" /></mxCell>
+        <mxCell id="lg2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="270" y="852" width="24" height="16" as="geometry" /></mxCell>
+        <mxCell id="lg2t" value="On-chip storage (LUTRAM / ROM)" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1"><mxGeometry x="300" y="848" width="230" height="24" as="geometry" /></mxCell>
+        <mxCell id="lg3" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="560" y="852" width="24" height="16" as="geometry" /></mxCell>
+        <mxCell id="lg3t" value="Front-end / scheduler" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1"><mxGeometry x="590" y="848" width="160" height="24" as="geometry" /></mxCell>
+        <mxCell id="lg4" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="770" y="852" width="24" height="16" as="geometry" /></mxCell>
+        <mxCell id="lg4t" value="Integer / control / memory" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;" vertex="1" parent="1"><mxGeometry x="800" y="848" width="210" height="24" as="geometry" /></mxCell>
+
+        <!-- ===== Edges (main) ===== -->
+        <mxCell id="e1" value="offload / poll" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.5;exitY=1;entryX=0.3;entryY=0;fontSize=10;" edge="1" parent="1" source="cpu" target="mmio"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="mmio" target="sched"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" value="contexts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.25;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="sched" target="w1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" value="issue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="sched" target="fetch"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" value="read" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.25;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="fetch" target="intvrf"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" value="read" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.75;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="fetch" target="fprf"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" value="operands" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="intvrf" target="alu8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" value="operands" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="fprf" target="fpu8"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="alu8" target="opseq"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10" value="div / sqrt" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="fpu8" target="sfu"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e11" value="lane-sequenced" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=9;" edge="1" parent="1" source="opseq" target="sfu"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e12" value="addresses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontSize=9;" edge="1" parent="1" source="opseq" target="coal"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e13" value="staging" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=9;" edge="1" parent="1" source="coal" target="scratch"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e14" value="coalesced lines" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;exitX=0.5;exitY=1;entryX=0.2;entryY=0;fontSize=9;" edge="1" parent="1" source="coal" target="smem"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e15" value="writeback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;dashed=1;exitX=0;exitY=0.3;entryX=0;entryY=0.5;fontSize=9;" edge="1" parent="1" source="wbscb" target="intvrf"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="46" y="656" /><mxPoint x="46" y="443" /></Array></mxGeometry></mxCell>
+        <mxCell id="e16" value="writeback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;dashed=1;exitX=1;exitY=0.3;entryX=1;entryY=0.5;fontSize=9;" edge="1" parent="1" source="wbscb" target="fprf"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="554" y="656" /><mxPoint x="554" y="443" /></Array></mxGeometry></mxCell>
+        <mxCell id="e17" value="operands / results" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=classic;dashed=1;exitX=0;exitY=0.7;entryX=0;entryY=0.5;fontSize=10;" edge="1" parent="1" source="cpu" target="smem"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="32" y="108" /><mxPoint x="32" y="790" /></Array></mxGeometry></mxCell>
+        <mxCell id="e18" value="expand one lane" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=open;startArrow=none;dashed=1;exitX=1;exitY=0.5;entryX=0;entryY=0.3;fontSize=10;fontStyle=2;" edge="1" parent="1" source="fpu8" target="panel"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="575" y="500" /><mxPoint x="575" y="360" /></Array></mxGeometry></mxCell>
+
+        <!-- ===== Edges (panel internal) ===== -->
+        <mxCell id="p1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="src_int" target="ialu"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="src_fp" target="s1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p3" value="addend c" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=1;exitY=0.5;entryX=1;entryY=0.5;fontSize=9;" edge="1" parent="1" source="src_fp" target="s2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="953" y="308" /><mxPoint x="953" y="426" /></Array></mxGeometry></mxCell>
+        <mxCell id="p4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="ialu" target="resmux"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="608" y="371" /><mxPoint x="608" y="545" /></Array></mxGeometry></mxCell>
+        <mxCell id="p7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=1;entryY=0;" edge="1" parent="1" source="s3" target="resmux"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;dashed=1;exitX=0.8;exitY=1;entryX=0.05;entryY=0;" edge="1" parent="1" source="divsq" target="resmux"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="p9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;startArrow=none;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="resmux" target="wbk"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
