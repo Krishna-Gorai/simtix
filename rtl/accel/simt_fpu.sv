@@ -224,31 +224,26 @@ module simt_fpu
         else                     begin s1_add_spec = 1'b0; s1_add_specval = 32'd0; end
     end
 
-    // ── STAGE 1: MUL (shallow — full result here) ──────────────────────────────────
-    logic [31:0] s1_mul_res;
+    // ── STAGE 1: MUL front — exact product + specials (normalize/round deferred to S2) ─
+    // A2: the standalone fmul used to do multiply + normalize + round ALL in stage 1 —
+    // the one op carrying a full combinational 24x24 multiply AND rounding cone into a
+    // single stage (the FMA already spreads its work across S1/S2/S3). We now isolate the
+    // significand multiply in stage 1 (so it registers cleanly into a DSP output reg) and
+    // defer the prod[47] select + exponent + round to stage 2. Bit-IDENTICAL result; only
+    // the register boundary moves, balancing what was the design's critical path.
+    logic [47:0] s1_mul_prod;       // exact 48-bit significand product
+    logic [8:0]  s1_mul_esum;       // ea + eb (stage-2 applies the -126/-127 bias)
+    logic        s1_mul_rsign, s1_mul_spec;
+    logic [31:0] s1_mul_specval;
     always_comb begin
-        logic               rsign;
-        logic [47:0]        prod;
-        logic signed [11:0] e_res;
-        logic [23:0]        sig_f;
-        logic               g, r, s;
-        rsign = sa ^ sb;
-        prod  = siga * sigb;
-        e_res = 12'sd0; sig_f = 24'd0; g = 1'b0; r = 1'b0; s = 1'b0;
-        if (a_nan || b_nan)                       s1_mul_res = CANON_QNAN;
-        else if ((a_inf && b_zero) || (b_inf && a_zero)) s1_mul_res = CANON_QNAN;
-        else if (a_inf || b_inf)                  s1_mul_res = {rsign, 8'hff, 23'd0};
-        else if (a_zero || b_zero)                s1_mul_res = {rsign, 31'd0};
-        else begin
-            if (prod[47]) begin
-                e_res = $signed({4'd0, ea}) + $signed({4'd0, eb}) - 12'sd126;
-                sig_f = prod[47:24]; g = prod[23]; r = prod[22]; s = |prod[21:0];
-            end else begin
-                e_res = $signed({4'd0, ea}) + $signed({4'd0, eb}) - 12'sd127;
-                sig_f = prod[46:23]; g = prod[22]; r = prod[21]; s = |prod[20:0];
-            end
-            s1_mul_res = pack_round(rsign, e_res, sig_f, g, r, s);
-        end
+        s1_mul_rsign = sa ^ sb;
+        s1_mul_prod  = siga * sigb;
+        s1_mul_esum  = {1'b0, ea} + {1'b0, eb};
+        if      (a_nan || b_nan)                          begin s1_mul_spec = 1'b1; s1_mul_specval = CANON_QNAN; end
+        else if ((a_inf && b_zero) || (b_inf && a_zero))  begin s1_mul_spec = 1'b1; s1_mul_specval = CANON_QNAN; end
+        else if (a_inf || b_inf)                          begin s1_mul_spec = 1'b1; s1_mul_specval = {s1_mul_rsign, 8'hff, 23'd0}; end
+        else if (a_zero || b_zero)                        begin s1_mul_spec = 1'b1; s1_mul_specval = {s1_mul_rsign, 31'd0}; end
+        else                                              begin s1_mul_spec = 1'b0; s1_mul_specval = 32'd0; end
     end
 
     // ── STAGE 1: FMA front-A — exact product, alignment amount, and specials ────────
@@ -332,6 +327,27 @@ module simt_fpu
             if (mag == 128'd0) begin s2_fma_spec = 1'b1; s2_fma_specval = 32'd0; end  // cancellation -> +0
             else               begin s2_fma_spec = 1'b0; s2_fma_mag = mag;        end
         end
+    end
+
+    // ── STAGE 2: MUL back — normalize + round of the registered stage-1 product ─────────
+    // A2: consumes the registered raw product (r_mul_prod) + exponent sum + sign + the
+    // resolved special, and produces the final fmul result. Identical arithmetic to the
+    // old single-stage path; it just runs one cycle later, off a register boundary.
+    logic [31:0] s2_mul_res;
+    always_comb begin
+        logic signed [11:0] e_res;
+        logic [23:0]        sig_f;
+        logic               g, r, s;
+        e_res = 12'sd0; sig_f = 24'd0; g = 1'b0; r = 1'b0; s = 1'b0;
+        if (r_mul_prod[47]) begin
+            e_res = $signed({3'd0, r_mul_esum}) - 12'sd126;
+            sig_f = r_mul_prod[47:24]; g = r_mul_prod[23]; r = r_mul_prod[22]; s = |r_mul_prod[21:0];
+        end else begin
+            e_res = $signed({3'd0, r_mul_esum}) - 12'sd127;
+            sig_f = r_mul_prod[46:23]; g = r_mul_prod[22]; r = r_mul_prod[21]; s = |r_mul_prod[20:0];
+        end
+        s2_mul_res = r_mul_spec ? r_mul_specval
+                                : pack_round(r_mul_rsign, e_res, sig_f, g, r, s);
     end
 
     // ── STAGE 1: SGNJ / MINMAX / CMP / CVT / FCLASS (shallow — full results) ────────
@@ -466,7 +482,8 @@ module simt_fpu
     // ride through reg2 to the stage-3 back-end so every op has uniform 3-cycle latency.
     logic [63:0]  r_add_mag;     logic r_add_sbig, r_add_spec; logic [7:0] r_add_ebig;
     logic [31:0]  r_add_specval;
-    logic [31:0]  r_mul_res;
+    logic [47:0]  r_mul_prod;    logic [8:0] r_mul_esum; logic r_mul_rsign, r_mul_spec;
+    logic [31:0]  r_mul_specval;
     logic [47:0]        r1f_P;
     logic signed [11:0] r1f_pos0;
     logic [23:0]        r1f_sigc;
@@ -483,7 +500,8 @@ module simt_fpu
     always_ff @(posedge clk) begin
         r_add_mag <= s1_add_mag; r_add_sbig <= s1_add_sbig; r_add_ebig <= s1_add_ebig;
         r_add_spec <= s1_add_spec; r_add_specval <= s1_add_specval;
-        r_mul_res <= s1_mul_res;
+        r_mul_prod <= s1_mul_prod; r_mul_esum <= s1_mul_esum;
+        r_mul_rsign <= s1_mul_rsign; r_mul_spec <= s1_mul_spec; r_mul_specval <= s1_mul_specval;
         r1f_P <= s1f_P; r1f_pos0 <= s1f_pos0; r1f_sigc <= s1f_sigc;
         r1f_psign <= s1f_psign; r1f_csign <= s1f_csign; r1f_c_zero <= s1f_c_zero;
         r1f_eab <= s1f_eab; r1f_fma_spec <= s1f_fma_spec; r1f_fma_specval <= s1f_fma_specval;
@@ -514,7 +532,7 @@ module simt_fpu
     always_ff @(posedge clk) begin
         r2_add_mag <= r_add_mag; r2_add_sbig <= r_add_sbig; r2_add_ebig <= r_add_ebig;
         r2_add_spec <= r_add_spec; r2_add_specval <= r_add_specval;
-        r2_mul_res <= r_mul_res;
+        r2_mul_res <= s2_mul_res;
         r2_fma_mag <= s2_fma_mag; r2_fma_rsign <= s2_fma_rsign; r2_fma_fs <= s2_fma_fs;
         r2_fma_eab <= s2_fma_eab; r2_fma_spec <= s2_fma_spec; r2_fma_specval <= s2_fma_specval;
         r2_sgnj_res <= r_sgnj_res; r2_sgnj_res_h <= r_sgnj_res_h;
