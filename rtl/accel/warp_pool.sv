@@ -179,6 +179,12 @@ module warp_pool
 
     // ── Round-robin issue selection (combinational) ────────────────────────────────
     logic             issue_valid;
+    // issue_w is the warp-select that addresses EVERY VRF/FRF distributed-RAM read
+    // port (vaddr(issue_w,*)) and the reg_written/seed muxes — placed timing showed
+    // its top bit fanning out to ~2419 endpoints (the dominant route-congestion net,
+    // 61% of the critical-path delay). max_fanout forces Vivado to replicate the
+    // driver into physically-local clusters; logic-equivalent, no functional change.
+    (* max_fanout = 80 *)
     logic [WIDXW-1:0] issue_w;
     always_comb begin
         issue_valid = 1'b0;
@@ -264,6 +270,10 @@ module warp_pool
     endfunction
 
     // ── Decode ──────────────────────────────────────────────────────────────────────
+    // instr = imem_data (the async-LUTRAM instruction fetch). Placed timing showed
+    // imem_data fanning out to ~1324 endpoints (decode + every lane's operand mux +
+    // read-address fields), the second-worst congestion net. Replicate the driver.
+    (* max_fanout = 80 *)
     logic [31:0] instr;
     logic [6:0]  opcode;
     logic [4:0]  rd, rs1, rs2;
