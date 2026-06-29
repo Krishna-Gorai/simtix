@@ -101,9 +101,10 @@ module warp_pool
 
     // ── Per-slot architectural state ──────────────────────────────────────────────
     // W_SFU: parked on the multi-cycle divide/sqrt unit (M14.3). W_FPC: parked on the
-    // pipelined FP-compute unit (M15) — both mirror W_MEM's "park on a side engine
-    // while the scheduler keeps issuing other warps" pattern.
-    typedef enum logic [2:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_DONE } wstate_e;
+    // pipelined FP-compute unit (M15). W_MUL: parked on the pipelined integer-multiply
+    // unit (B1) — all mirror W_MEM's "park on a side engine while the scheduler keeps
+    // issuing other warps" pattern.
+    typedef enum logic [2:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_MUL, W_DONE } wstate_e;
     wstate_e        wstate    [0:NW-1];
 
     // Vector register file — one independent distributed-RAM (LUTRAM) bank per lane,
@@ -296,12 +297,16 @@ module warp_pool
     assign b_imm = {{19{instr[31]}}, instr[31], instr[7], instr[30:25], instr[11:8], 1'b0};
     assign j_imm = {{11{instr[31]}}, instr[31], instr[19:12], instr[20], instr[30:21], 1'b0};
 
-    logic is_load, is_store, is_mem, is_ecall, is_csr;
+    logic is_load, is_store, is_mem, is_ecall, is_csr, is_mul;
     assign is_load  = (opcode == OP_LOAD)  | (opcode == OP_LOADFP);
     assign is_store = (opcode == OP_STORE) | (opcode == OP_STOREFP);
     assign is_mem   = is_load | is_store;
     assign is_ecall = (opcode == OP_SYSTEM) && (funct3 == 3'b000);
     assign is_csr   = (opcode == OP_SYSTEM) && (funct3 != 3'b000);
+    // B1: RV32M `mul` (low 32) — the only RV32M op this engine supports (funct3==000,
+    // funct7[0]=1). It no longer executes in the single-cycle ALU; it parks on the
+    // multi-cycle DSP-pipelined multiplier (W_MUL) so the DSP leaves the critical path.
+    assign is_mul   = (opcode == OP_OP) && (funct3 == 3'b000) && funct7b0;
 
     // ── M14.0: floating-point decode ────────────────────────────────────────────
     // FP loads/stores reuse the integer memory engine (the address register is an
@@ -415,7 +420,9 @@ module warp_pool
     logic [31:0] wb_val[0:NL-1];   // integer-VRF writeback value
     logic        wb_en [0:NL-1];   // integer-VRF writeback enable
     logic [NL-1:0] fwb_en;         // per-lane FP-compute writeback enable (-> fpc_we)
+    logic [NL-1:0] mwb_en;         // per-lane integer-mul writeback enable (-> mul_we)
     logic [31:0] fpu_res[0:NL-1];  // per-lane FP32 execute result (combinational)
+    logic [31:0] mul_res[0:NL-1];  // per-lane integer-mul result (pipelined DSP tree)
 
     // ── A1: FPU input pipeline registers (captured at FP-compute issue) ───────────────
     // Placed timing showed the worst path was: warp-state -> f-file LUTRAM read -> operand
@@ -425,6 +432,9 @@ module warp_pool
     // + scheduler decode are lifted OUT of the multiply cone. Costs one extra FP-compute
     // latency cycle (absorbed by an added FPC_W2 scoreboard state); results are bit-exact.
     logic [31:0] q_frv1 [0:NL-1], q_frv2 [0:NL-1], q_frv3 [0:NL-1], q_rv1 [0:NL-1];
+    // B1: integer-multiply operand hold registers (captured at issue, held while the
+    // warp is parked on W_MUL so the DSP pipeline streams one constant pair to result).
+    logic [31:0] q_mul_a [0:NL-1], q_mul_b [0:NL-1];
     logic [4:0]  q_fp_funct5;
     logic [2:0]  q_fp_rm;
     logic [1:0]  q_fp_fmt;
@@ -449,6 +459,50 @@ module warp_pool
                 .res(fpu_res[gp]), .int_dest()      // recomputed as fp_int_dest in decode
             );
             /* verilator lint_on PINCONNECTEMPTY */
+        end
+    endgenerate
+
+    // ── B1: per-lane multi-cycle integer multiplier (decomposed 16×16 DSPs) ──────────
+    // RV32M `mul` (low 32) used to execute as a single-cycle `a*b` in the ALU, putting a
+    // DSP48 directly in the fetch→execute→writeback combinational cloud (the placed
+    // critical path) and — being un-pipelined — emitting DPIP/DPOP DRC advisories. We
+    // pull it into this background engine: operands are captured at issue (q_mul_a/b),
+    // the warp parks on W_MUL, the product streams through a fully-pipelined DSP tree,
+    // and writes back when the integer VRF port is free.
+    //
+    // To make EVERY inferred DSP fully pipelined (AREG/BREG + MREG + PREG → 0 DRC
+    // warnings) the 32×32 low product is DECOMPOSED into three 16×16 sub-multiplies:
+    //     a*b (low32) = aL*bL + ((aL*bH + aH*bL) << 16)   [mod 2^32]
+    // aH*bH is <<32 (irrelevant to the low 32); the low 32 is sign-agnostic, so the
+    // unsigned sub-products are bit-correct for `mul`. Each 16×16 is one DSP that packs
+    // cleanly (validated 0-warning in tests/dsp_pack_probe.sv). Latency = 6 internal
+    // stages (split → DSP-in → MREG → PREG → cross-add → final-add); with the issue-cycle
+    // q-capture that is 7 cycles issue→result, awaited by the MUL scoreboard countdown.
+    genvar gm;
+    generate
+        for (gm = 0; gm < NL; gm++) begin : g_imul
+            logic [15:0] aL, aH, bL, bH;
+            always_ff @(posedge clk) begin
+                aL <= q_mul_a[gm][15:0];  aH <= q_mul_a[gm][31:16];
+                bL <= q_mul_b[gm][15:0];  bH <= q_mul_b[gm][31:16];
+            end
+            (* use_dsp = "yes" *) logic [15:0] aL_ll, bL_ll, aL_lh, bH_lh, aH_hl, bL_hl;
+            logic [31:0] m_ll, p_ll, m_lh, p_lh, m_hl, p_hl;
+            always_ff @(posedge clk) begin
+                aL_ll <= aL; bL_ll <= bL;          // aL*bL  (low partial)
+                aL_lh <= aL; bH_lh <= bH;          // aL*bH  (cross)
+                aH_hl <= aH; bL_hl <= bL;          // aH*bL  (cross)
+                m_ll <= aL_ll * bL_ll;  p_ll <= m_ll;
+                m_lh <= aL_lh * bH_lh;  p_lh <= m_lh;
+                m_hl <= aH_hl * bL_hl;  p_hl <= m_hl;
+            end
+            logic [31:0] cross_s, p_ll_d, lo_r;
+            always_ff @(posedge clk) begin
+                cross_s <= (p_lh + p_hl) << 16;    // only low 16 of the cross sum survives
+                p_ll_d  <= p_ll;
+                lo_r    <= p_ll_d + cross_s;
+            end
+            assign mul_res[gm] = lo_r;
         end
     endgenerate
 
@@ -519,6 +573,7 @@ module warp_pool
     // (it YIELDS the f-file/VRF port to the memory and SFU engines, so it never
     // collides). Only one FP-compute op is in flight at a time.
     logic        do_fp;             // issue is an FP-compute op (not div/sqrt, not mem)
+    logic        do_mul;            // issue is an RV32M `mul` (parks on W_MUL)
     // A1 added an operand-register stage in front of the FPU, so the result is one cycle
     // later: IDLE -> W1 -> W2 -> CAP -> WB (was IDLE -> W1 -> CAP -> WB).
     typedef enum logic [2:0] { FPC_IDLE, FPC_W1, FPC_W2, FPC_CAP, FPC_WB } fpc_st_e;
@@ -530,6 +585,22 @@ module warp_pool
     logic [31:0]      fpc_resume_pc;
     logic [31:0]      fpc_data [0:NL-1];
     logic             fpc_wb_fire;    // held FP-compute result drives its port this cycle
+
+    // ── B1: pipelined integer-multiply scoreboard (W_MUL) ────────────────────────────
+    // Mirrors W_FPC: one mul in flight, operands captured at issue (q_mul_a/b), the warp
+    // parked while the decomposed DSP tree computes (mul_cnt counts the pipeline
+    // latency), then the per-lane products are written back to the INTEGER VRF when the
+    // port is free (yields to the memory + FPC engines). mul is always integer-dest.
+    typedef enum logic [1:0] { MUL_IDLE, MUL_RUN, MUL_WB } mul_st_e;
+    mul_st_e          mul_state;
+    logic [WIDXW-1:0] mul_w;
+    logic [4:0]       mul_rd;
+    logic [NL-1:0]    mul_we;         // per-lane writeback enable (mask + x0 guard)
+    logic [31:0]      mul_resume_pc;
+    logic [31:0]      mul_data [0:NL-1];
+    logic [3:0]       mul_cnt;        // DSP-tree latency countdown
+    logic             mul_wb_fire;    // held mul result drives the integer VRF this cycle
+    localparam logic [3:0] MUL_CNT_INIT = 4'd6;   // 7 cycles issue→result (q-capture + 6 stages)
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -569,7 +640,7 @@ module warp_pool
                 ALU_SRL:  y = a >> b[4:0];
                 ALU_SRA:  y = $signed(a) >>> b[4:0];
                 ALU_PASSB:y = b;
-                ALU_MUL:  y = a * b;            // RV32M mul: low 32 bits
+                ALU_MUL:  y = 32'd0;            // B1: `mul` executes in the W_MUL DSP engine
                 default:  y = 32'd0;
             endcase
 
@@ -601,6 +672,9 @@ module warp_pool
             // f-dest writes f0..f31 (no x0 guard), int-dest (cmp/cvt.w/fmv.x.w)
             // honors rd!=x0. Masked-off lanes never write.
             fwb_en[l]  = cur_mask[l] && (wb_is_fp || (rd != 5'd0));
+            // B1: per-lane integer-mul writeback enable, captured at issue into mul_we.
+            // mul is integer-dest, so honor rd!=x0; masked-off lanes never write.
+            mwb_en[l]  = cur_mask[l] && (rd != 5'd0);
         end
     end
 
@@ -733,7 +807,8 @@ module warp_pool
         any_busy = (next_wid != total_warps);   // warps still to spawn
         for (int k = 0; k < NW; k++)
             if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM) ||
-                (wstate[k] == W_SFU) || (wstate[k] == W_FPC)) any_busy = 1'b1;
+                (wstate[k] == W_SFU) || (wstate[k] == W_FPC) ||
+                (wstate[k] == W_MUL)) any_busy = 1'b1;
     end
 
     // ── VRF write arbiter (one write port per lane bank) ────────────────────────────
@@ -789,9 +864,12 @@ module warp_pool
     // sqrt, NOT a load/store): retires through the pipelined FPC unit (W_FPC).
     assign do_fp          = issue_valid && !do_pop && !is_ecall && !is_mem &&
                             ((is_fp_op && !is_sfu_op) || is_fma_op);
-    // A single-cycle INTEGER compute: not a pop/ecall/memory/divide-sqrt/FP-compute.
+    // B1: an RV32M `mul` — retires through the pipelined integer-multiply engine (W_MUL).
+    assign do_mul         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+                            !is_sfu_op && is_mul;
+    // A single-cycle INTEGER compute: not a pop/ecall/memory/divide-sqrt/FP-compute/mul.
     assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem &&
-                            !is_sfu_op && !do_fp;
+                            !is_sfu_op && !do_fp && !do_mul;
 
     // The held SFU result drives the f-file when the unit is in writeback and the
     // memory engine is not using the FP port this cycle (mem wins; SFU result waits).
@@ -805,11 +883,19 @@ module warp_pool
                          ( fpc_isfp ? !((mem_wb_act && mem_is_fp) || sfu_wb_fire)
                                     : !(mem_wb_act && !mem_is_fp) );
 
+    // B1: the held integer-mul result drives the integer VRF when the unit is in
+    // writeback and that port is free. It is deferrable like FPC: it yields to the
+    // (non-deferrable) integer memory writeback and to the integer-dest FPC writeback,
+    // so it never collides; if blocked it waits (the warp stays parked in W_MUL).
+    assign mul_wb_fire = (mul_state == MUL_WB) &&
+                         !((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp));
+
     // A single-cycle integer compute (always integer-VRF dest now) is squashed when
-    // its port is taken this cycle by an integer memory load or the integer-dest FPC
-    // writeback. It re-issues next cycle (idempotent).
+    // its port is taken this cycle by an integer memory load, the integer-dest FPC
+    // writeback, or the integer-mul writeback. It re-issues next cycle (idempotent).
     assign squash_wb      = do_compute &&
-                            ((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp));
+                            ((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
+                             mul_wb_fire);
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -861,6 +947,12 @@ module warp_pool
                 v_wr[l] = fpc_rd;
                 v_wa[l] = vaddr(fpc_w, fpc_rd);
                 v_wd[l] = fpc_data[l];
+            end else if (mul_wb_fire && mul_we[l]) begin               // pipelined integer-mul
+                v_we[l] = 1'b1;
+                v_ww[l] = mul_w;
+                v_wr[l] = mul_rd;
+                v_wa[l] = vaddr(mul_w, mul_rd);
+                v_wd[l] = mul_data[l];
             end else if (do_compute && !squash_wb && wb_en[l]) begin   // int compute writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = issue_w;
@@ -935,6 +1027,7 @@ module warp_pool
             sfu_state      <= SFU_IDLE;
             sfu_core_start <= 1'b0;
             fpc_state      <= FPC_IDLE;
+            mul_state      <= MUL_IDLE;
             dbg_retire_a0  <= 32'd0;
             dbg_mem_txns   <= 32'd0;
             dbg_divergences<= 32'd0;
@@ -967,7 +1060,8 @@ module warp_pool
                 mem_busy       <= 1'b0;
                 sfu_state      <= SFU_IDLE;
                 sfu_core_start <= 1'b0;
-            fpc_state      <= FPC_IDLE;
+                fpc_state      <= FPC_IDLE;
+                mul_state      <= MUL_IDLE;
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
                 dbg_scratch_txns<= 32'd0;
@@ -1009,7 +1103,8 @@ module warp_pool
                     // finds its engine busy re-attempts later (don't count the stall).
                     if (!do_pop && !(is_mem && mem_busy) && !squash_wb &&
                         !(is_sfu_op && sfu_state != SFU_IDLE) &&
-                        !(do_fp && fpc_state != FPC_IDLE)) begin
+                        !(do_fp && fpc_state != FPC_IDLE) &&
+                        !(do_mul && mul_state != MUL_IDLE)) begin
                         dbg_issued_insns <= dbg_issued_insns + 32'd1;
                         dbg_active_lanes <= dbg_active_lanes +
                                             {{(31-LIDXW){1'b0}}, n_active};
@@ -1051,6 +1146,26 @@ module warp_pool
                             q_fma_nc          <= fma_nc;
                         end
                         // else: FPC busy → warp waits.
+                    end else if (do_mul) begin
+                        // B1: RV32M `mul` — capture the operands into the multiply
+                        // pipeline's hold registers, park the warp on the single-slot
+                        // W_MUL scoreboard, and arm the latency countdown. The scheduler
+                        // keeps issuing other warps while the DSP tree streams. If the
+                        // multiplier is busy with another warp, this warp waits (W_RUN).
+                        if (mul_state == MUL_IDLE) begin
+                            mul_w           <= issue_w;
+                            mul_rd          <= rd;
+                            mul_we          <= mwb_en;
+                            mul_resume_pc   <= fallthru;
+                            wstate[issue_w] <= W_MUL;
+                            mul_state       <= MUL_RUN;
+                            mul_cnt         <= MUL_CNT_INIT;
+                            for (int l = 0; l < NL; l++) begin
+                                q_mul_a[l] <= rv1[l];
+                                q_mul_b[l] <= rv2[l];
+                            end
+                        end
+                        // else: multiplier busy → warp waits.
                     end else if (is_sfu_op) begin
                         // Divide / square-root: capture every lane's f-operands now (they
                         // are live this cycle but move on with the scheduler), park the
@@ -1222,6 +1337,28 @@ module warp_pool
                         fpc_state                 <= FPC_IDLE;
                     end
                     default: fpc_state <= FPC_IDLE;
+                endcase
+
+                // 3e) MUL (pipelined integer multiply) engine step. RUN: count down the
+                //     DSP-tree latency (operands held constant in q_mul_a/b stream one
+                //     product through), then capture the per-lane results. WB: drive them
+                //     onto the integer VRF when the port is free (yields to the memory +
+                //     FPC engines), then resume the parked warp after the mul.
+                unique case (mul_state)
+                    MUL_IDLE: ;   // armed in the issue step (sets MUL_RUN, captures operands)
+                    MUL_RUN: begin
+                        if (mul_cnt != 4'd0) mul_cnt <= mul_cnt - 4'd1;
+                        else begin
+                            for (int l = 0; l < NL; l++) mul_data[l] <= mul_res[l];
+                            mul_state <= MUL_WB;
+                        end
+                    end
+                    MUL_WB: if (mul_wb_fire) begin
+                        stk_npc[mul_w][sp[mul_w]] <= mul_resume_pc;
+                        wstate[mul_w]             <= W_RUN;
+                        mul_state                 <= MUL_IDLE;
+                    end
+                    default: mul_state <= MUL_IDLE;
                 endcase
 
                 // 3b) Mark written registers valid. The VRF data write itself happens
