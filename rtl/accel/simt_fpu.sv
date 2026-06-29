@@ -1,5 +1,5 @@
 // =============================================================================
-// simt_fpu.sv  -  per-lane floating-point execute unit (FP32 + FP16), 3-stage
+// simt_fpu.sv  -  per-lane floating-point execute unit (FP32 + FP16), 5-stage
 //
 // A pipelined RV32F + Zfh execute datapath for the COMMON floating-point ops,
 // instantiated once per SIMT lane. Single (S, FP32) and half (H, FP16) precision
@@ -13,15 +13,24 @@
 //     fmv.x  fclass  (-> int),  fmv.*.x          (bit move int -> float)
 //     fmadd  fmsub  fnmsub  fnmadd               (fused multiply-add, 1 rounding)
 //
-// PIPELINING (M15 -> M17): the fused-multiply-add cone is the design's critical
-// path (an FPGA DSE showed it is intra-lane, independent of lane count), so the
-// unit is split into THREE cycles. For the FMA: stage 1 forms the 48-bit product,
-// the alignment amount, and the special cases; stage 2 does the 128-bit align +
-// add; stage 3 does the leading-zero normalize + round. ADD/SUB and the shallow
-// ops compute fully in stage 1 and ride two registers to the stage-3 format mux,
-// so every op has uniform 3-cycle latency. Operands sampled in cycle T produce
-// `res` in cycle T+2. The arithmetic is IDENTICAL to the single-cycle unit (same
-// bit-exact results); only the register boundaries are new.
+// PIPELINING (M15 -> M17 -> B2): the fused-multiply-add cone was the design's
+// critical path (an FPGA DSE showed it is intra-lane, independent of lane count).
+// B2 makes the significand multiply a FULLY PIPELINED DSP for a clean DRC (no
+// DPIP-2/DPOP-3/DPOP-4 advisories): the standalone fmul and the FMA both need the
+// SAME 48-bit product siga*sigb, so it is computed ONCE and SHARED (one 24x24 DSP
+// cascade per lane instead of two), through an input register (AREG/BREG) + three
+// output registers (MREG/PREG/cascade) — the depth-4 pattern proven 0-warning in
+// tests/dsp_pack_probe.sv. That puts the product 4 cycles after the operands, so the
+// whole unit is a 5-stage pipeline: operands sampled in cycle T produce `res` in
+// cycle T+5. The arithmetic is IDENTICAL to the 3-stage unit (bit-exact); only the
+// register boundaries moved. The warp_pool W_FPC scoreboard waits the +3 cycles.
+//
+// Stage map: S0 (comb) unpacks operands and computes the add-front aligned magnitude,
+// the mul/FMA exponent + special cases, and the shallow ops (sgnj/minmax/cmp/cvt/
+// fclass) — everything EXCEPT the product. The S0 results ride a packed-struct delay
+// line e[1..4] in step with the product pipeline; stage 2 (at e[4]/prod3) does the
+// mul normalize+round and the FMA 128-bit align+add; stage 3 (after reg2) does the
+// ADD and FMA leading-zero normalize+round; then the final format/result mux.
 //
 // HALF PRECISION via WIDEN-COMPUTE-NARROW: FP16 operands are NaN-box-checked,
 // widened to FP32 (exact), run through the FP32 datapath, then the FP-result is
@@ -56,7 +65,7 @@ module simt_fpu
     input  logic [31:0] b,        // f[rs2] (NaN-boxed if half)
     input  logic [31:0] c,        // f[rs3] (NaN-boxed if half) — FMA addend
     input  logic [31:0] xa,       // x[rs1]  (int->float, fmv.*.x)
-    output logic [31:0] res,      // result bits (FP or int per int_dest) — 2 cycles late
+    output logic [31:0] res,      // result bits (FP or int per int_dest) — 5 cycles late
     output logic        int_dest  // 1: result goes to the integer register file
 );
     localparam logic [31:0] CANON_QNAN   = 32'h7fc0_0000;  // canonical quiet NaN (FP32)
@@ -130,7 +139,7 @@ module simt_fpu
         endcase
     endfunction
 
-    // ════════════════════════════ STAGE 1: unpack ══════════════════════════════
+    // ════════════════════════════ STAGE 0: unpack ══════════════════════════════
     logic op_is_h, dst_is_h;
     assign op_is_h  = (!is_fma && funct5 == FP_CVT_FF) ? cvt_src_h : (fmt == FMT_H);
     assign dst_is_h = (fmt == FMT_H);
@@ -177,7 +186,7 @@ module simt_fpu
     assign siga = a_zero ? 24'd0 : {1'b1, ma};
     assign sigb = b_zero ? 24'd0 : {1'b1, mb};
 
-    // ── STAGE 1: ADD/SUB front — aligned magnitude (normalize deferred to stage 2) ──
+    // ── STAGE 0: ADD/SUB front — aligned magnitude (normalize deferred to stage 3) ──
     logic        addsub_is_sub, sb_eff;
     assign addsub_is_sub = (funct5 == FP_SUB);
     assign sb_eff = sb ^ addsub_is_sub;
@@ -224,20 +233,14 @@ module simt_fpu
         else                     begin s1_add_spec = 1'b0; s1_add_specval = 32'd0; end
     end
 
-    // ── STAGE 1: MUL front — exact product + specials (normalize/round deferred to S2) ─
-    // A2: the standalone fmul used to do multiply + normalize + round ALL in stage 1 —
-    // the one op carrying a full combinational 24x24 multiply AND rounding cone into a
-    // single stage (the FMA already spreads its work across S1/S2/S3). We now isolate the
-    // significand multiply in stage 1 (so it registers cleanly into a DSP output reg) and
-    // defer the prod[47] select + exponent + round to stage 2. Bit-IDENTICAL result; only
-    // the register boundary moves, balancing what was the design's critical path.
-    logic [47:0] s1_mul_prod;       // exact 48-bit significand product
+    // ── STAGE 0: MUL front — exact exponent + specials (the product is the shared DSP) ─
+    // B2: the significand product siga*sigb moved to the shared, fully-pipelined DSP
+    // (prod3 below). Stage 0 still resolves the exponent sum, sign, and special cases.
     logic [8:0]  s1_mul_esum;       // ea + eb (stage-2 applies the -126/-127 bias)
     logic        s1_mul_rsign, s1_mul_spec;
     logic [31:0] s1_mul_specval;
     always_comb begin
         s1_mul_rsign = sa ^ sb;
-        s1_mul_prod  = siga * sigb;
         s1_mul_esum  = {1'b0, ea} + {1'b0, eb};
         if      (a_nan || b_nan)                          begin s1_mul_spec = 1'b1; s1_mul_specval = CANON_QNAN; end
         else if ((a_inf && b_zero) || (b_inf && a_zero))  begin s1_mul_spec = 1'b1; s1_mul_specval = CANON_QNAN; end
@@ -246,12 +249,10 @@ module simt_fpu
         else                                              begin s1_mul_spec = 1'b0; s1_mul_specval = 32'd0; end
     end
 
-    // ── STAGE 1: FMA front-A — exact product, alignment amount, and specials ────────
-    // M17: the FMA is split across THREE pipeline stages, since the per-lane FMA cone
-    // was the design's critical path. Stage-1 forms the 48-bit product and the addend
-    // alignment position and resolves the special cases; stage-2 (below) does the
-    // 128-bit align + add; stage-3 normalizes + rounds. Each stage is shallow.
-    logic [47:0]        s1f_P;          // exact 48-bit significand product
+    // ── STAGE 0: FMA front-A — alignment amount, signs, addend, and specials ────────
+    // The exact 48-bit product is the shared DSP (prod3); stage-0 forms the addend
+    // alignment position s1f_pos0 and resolves the special cases. Stage-2 (below) does
+    // the 128-bit align + add; stage-3 normalizes + rounds.
     logic signed [11:0] s1f_pos0;       // addend anchor in the 128-bit accumulator
     logic [23:0]        s1f_sigc;       // addend significand
     logic               s1f_psign, s1f_csign, s1f_c_zero;
@@ -269,7 +270,6 @@ module simt_fpu
         s1f_c_zero = (ec == 8'd0); c_inf = (ec == 8'hff) && (mc == 23'd0);
         c_nan      = (ec == 8'hff) && (mc != 23'd0);
         s1f_sigc   = s1f_c_zero ? 24'd0 : {1'b1, mc};
-        s1f_P      = siga * sigb;
         prod_zero  = a_zero || b_zero; prod_inf = a_inf || b_inf; prod_nan = a_nan || b_nan;
         s1f_psign  = (sa ^ sb) ^ fma_np; s1f_csign = sc ^ fma_nc;
         d = 12'sd0; s1f_pos0 = 12'sd0;
@@ -293,64 +293,7 @@ module simt_fpu
         end
     end
 
-    // ── STAGE 2: FMA front-B — 128-bit align + add (from the registered stage-1) ────
-    logic [127:0] s2_fma_mag;
-    logic         s2_fma_rsign, s2_fma_fs, s2_fma_spec;
-    logic [8:0]   s2_fma_eab;
-    logic [31:0]  s2_fma_specval;
-    always_comb begin
-        logic [127:0] prod_acc, add_acc, mag, cfull;
-        logic         sticky_c, samesign, addend_bigger;
-        logic [7:0]   rsh;
-        prod_acc = '0; add_acc = '0; mag = '0; cfull = '0;
-        sticky_c = 1'b0; samesign = 1'b0; addend_bigger = 1'b0; rsh = 8'd0;
-        s2_fma_eab     = r1f_eab;
-        s2_fma_rsign   = 1'b0; s2_fma_fs = 1'b0; s2_fma_mag = '0;
-        s2_fma_spec    = r1f_fma_spec; s2_fma_specval = r1f_fma_specval;
-        if (!r1f_fma_spec) begin
-            prod_acc = {80'd0, r1f_P} << 28;
-            cfull    = {104'd0, r1f_sigc};
-            if (r1f_c_zero) begin
-                add_acc = 128'd0; sticky_c = 1'b0;
-            end else if (r1f_pos0 >= 0) begin
-                add_acc = cfull << r1f_pos0[6:0]; sticky_c = 1'b0;
-            end else begin
-                rsh = (-r1f_pos0 >= 12'sd128) ? 8'd127 : 8'((-r1f_pos0));
-                add_acc = cfull >> rsh;
-                sticky_c = |(cfull & ((128'd1 << rsh) - 128'd1));
-            end
-            samesign = (r1f_psign == r1f_csign); addend_bigger = (add_acc > prod_acc);
-            if (samesign)           begin mag = prod_acc + add_acc;                      s2_fma_fs = sticky_c; end
-            else if (addend_bigger) begin mag = add_acc - prod_acc;                      s2_fma_fs = 1'b0; end
-            else                    begin mag = prod_acc - add_acc - {127'd0, sticky_c}; s2_fma_fs = sticky_c; end
-            s2_fma_rsign = samesign ? r1f_psign : (addend_bigger ? r1f_csign : r1f_psign);
-            if (mag == 128'd0) begin s2_fma_spec = 1'b1; s2_fma_specval = 32'd0; end  // cancellation -> +0
-            else               begin s2_fma_spec = 1'b0; s2_fma_mag = mag;        end
-        end
-    end
-
-    // ── STAGE 2: MUL back — normalize + round of the registered stage-1 product ─────────
-    // A2: consumes the registered raw product (r_mul_prod) + exponent sum + sign + the
-    // resolved special, and produces the final fmul result. Identical arithmetic to the
-    // old single-stage path; it just runs one cycle later, off a register boundary.
-    logic [31:0] s2_mul_res;
-    always_comb begin
-        logic signed [11:0] e_res;
-        logic [23:0]        sig_f;
-        logic               g, r, s;
-        e_res = 12'sd0; sig_f = 24'd0; g = 1'b0; r = 1'b0; s = 1'b0;
-        if (r_mul_prod[47]) begin
-            e_res = $signed({3'd0, r_mul_esum}) - 12'sd126;
-            sig_f = r_mul_prod[47:24]; g = r_mul_prod[23]; r = r_mul_prod[22]; s = |r_mul_prod[21:0];
-        end else begin
-            e_res = $signed({3'd0, r_mul_esum}) - 12'sd127;
-            sig_f = r_mul_prod[46:23]; g = r_mul_prod[22]; r = r_mul_prod[21]; s = |r_mul_prod[20:0];
-        end
-        s2_mul_res = r_mul_spec ? r_mul_specval
-                                : pack_round(r_mul_rsign, e_res, sig_f, g, r, s);
-    end
-
-    // ── STAGE 1: SGNJ / MINMAX / CMP / CVT / FCLASS (shallow — full results) ────────
+    // ── STAGE 0: SGNJ / MINMAX / CMP / CVT / FCLASS (shallow — full results) ─────────
     logic [31:0] s1_sgnj_res; logic [15:0] s1_sgnj_res_h;
     assign s1_sgnj_res   = {sgn_sel(rm, a[31],   b[31]),   a[30:0]};
     assign s1_sgnj_res_h = {sgn_sel(rm, a16[15], b16[15]), a16[14:0]};
@@ -476,47 +419,174 @@ module simt_fpu
         s1_class16 = cl;
     end
 
-    // ════════════════════ Pipeline register 1 (stage 1 -> stage 2) ═════════════════
-    // M17: FMA carries its stage-1 front-A outputs (product, alignment amount, sigc,
-    // signs, specials); ADD and the shallow ops carry their full stage-1 result and
-    // ride through reg2 to the stage-3 back-end so every op has uniform 3-cycle latency.
-    logic [63:0]  r_add_mag;     logic r_add_sbig, r_add_spec; logic [7:0] r_add_ebig;
-    logic [31:0]  r_add_specval;
-    logic [47:0]  r_mul_prod;    logic [8:0] r_mul_esum; logic r_mul_rsign, r_mul_spec;
-    logic [31:0]  r_mul_specval;
-    logic [47:0]        r1f_P;
-    logic signed [11:0] r1f_pos0;
-    logic [23:0]        r1f_sigc;
-    logic               r1f_psign, r1f_csign, r1f_c_zero;
-    logic [8:0]         r1f_eab;
-    logic               r1f_fma_spec; logic [31:0] r1f_fma_specval;
-    logic [31:0]  r_sgnj_res, r_minmax_res, r_cmp_res, r_cvt_w_res, r_cvt_s_res, r_class_res;
-    logic [15:0]  r_sgnj_res_h, r_minmax_res_h;
-    logic [9:0]   r_class16;
-    logic [31:0]  r_a, r_xa, r_opa;
-    logic [4:0]   r_funct5;
-    logic [2:0]   r_rm;
-    logic         r_is_fma, r_dst_is_h, r_op_is_h;
+    // ══════════════════ Shared fully-pipelined significand multiply (B2) ═══════════════
+    // siga*sigb is the ONLY multiply both fmul and FMA need; compute it once. The operands
+    // register into siga_q/sigb_q (DSP input reg) and the product runs through three output
+    // registers (prod1=MREG, prod2=PREG, prod3=cascade) so the inferred 24x24 DSP cascade
+    // packs fully (AREG/BREG/MREG/PREG -> 0 DPIP/DPOP warnings). prod3 is the exact 48-bit
+    // product, available 4 cycles after the operands — in step with the e[4] delay line.
+    (* use_dsp = "yes" *) logic [23:0] siga_q, sigb_q;
+    logic [47:0] prod1, prod2, prod3;
     always_ff @(posedge clk) begin
-        r_add_mag <= s1_add_mag; r_add_sbig <= s1_add_sbig; r_add_ebig <= s1_add_ebig;
-        r_add_spec <= s1_add_spec; r_add_specval <= s1_add_specval;
-        r_mul_prod <= s1_mul_prod; r_mul_esum <= s1_mul_esum;
-        r_mul_rsign <= s1_mul_rsign; r_mul_spec <= s1_mul_spec; r_mul_specval <= s1_mul_specval;
-        r1f_P <= s1f_P; r1f_pos0 <= s1f_pos0; r1f_sigc <= s1f_sigc;
-        r1f_psign <= s1f_psign; r1f_csign <= s1f_csign; r1f_c_zero <= s1f_c_zero;
-        r1f_eab <= s1f_eab; r1f_fma_spec <= s1f_fma_spec; r1f_fma_specval <= s1f_fma_specval;
-        r_sgnj_res <= s1_sgnj_res; r_sgnj_res_h <= s1_sgnj_res_h;
-        r_minmax_res <= s1_minmax_res; r_minmax_res_h <= s1_minmax_res_h;
-        r_cmp_res <= s1_cmp_res; r_cvt_w_res <= s1_cvt_w_res; r_cvt_s_res <= s1_cvt_s_res;
-        r_class_res <= s1_class_res; r_class16 <= s1_class16;
-        r_a <= a; r_xa <= xa; r_opa <= opa;
-        r_funct5 <= funct5; r_rm <= rm;
-        r_is_fma <= is_fma; r_dst_is_h <= dst_is_h; r_op_is_h <= op_is_h;
+        siga_q <= siga; sigb_q <= sigb;
+        prod1  <= siga_q * sigb_q;   // MREG
+        prod2  <= prod1;             // PREG
+        prod3  <= prod2;             // cascade / 3rd output reg
     end
 
-    // ════════════════════ Pipeline register 2 (stage 2 -> stage 3) ═════════════════
-    // FMA now holds its post-align magnitude (s2_*); ADD and the shallow ops are simply
-    // forwarded one more cycle so they reach the stage-3 back-end together with the FMA.
+    // ══════════════════ STAGE-0 payload delay line (packed struct) ════════════════════
+    // Everything stage 0 computed combinationally (add-front, mul/FMA exponent + specials,
+    // shallow ops, passthrough) rides this 4-deep delay line so it arrives at stage 2 in
+    // step with the shared product (prod3). One packed struct keeps the bookkeeping and the
+    // register inference clean; e[4] is the stage-2 consumer view, e[1..3] the in-flight.
+    typedef struct packed {
+        // add-front
+        logic [63:0]        add_mag;
+        logic               add_sbig;
+        logic [7:0]         add_ebig;
+        logic               add_spec;
+        logic [31:0]        add_specval;
+        // mul-front (exponent + specials)
+        logic [8:0]         mul_esum;
+        logic               mul_rsign;
+        logic               mul_spec;
+        logic [31:0]        mul_specval;
+        // FMA front-A
+        logic signed [11:0] f_pos0;
+        logic [23:0]        f_sigc;
+        logic               f_psign;
+        logic               f_csign;
+        logic               f_c_zero;
+        logic [8:0]         f_eab;
+        logic               f_fma_spec;
+        logic [31:0]        f_fma_specval;
+        // shallow ops
+        logic [31:0]        sgnj;
+        logic [15:0]        sgnj_h;
+        logic [31:0]        minmax;
+        logic [15:0]        minmax_h;
+        logic [31:0]        cmp;
+        logic [31:0]        cvt_w;
+        logic [31:0]        cvt_s;
+        logic [31:0]        cls;
+        logic [9:0]         cls16;
+        // passthrough to the final mux
+        logic [31:0]        a;
+        logic [31:0]        xa;
+        logic [31:0]        opa;
+        logic [4:0]         funct5;
+        logic [2:0]         rm;
+        logic               is_fma;
+        logic               dst_is_h;
+        logic               op_is_h;
+    } fpu_pl_t;
+
+    fpu_pl_t s0;            // stage-0 combinational bundle
+    fpu_pl_t e [1:4];      // delay line: e[1]=T+1 ... e[4]=T+4 (stage-2 consumer)
+    always_comb begin
+        s0.add_mag       = s1_add_mag;
+        s0.add_sbig      = s1_add_sbig;
+        s0.add_ebig      = s1_add_ebig;
+        s0.add_spec      = s1_add_spec;
+        s0.add_specval   = s1_add_specval;
+        s0.mul_esum      = s1_mul_esum;
+        s0.mul_rsign     = s1_mul_rsign;
+        s0.mul_spec      = s1_mul_spec;
+        s0.mul_specval   = s1_mul_specval;
+        s0.f_pos0        = s1f_pos0;
+        s0.f_sigc        = s1f_sigc;
+        s0.f_psign       = s1f_psign;
+        s0.f_csign       = s1f_csign;
+        s0.f_c_zero      = s1f_c_zero;
+        s0.f_eab         = s1f_eab;
+        s0.f_fma_spec    = s1f_fma_spec;
+        s0.f_fma_specval = s1f_fma_specval;
+        s0.sgnj          = s1_sgnj_res;
+        s0.sgnj_h        = s1_sgnj_res_h;
+        s0.minmax        = s1_minmax_res;
+        s0.minmax_h      = s1_minmax_res_h;
+        s0.cmp           = s1_cmp_res;
+        s0.cvt_w         = s1_cvt_w_res;
+        s0.cvt_s         = s1_cvt_s_res;
+        s0.cls           = s1_class_res;
+        s0.cls16         = s1_class16;
+        s0.a             = a;
+        s0.xa            = xa;
+        s0.opa           = opa;
+        s0.funct5        = funct5;
+        s0.rm            = rm;
+        s0.is_fma        = is_fma;
+        s0.dst_is_h      = dst_is_h;
+        s0.op_is_h       = op_is_h;
+    end
+    always_ff @(posedge clk) begin
+        e[1] <= s0;
+        e[2] <= e[1];
+        e[3] <= e[2];
+        e[4] <= e[3];
+    end
+
+    // ════════════════ STAGE 2: MUL normalize+round / FMA 128-bit align+add ═════════════
+    // Reads the registered stage-0 payload (e[4]) and the shared product (prod3, T+4).
+
+    // MUL back — normalize + round of the registered product. Identical arithmetic to the
+    // single-stage path; it just runs off the deeper register boundary.
+    logic [31:0] s2_mul_res;
+    always_comb begin
+        logic signed [11:0] e_res;
+        logic [23:0]        sig_f;
+        logic               g, r, s;
+        e_res = 12'sd0; sig_f = 24'd0; g = 1'b0; r = 1'b0; s = 1'b0;
+        if (prod3[47]) begin
+            e_res = $signed({3'd0, e[4].mul_esum}) - 12'sd126;
+            sig_f = prod3[47:24]; g = prod3[23]; r = prod3[22]; s = |prod3[21:0];
+        end else begin
+            e_res = $signed({3'd0, e[4].mul_esum}) - 12'sd127;
+            sig_f = prod3[46:23]; g = prod3[22]; r = prod3[21]; s = |prod3[20:0];
+        end
+        s2_mul_res = e[4].mul_spec ? e[4].mul_specval
+                                   : pack_round(e[4].mul_rsign, e_res, sig_f, g, r, s);
+    end
+
+    // FMA front-B — 128-bit align + add (from the registered stage-0 + shared product).
+    logic [127:0] s2_fma_mag;
+    logic         s2_fma_rsign, s2_fma_fs, s2_fma_spec;
+    logic [8:0]   s2_fma_eab;
+    logic [31:0]  s2_fma_specval;
+    always_comb begin
+        logic [127:0] prod_acc, add_acc, mag, cfull;
+        logic         sticky_c, samesign, addend_bigger;
+        logic [7:0]   rsh;
+        prod_acc = '0; add_acc = '0; mag = '0; cfull = '0;
+        sticky_c = 1'b0; samesign = 1'b0; addend_bigger = 1'b0; rsh = 8'd0;
+        s2_fma_eab     = e[4].f_eab;
+        s2_fma_rsign   = 1'b0; s2_fma_fs = 1'b0; s2_fma_mag = '0;
+        s2_fma_spec    = e[4].f_fma_spec; s2_fma_specval = e[4].f_fma_specval;
+        if (!e[4].f_fma_spec) begin
+            prod_acc = {80'd0, prod3} << 28;
+            cfull    = {104'd0, e[4].f_sigc};
+            if (e[4].f_c_zero) begin
+                add_acc = 128'd0; sticky_c = 1'b0;
+            end else if (e[4].f_pos0 >= 0) begin
+                add_acc = cfull << e[4].f_pos0[6:0]; sticky_c = 1'b0;
+            end else begin
+                rsh = (-e[4].f_pos0 >= 12'sd128) ? 8'd127 : 8'((-e[4].f_pos0));
+                add_acc = cfull >> rsh;
+                sticky_c = |(cfull & ((128'd1 << rsh) - 128'd1));
+            end
+            samesign = (e[4].f_psign == e[4].f_csign); addend_bigger = (add_acc > prod_acc);
+            if (samesign)           begin mag = prod_acc + add_acc;                      s2_fma_fs = sticky_c; end
+            else if (addend_bigger) begin mag = add_acc - prod_acc;                      s2_fma_fs = 1'b0; end
+            else                    begin mag = prod_acc - add_acc - {127'd0, sticky_c}; s2_fma_fs = sticky_c; end
+            s2_fma_rsign = samesign ? e[4].f_psign : (addend_bigger ? e[4].f_csign : e[4].f_psign);
+            if (mag == 128'd0) begin s2_fma_spec = 1'b1; s2_fma_specval = 32'd0; end  // cancellation -> +0
+            else               begin s2_fma_spec = 1'b0; s2_fma_mag = mag;        end
+        end
+    end
+
+    // ════════════════════ Pipeline register 2 (stage 2 -> stage 3) ═════════════════════
+    // Holds the FMA post-align magnitude and the MUL result; ADD and the shallow ops are
+    // forwarded one more cycle (from e[4]) so they reach stage 3 together.
     logic [63:0]  r2_add_mag;    logic r2_add_sbig, r2_add_spec; logic [7:0] r2_add_ebig;
     logic [31:0]  r2_add_specval;
     logic [31:0]  r2_mul_res;
@@ -530,18 +600,18 @@ module simt_fpu
     logic [2:0]   r2_rm;
     logic         r2_is_fma, r2_dst_is_h, r2_op_is_h;
     always_ff @(posedge clk) begin
-        r2_add_mag <= r_add_mag; r2_add_sbig <= r_add_sbig; r2_add_ebig <= r_add_ebig;
-        r2_add_spec <= r_add_spec; r2_add_specval <= r_add_specval;
+        r2_add_mag <= e[4].add_mag; r2_add_sbig <= e[4].add_sbig; r2_add_ebig <= e[4].add_ebig;
+        r2_add_spec <= e[4].add_spec; r2_add_specval <= e[4].add_specval;
         r2_mul_res <= s2_mul_res;
         r2_fma_mag <= s2_fma_mag; r2_fma_rsign <= s2_fma_rsign; r2_fma_fs <= s2_fma_fs;
         r2_fma_eab <= s2_fma_eab; r2_fma_spec <= s2_fma_spec; r2_fma_specval <= s2_fma_specval;
-        r2_sgnj_res <= r_sgnj_res; r2_sgnj_res_h <= r_sgnj_res_h;
-        r2_minmax_res <= r_minmax_res; r2_minmax_res_h <= r_minmax_res_h;
-        r2_cmp_res <= r_cmp_res; r2_cvt_w_res <= r_cvt_w_res; r2_cvt_s_res <= r_cvt_s_res;
-        r2_class_res <= r_class_res; r2_class16 <= r_class16;
-        r2_a <= r_a; r2_xa <= r_xa; r2_opa <= r_opa;
-        r2_funct5 <= r_funct5; r2_rm <= r_rm;
-        r2_is_fma <= r_is_fma; r2_dst_is_h <= r_dst_is_h; r2_op_is_h <= r_op_is_h;
+        r2_sgnj_res <= e[4].sgnj; r2_sgnj_res_h <= e[4].sgnj_h;
+        r2_minmax_res <= e[4].minmax; r2_minmax_res_h <= e[4].minmax_h;
+        r2_cmp_res <= e[4].cmp; r2_cvt_w_res <= e[4].cvt_w; r2_cvt_s_res <= e[4].cvt_s;
+        r2_class_res <= e[4].cls; r2_class16 <= e[4].cls16;
+        r2_a <= e[4].a; r2_xa <= e[4].xa; r2_opa <= e[4].opa;
+        r2_funct5 <= e[4].funct5; r2_rm <= e[4].rm;
+        r2_is_fma <= e[4].is_fma; r2_dst_is_h <= e[4].dst_is_h; r2_op_is_h <= e[4].op_is_h;
     end
 
     // ════════════════════════════ STAGE 3: normalize ═══════════════════════════════

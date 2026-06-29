@@ -563,20 +563,22 @@ module warp_pool
     logic [31:0]      sfu_hold [0:NL-1];
     logic             sfu_wb_fire;    // SFU result drives the f-file this cycle
 
-    // ── M15: pipelined FP-compute (add/sub/mul/FMA/cvt/cmp/...) ──────────────────────
-    // The FPU combinational cone was the longest path in the design. simt_fpu is now
-    // a 2-STAGE pipeline (operands in cycle T -> result `fpu_res` in cycle T+1), which
-    // halves its critical path. To consume the 1-cycle-late result correctly, the
-    // issuing warp parks on a single-slot scoreboard (W_FPC) exactly like the SFU: at
-    // issue the warp parks; the next cycle the result is valid and is captured into
-    // the held `fpc_data`; then it is written back when the destination port is free
-    // (it YIELDS the f-file/VRF port to the memory and SFU engines, so it never
-    // collides). Only one FP-compute op is in flight at a time.
+    // ── M15→B2: pipelined FP-compute (add/sub/mul/FMA/cvt/cmp/...) ────────────────────
+    // The FPU multiply/FMA cone was the longest path; simt_fpu is now a 5-STAGE pipeline
+    // (operands in cycle T -> result `fpu_res` in cycle T+5), the depth set by making the
+    // significand multiply a fully-pipelined DSP (clean DRC, B2). To consume the late
+    // result correctly the issuing warp parks on a single-slot scoreboard (W_FPC) exactly
+    // like the SFU: at issue the warp parks and the operands are captured (held constant);
+    // FPC_WAIT counts the latency down, the result is captured into the held `fpc_data`,
+    // then written back when the destination port is free (it YIELDS the f-file/VRF port to
+    // the memory and SFU engines). Only one FP-compute op is in flight at a time.
     logic        do_fp;             // issue is an FP-compute op (not div/sqrt, not mem)
     logic        do_mul;            // issue is an RV32M `mul` (parks on W_MUL)
-    // A1 added an operand-register stage in front of the FPU, so the result is one cycle
-    // later: IDLE -> W1 -> W2 -> CAP -> WB (was IDLE -> W1 -> CAP -> WB).
-    typedef enum logic [2:0] { FPC_IDLE, FPC_W1, FPC_W2, FPC_CAP, FPC_WB } fpc_st_e;
+    // B2: simt_fpu is now a 5-stage pipeline (operands at T -> result at T+5), so the FPC
+    // scoreboard waits the latency with a countdown (fpc_cnt) before capturing the result:
+    // IDLE -> WAIT(cnt) -> WB. The +3-cycle deepening came from making the significand
+    // multiply a fully-pipelined DSP (clean DRC). FPC_CNT_INIT = the FPU latency (5).
+    typedef enum logic [1:0] { FPC_IDLE, FPC_WAIT, FPC_WB } fpc_st_e;
     fpc_st_e          fpc_state;
     logic [WIDXW-1:0] fpc_w;
     logic [4:0]       fpc_rd;
@@ -584,7 +586,9 @@ module warp_pool
     logic [NL-1:0]    fpc_we;         // per-lane writeback enable (mask + x0 guard)
     logic [31:0]      fpc_resume_pc;
     logic [31:0]      fpc_data [0:NL-1];
+    logic [3:0]       fpc_cnt;        // FPU pipeline-latency countdown
     logic             fpc_wb_fire;    // held FP-compute result drives its port this cycle
+    localparam logic [3:0] FPC_CNT_INIT = 4'd5;   // res valid 5 cycles after operands (q+5)
 
     // ── B1: pipelined integer-multiply scoreboard (W_MUL) ────────────────────────────
     // Mirrors W_FPC: one mul in flight, operands captured at issue (q_mul_a/b), the warp
@@ -1119,9 +1123,9 @@ module warp_pool
                     end else if (do_fp) begin
                         // FP-compute: capture the operands + control into the FPU input
                         // registers this cycle (A1); the registered operands then feed the
-                        // 3-stage FPU, so the result is valid three cycles later. Park the
-                        // warp on the single-slot FPC pipeline; FPC_W1/FPC_W2 burn the
-                        // latency cycles, then FPC_CAP captures. If FPC busy, the warp waits.
+                        // 5-stage FPU, so the result is valid five cycles later. Park the
+                        // warp on the single-slot FPC pipeline; FPC_WAIT counts the latency
+                        // down (fpc_cnt) and captures the result. If FPC busy, the warp waits.
                         if (fpc_state == FPC_IDLE) begin
                             fpc_w           <= issue_w;
                             fpc_rd          <= rd;
@@ -1129,7 +1133,8 @@ module warp_pool
                             fpc_we          <= fwb_en;
                             fpc_resume_pc   <= fallthru;
                             wstate[issue_w] <= W_FPC;
-                            fpc_state       <= FPC_W1;
+                            fpc_state       <= FPC_WAIT;
+                            fpc_cnt         <= FPC_CNT_INIT;
                             // A1: latch this op's operands + control into the FPU input
                             // registers, so stage-1 starts from a clean register boundary.
                             for (int l = 0; l < NL; l++) begin
@@ -1316,20 +1321,19 @@ module warp_pool
                     default: sfu_state <= SFU_IDLE;
                 endcase
 
-                // 3d) FPC (pipelined FP-compute) engine step. W1: burn the extra latency
-                //     cycle of the 3-stage FPU. CAP: the result of the op issued two
-                //     cycles ago is now valid; hold it. WB: drive it onto the f-file/VRF
-                //     when the port is free (yields to the memory + SFU engines), then
-                //     resume the parked warp after the FP op.
+                // 3d) FPC (pipelined FP-compute) engine step. WAIT: count down the 5-stage
+                //     FPU latency (operands held constant in q_frv*/q_rv1 stream one result
+                //     through), and when the result is valid capture it. WB: drive it onto
+                //     the f-file/VRF when the port is free (yields to the memory + SFU
+                //     engines), then resume the parked warp after the FP op.
                 unique case (fpc_state)
-                    FPC_IDLE: ;   // launched in the issue step (sets FPC_W1)
-                    FPC_W1:  fpc_state <= FPC_W2;    // A1: operand-register latency cycle
-                    FPC_W2:  fpc_state <= FPC_CAP;   // 3-stage FPU: result valid next cycle
-                    FPC_CAP: begin
-                        // The 3-stage FPU result for the op issued two cycles ago is valid
-                        // this cycle; hold it for the writeback.
-                        for (int l = 0; l < NL; l++) fpc_data[l] <= fpu_res[l];
-                        fpc_state <= FPC_WB;
+                    FPC_IDLE: ;   // launched in the issue step (sets FPC_WAIT)
+                    FPC_WAIT: begin
+                        if (fpc_cnt != 4'd0) fpc_cnt <= fpc_cnt - 4'd1;
+                        else begin
+                            for (int l = 0; l < NL; l++) fpc_data[l] <= fpu_res[l];
+                            fpc_state <= FPC_WB;
+                        end
                     end
                     FPC_WB: if (fpc_wb_fire) begin
                         stk_npc[fpc_w][sp[fpc_w]] <= fpc_resume_pc;

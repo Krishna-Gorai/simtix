@@ -111,14 +111,17 @@ module tb_fpu
         return {s, e, m};
     endfunction
 
-    // The caller sets the operands/controls (held stable here), then ck() clocks two
-    // cycles so the 3-stage FPU latches them (reg1, reg2) and presents `res` (stage 3).
+    // The caller sets the operands/controls (held stable here), then ck() clocks the FPU
+    // pipeline latency so `res` reflects them. simt_fpu is a 5-stage pipeline (B2): the
+    // significand multiply is a fully-pipelined DSP (input reg + 3 output regs), so the
+    // result is presented FPU_LAT clocks after the operands. Operands are held stable
+    // across all the edges, so the pipeline flushes to this vector's result.
+    localparam int FPU_LAT = 5;
     task automatic ck(input logic [31:0] exp, input string tag);
         logic [31:0] sa, sb, sc, sxa;
         checks++;
         sa = a; sb = b; sc = c; sxa = xa;   // remember inputs for the message
-        @(posedge clk);                     // reg1 latches the stage-1 result
-        @(posedge clk);                     // reg2 latches the stage-2 result
+        for (int k = 0; k < FPU_LAT; k++) @(posedge clk);   // drain the 5-stage pipeline
         #1;                                 // stage-3 combinational settles
         if (res !== exp) begin
             if (errors < 12)
