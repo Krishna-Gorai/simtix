@@ -12,7 +12,12 @@
 // compute instructions on the (otherwise idle) fetch/ALU datapath. So a warp's
 // memory cost is overlapped with another warp's useful work — the classic GPU
 // latency-hiding trick. The two resources advance in the same cycle:
-//   * issue engine  : 1 warp fetch+decode+execute / cycle (single imem port)
+//   * issue engine  : a 2-stage F(etch)/X(ecute) pipeline (task #23) — stage F
+//     picks a runnable warp and fetches its instruction (single imem port);
+//     stage X decodes/executes/commits it the NEXT cycle from registered copies.
+//     A warp re-enters fetch only after its X resolves, so back-to-back
+//     instructions of one warp run every other cycle; with ≥2 runnable warps
+//     F and X interleave different warps and the pipeline stays full.
 //   * memory engine : 1 coalesced line transaction / cycle (single line dport)
 // At most one memory instruction is in flight (single data port); a warp that
 // wants memory while the port is busy simply waits its turn in the scheduler.
@@ -178,27 +183,48 @@ module warp_pool
     logic [31:0]      mem_addr_lane  [0:NL-1];   // latched per-lane eff. address
     logic [31:0]      mem_sdata_lane [0:NL-1];   // latched per-lane store data
 
-    // ── Round-robin issue selection (combinational) ────────────────────────────────
-    logic             issue_valid;
-    // issue_w is the warp-select that addresses EVERY VRF/FRF distributed-RAM read
-    // port (vaddr(issue_w,*)) and the reg_written/seed muxes — placed timing showed
-    // its top bit fanning out to ~2419 endpoints (the dominant route-congestion net,
-    // 61% of the critical-path delay). max_fanout forces Vivado to replicate the
-    // driver into physically-local clusters; logic-equivalent, no functional change.
-    (* max_fanout = 80 *)
-    logic [WIDXW-1:0] issue_w;
+    // ── F-stage: round-robin FETCH selection (combinational) ────────────────────────
+    // Task #23: the issue engine is a 2-stage F(etch)/X(ecute) pipeline. Placed
+    // timing showed the whole single-cycle fetch→decode→VRF-read→ALU→writeback
+    // cloud as the critical path (26 logic levels, 82% route). Stage F selects a
+    // runnable warp and fetches its instruction from the async imem; the F→X
+    // boundary registers the instruction + warp context (instr, issue_w, cur_*),
+    // and stage X decodes/executes/commits from those registers the next cycle —
+    // splitting the cloud roughly in half and turning the two dominant congestion
+    // broadcast nets (issue_w, imem_data) into cheaply-replicated flop outputs.
+    //
+    // A warp with an instruction in X is IN-FLIGHT and not re-fetchable until X
+    // resolves it (its PC/state only update at resolve). X always resolves in one
+    // cycle: it commits, parks the warp on an engine, or — engine-busy / writeback-
+    // squash — does nothing, returning the warp to the fetch pool to retry (the
+    // old "waits its turn" semantics; nothing was committed, so re-execution is
+    // idempotent). The fetched warp's TOS context is stable across F→X because
+    // only the warp's own X resolve or the engine that OWNS it may touch its
+    // stack/state, and an in-flight W_RUN warp is owned by X alone.
+    logic             fetch_valid;
+    logic [WIDXW-1:0] fetch_w;
+    logic             inflight [0:NW-1];   // warp has an instruction in X
     always_comb begin
-        issue_valid = 1'b0;
-        issue_w     = '0;
+        fetch_valid = 1'b0;
+        fetch_w     = '0;
         for (int k = 0; k < NW; k++) begin
             logic [WIDXW-1:0] idx;
             idx = rr_ptr + k[WIDXW-1:0];          // wraps in WIDXW bits (NW is pow2)
-            if (!issue_valid && (wstate[idx] == W_RUN)) begin
-                issue_valid = 1'b1;
-                issue_w     = idx;
+            if (!fetch_valid && (wstate[idx] == W_RUN) && !inflight[idx]) begin
+                fetch_valid = 1'b1;
+                fetch_w     = idx;
             end
         end
     end
+
+    // ── X-stage pipeline registers (loaded by F, consumed by everything below) ──────
+    // issue_w addresses EVERY VRF/FRF distributed-RAM read port (vaddr(issue_w,*))
+    // and the reg_written/seed muxes — placed timing showed it fanning out to ~2419
+    // endpoints (the dominant route-congestion net). max_fanout replicates the
+    // driver flop into physically-local clusters; logic-equivalent.
+    logic             issue_valid;
+    (* max_fanout = 80 *)
+    logic [WIDXW-1:0] issue_w;
 
     // ── Free-slot selection for spawning the next warp (combinational) ──────────────
     logic             fill_valid;
@@ -214,22 +240,27 @@ module warp_pool
         end
     end
 
-    // ── Live TOS view of the issuing warp ───────────────────────────────────────────
+    // ── Live TOS view of the FETCHED warp (F-stage) ─────────────────────────────────
+    logic [SPW-1:0] fetch_sp;
+    logic [31:0]    fetch_pc;
+    assign fetch_sp = sp[fetch_w];
+    assign fetch_pc = stk_npc[fetch_w][fetch_sp];
+
+    // Shared fetch follows the fetched warp's TOS PC; imem_data is captured into
+    // the `instr` register at the F→X boundary.
+    assign imem_addr = fetch_pc;
+
+    // X-stage registered warp context: the TOS as seen at fetch (stable while the
+    // warp is in flight — see the F-stage note above).
     logic [SPW-1:0] cur_sp;
     logic [31:0]    cur_pc;
-    logic [NL-1:0]  cur_mask;        // active lanes for the issuing warp this cycle
-    assign cur_sp   = sp[issue_w];
-    assign cur_pc   = stk_npc[issue_w][cur_sp];
-    assign cur_mask = stk_mask[issue_w][cur_sp];
-
-    // Shared fetch follows the issuing warp's TOS PC.
-    assign imem_addr = cur_pc;
+    logic [NL-1:0]  cur_mask;        // active lanes for the executing warp
+    logic [31:0]    cur_rpc;         // TOS reconvergence PC (for the pop check)
 
     // A pushed frame is "spent" (its lanes have reached the join) when its PC
-    // equals its reconvergence PC → pop it next issue instead of executing.
+    // equals its reconvergence PC → pop it instead of executing.
     logic do_pop;
-    assign do_pop = issue_valid && (cur_sp != '0) &&
-                    (cur_pc == stk_rpc[issue_w][cur_sp]);
+    assign do_pop = issue_valid && (cur_sp != '0) && (cur_pc == cur_rpc);
 
     // ── M7: divergence-aware lane clock-gating control ──────────────────────────────
     // The TOS active mask IS the per-lane clock-enable: a lane masked off by
@@ -270,10 +301,12 @@ module warp_pool
         endcase
     endfunction
 
-    // ── Decode ──────────────────────────────────────────────────────────────────────
-    // instr = imem_data (the async-LUTRAM instruction fetch). Placed timing showed
+    // ── Decode (X-stage) ────────────────────────────────────────────────────────────
+    // instr is the X-stage instruction register, loaded from the async-LUTRAM fetch
+    // (imem_data) at the F→X boundary. Placed timing showed the old combinational
     // imem_data fanning out to ~1324 endpoints (decode + every lane's operand mux +
-    // read-address fields), the second-worst congestion net. Replicate the driver.
+    // read-address fields), the second-worst congestion net; as a register its
+    // driver flop replicates cheaply under max_fanout.
     (* max_fanout = 80 *)
     logic [31:0] instr;
     logic [6:0]  opcode;
@@ -282,7 +315,6 @@ module warp_pool
     logic        funct7b5, funct7b0;
     logic [31:0] i_imm, s_imm, u_imm, b_imm, j_imm;
 
-    assign instr    = imem_data;
     assign opcode   = instr[6:0];
     assign rd       = instr[11:7];
     assign funct3   = instr[14:12];
@@ -1032,6 +1064,9 @@ module warp_pool
             sfu_core_start <= 1'b0;
             fpc_state      <= FPC_IDLE;
             mul_state      <= MUL_IDLE;
+            issue_valid    <= 1'b0;
+            instr          <= 32'd0;
+            for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
             dbg_retire_a0  <= 32'd0;
             dbg_mem_txns   <= 32'd0;
             dbg_divergences<= 32'd0;
@@ -1066,6 +1101,8 @@ module warp_pool
                 sfu_core_start <= 1'b0;
                 fpc_state      <= FPC_IDLE;
                 mul_state      <= MUL_IDLE;
+                issue_valid    <= 1'b0;
+                for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
                 dbg_scratch_txns<= 32'd0;
@@ -1099,8 +1136,31 @@ module warp_pool
                     next_wid                 <= next_wid + 32'd1;
                 end
 
-                // 2) Issue step: advance one runnable warp on the shared datapath.
+                // 1b) Fetch step (F): capture the selected warp's instruction and
+                //     TOS context into the X-stage registers; it executes NEXT
+                //     cycle. The warp is marked in-flight so it is not re-fetched
+                //     before X resolves it (and updates its PC/state). fetch_w can
+                //     never equal the resolving issue_w below (an in-flight warp is
+                //     skipped by the fetch select), so the inflight set/clear never
+                //     collide. Round-robin advances at fetch.
+                issue_valid <= fetch_valid;
+                if (fetch_valid) begin
+                    issue_w  <= fetch_w;
+                    instr    <= imem_data;
+                    cur_pc   <= fetch_pc;
+                    cur_sp   <= fetch_sp;
+                    cur_mask <= stk_mask[fetch_w][fetch_sp];
+                    cur_rpc  <= stk_rpc[fetch_w][fetch_sp];
+                    inflight[fetch_w] <= 1'b1;
+                    rr_ptr   <= fetch_w + 1'b1;
+                end
+
+                // 2) Issue step (X): resolve the in-flight instruction — commit it,
+                //    park its warp on an engine, or (engine busy / squashed
+                //    writeback) do nothing so the warp re-enters the fetch pool and
+                //    retries. Every outcome resolves in this one cycle.
                 if (issue_valid) begin
+                    inflight[issue_w] <= 1'b0;
                     // M7 energy accounting: a committed datapath instruction clocks
                     // n_active lanes under gating vs all NL lanes ungated. A pop is
                     // bookkeeping (no datapath); a memory op or an fdiv/fsqrt that
@@ -1254,7 +1314,6 @@ module warp_pool
                             default: stk_npc[issue_w][cur_sp] <= fallthru;
                         endcase
                     end
-                    rr_ptr <= issue_w + 1'b1;     // round-robin, advance past it
                 end
 
                 // 3) Memory engine step.
