@@ -120,7 +120,9 @@ verified bit-exact and shown to sustain the engine's full lane-parallel
 throughput. A placed timing study isolates the per-lane fused multiply-add as the
 frequency bottleneck and, via a design-space exploration showing the limit is
 intra-lane rather than fabric-wide, pipelines the FMA into three stages to
-\emph{meet} 100~MHz---moving the critical path off the FP datapath entirely
+\emph{meet} 100~MHz---moving the critical path off the FP datapath entirely---and
+carries the closure to the complete SoC, signed off at 103.7~MHz as a deployable
+bitstream with full pin constraints and a warning-free DRC
 (Section~\ref{sec:fp}).
 \end{itemize}
 
@@ -777,14 +779,38 @@ bounds the \emph{integer} design (Section~\ref{sec:impl}). The floating-point
 datapath is no longer the frequency limiter, confirming that FMA logic depth---the
 lever the design-space exploration identified---was the true constraint all along.
 
+\paragraph{From out-of-context closure to a deployable SoC.} Closing the
+accelerator out-of-context is not yet a chip: integrated into \texttt{chip\_top}
+with the host core and the eight-bank shared memory, the FP-enlarged SoC first
+places at only 82.5~MHz. The worst path is again congestion-bound, but now through
+the warp scheduler's \emph{fetch--execute} cloud: instruction fetch from the
+asynchronous LUTRAM memory, decode, register-file read, execute, and writeback all
+completed in one combinational cycle, and 82\% of the placed path was routing on
+its two highest-fanout broadcast nets (the selected-warp index and the fetched
+instruction). We split this cloud with a fetch/execute pipeline register---the
+fetched instruction and its warp context are registered at a new stage boundary,
+and a per-warp in-flight bit preserves the scheduler's re-issue semantics
+exactly---which applies the SIMT latency-hiding argument at instruction grain:
+with two or more runnable warps the pipeline stays full, and the measured cycle
+cost is $\le$0.3\% on 1024-element kernels ($\le$1.3\% at 256 elements). The full
+chip then places at 107.3~MHz unconstrained and, with every port pin-constrained
+for the ZCU104 (clock on a clock-capable pin) and a warning-free design-rule
+check---no waivers or severity downgrades---signs off at $+0.360$~ns worst setup
+slack (\textbf{103.7~MHz}), 71{,}567 LUTs (31\%), 17{,}834 flip-flops, 40 DSPs,
+zero BRAM, and 1.20~W (Table~\ref{tab:fpclose}, final row): a deployable
+bitstream, not only a timing report.
+
 \begin{table*}[t]
 \caption{Placed post-route PPA of the FP-enabled accelerator across the
 timing-closure steps and the lane design-space point (\texttt{xczu7ev},
 out-of-context place-and-route, 100~MHz constraint). Steps~1--3 hold the lane count
-at eight and progressively pipeline the datapath; the final row (DSE) trims to four
+at eight and progressively pipeline the datapath; the DSE row trims to four
 lanes. Pipelining the FMA from two to three stages (step~3) is what meets 100~MHz
 and moves the critical path off the FP datapath; the shared SFU (step~2) and lane
-trimming (DSE) help area and power but not the frequency floor. LUTRAM is the
+trimming (DSE) help area and power but not the frequency floor. The final row is
+the complete SoC (host + accelerator + shared memory) implemented \emph{in-context}
+with full ZCU104 pin constraints and a warning-free DRC, after the fetch/execute
+pipeline split; its LUTRAM includes the eight-bank shared memory. LUTRAM is the
 distributed-RAM subset of the LUT count; the design uses zero block RAM throughout.
 Utilization percentages are of the \texttt{xczu7ev} (230{,}400 LUTs, 460{,}800 FFs,
 1{,}728 DSPs).}
@@ -801,6 +827,8 @@ Utilization percentages are of the \texttt{xczu7ev} (230{,}400 LUTs, 460{,}800 F
 3 & Three-stage FMA        & 8 & 69{,}987 & 3{,}348 & 14{,}954 & 40 & 0 & 1.22 & \textbf{100.7} & VRF LUTRAM\\
 \midrule
   & \emph{DSE:} four lanes & 4 & 36{,}785 & 1{,}748 &  6{,}953 & 20 & 0 & 0.98 & 79.7  & FMA cone\\
+\midrule
+  & \emph{SoC:} deployable chip & 8 & 71{,}567 & 7{,}244 & 17{,}834 & 40 & 0 & 1.20 & \textbf{103.7} & FP ctl.\ broadcast\\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -876,7 +904,12 @@ its mask-driven clock-gating saves up to 22.5\% of lane-datapath dynamic energy
 on divergent code. A per-lane floating-point unit adds FP32 and FP16 arithmetic,
 with half precision obtained almost for free from the single-precision path by
 NaN-boxed widen--compute--narrow and verified bit-exact against an IEEE
-reference, sustaining the engine's full throughput at no extra cycle cost. The design and its evaluation infrastructure are public, so
+reference, sustaining the engine's full throughput at no extra cycle cost. A
+placed timing-closure study takes the FP-enlarged design from 78~MHz to a
+complete SoC signed off at 103.7~MHz with full pin constraints and a
+warning-free DRC---a deployable bitstream, closed by pipelining the per-lane FMA
+and the warp scheduler's fetch/execute stage. The design and its evaluation
+infrastructure are public, so
 the results are reproducible and the platform is reusable for teaching and
 research.
 
