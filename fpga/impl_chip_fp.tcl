@@ -6,8 +6,8 @@
 # This is the FP counterpart of impl_chip.tcl: the ONLY difference is that it adds
 # the two floating-point sources -- simt_fpu.sv (the M17 three-stage pipelined FP
 # unit) and fp_divsqrt.sv (the shared iterative divide/square-root core) -- that the
-# current warp_pool.sv instantiates per-lane / shared. Same top (chip_top), same
-# constraints (chip_top_impl.xdc), same host guards. It implements exactly the RTL
+# current warp_pool.sv instantiates per-lane / shared. Same top (chip_top), full
+# ZCU104 pin constraints (chip_top_zcu104.xdc), same host guards. It implements the RTL
 # that fgpa/vivado_project_fp/simtix_chip_fp.xpr contains, but as a single in-process
 # batch run so peak RAM is bounded (maxThreads 2) on the 8 GB host -- the proven
 # recipe from M11/M16/M17 -- instead of project-run child processes we cannot bound.
@@ -48,7 +48,7 @@ read_verilog [list \
     $cpu_dir/register_file.v \
     $cpu_dir/riscv_pipeline.v ]
 
-read_xdc [list [file normalize ./constr/chip_top_impl.xdc]]
+read_xdc [list [file normalize ./constr/chip_top_zcu104.xdc]]
 
 # -- In-context synthesis (real IO buffers; NOT out_of_context) --------------------
 synth_design -top chip_top -part $part -flatten_hierarchy none
@@ -59,12 +59,12 @@ report_timing_summary -max_paths 10 -file $out_dir/post_synth_timing.rpt
 opt_design
 report_drc -file $out_dir/opt_drc.rpt
 
-# -- Placement (auto-places the unconstrained top-level I/O too) -------------------
+# -- Placement (top-level I/O is now LOC/IOSTANDARD-constrained by the ZCU104 XDC) --
 place_design
 
-# The input clock IO may land on a non-clock-capable pin (no board pinout here);
-# allow the dedicated-clock-route check to pass so route_design can complete.
-catch { set_property CLOCK_DEDICATED_ROUTE FALSE [get_nets -hier -filter {NAME =~ *clk_IBUF}] }
+# clk is constrained to the clock-capable HD-bank-88 HDGC pin (E4) by
+# chip_top_zcu104.xdc — the placer's own choice in the unconstrained 107.3 MHz run —
+# so the dedicated clock route is legal: NO CLOCK_DEDICATED_ROUTE FALSE override.
 
 phys_opt_design
 report_utilization    -file $out_dir/post_place_util.rpt
