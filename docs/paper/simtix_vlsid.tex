@@ -44,7 +44,7 @@ the vector register file and scratchpad in distributed RAM (LUTRAM) shrinks the
 design $5.7\times$ and closes 100~MHz timing. Every lane gains a pipelined
 floating-point unit in single and half precision (FP32/FP16); half precision
 reuses the single-precision datapath through NaN-boxed widen--compute--narrow,
-shown to be correctly single-rounded at no extra cycles. The unit covers add,
+shown to be correctly single-rounded with no extra cycles. The unit covers add,
 multiply, the fused multiply-add, and iterative divide and square root, verified
 bit-exact against an IEEE-754 reference over $116{,}089$ vectors. Our central
 result is a \emph{placed} timing-closure study of this FP datapath on a Zynq
@@ -477,7 +477,7 @@ interconnect, not logic depth, bounds this design.
 
 \textbf{Localizing the limit: frequency does not scale with fabric size.} A natural
 question is whether \emph{trimming} the FP fabric relieves congestion further. It
-does not. Placing the design at four lanes (Table~\ref{tab:fpclose}, last row)
+does not. Placing the design at four lanes (Table~\ref{tab:fpclose}, DSE row)
 halves its area---37k versus 69k LUTs, 20 versus 40 DSPs---but reaches only
 79.7~MHz, marginally \emph{below} the eight-lane 84.1~MHz, and the router still
 reports CLB congestion. The critical path is a \emph{single} lane's FMA cone, whose
@@ -510,12 +510,14 @@ core and the eight-bank shared memory, the FP-enlarged SoC first places at only
 scheduler's \emph{fetch--execute} cloud: instruction fetch from the asynchronous
 LUTRAM memory, decode, register-file read, execute, and writeback all completed in
 one combinational cycle, and 82\% of the placed path was routing on its two
-highest-fanout broadcast nets. We split this cloud with a fetch/execute pipeline
-register---the fetched instruction and its warp context are registered at a new
-stage boundary, and a per-warp in-flight bit preserves the scheduler's re-issue
-semantics exactly---which applies the SIMT latency-hiding argument at instruction
-grain: with two or more runnable warps the pipeline stays full, and the measured
-cycle cost is $\le$0.3\% on 1024-element kernels. The full chip then places at
+highest-fanout broadcast nets. Registering FP operands at issue, replicating the
+broadcast nets, and fully pipelining the DSP multiplies recover part of the gap
+(96.4~MHz) but leave the single-cycle cloud intact. Splitting that cloud with a
+fetch/execute pipeline register---the fetched instruction and its warp context are
+registered at a new stage boundary, and a per-warp in-flight bit preserves the
+scheduler's re-issue semantics exactly---applies the SIMT latency-hiding argument
+at instruction grain: with two or more runnable warps the pipeline stays full, and
+the measured cycle cost is $\le$0.3\% on 1024-element kernels. The full chip then places at
 107.3~MHz unconstrained and, with every port pin-constrained for the ZCU104
 (clock on a clock-capable pin) and a warning-free design-rule check---no waivers
 or severity downgrades---signs off at $+0.360$~ns worst setup slack
@@ -591,7 +593,7 @@ moves the critical path off the floating-point datapath onto the same
 register-file read mux that bounds the integer design. A final fetch/execute
 pipeline in the warp scheduler carries that closure from the out-of-context
 accelerator to the complete SoC, which signs off at 103.7~MHz with full ZCU104 pin
-constraints and a warning-free DRC---a deployable bitstream at a measured cycle
+constraints and a warning-free DRC---a deployable bitstream, at a measured cycle
 cost under 0.3\%. An open-source ASIC path through the SkyWater~130\,nm
 PDK~\cite{sky130} with OpenLane~\cite{openlane} would turn these FPGA numbers into
 silicon-relevant area, frequency, and power. The design and its evaluation
