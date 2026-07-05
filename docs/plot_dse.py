@@ -67,7 +67,6 @@ def main():
         plt.plot(lanes_set, ys, marker="o", label=f"{W} warps")
     plt.xscale("log", base=2); plt.xticks(lanes_set, [str(l) for l in lanes_set])
     plt.xlabel("NUM_LANES"); plt.ylabel("throughput (work-items / cycle, geomean)")
-    plt.title("SIMTiX throughput vs lane count")
     plt.legend(fontsize=8); plt.grid(True, alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "dse_throughput.png"), dpi=150); plt.close()
 
@@ -78,7 +77,6 @@ def main():
         plt.plot(warps_set, ys, marker="s", label=f"{L} lanes")
     plt.xscale("log", base=2); plt.xticks(warps_set, [str(w) for w in warps_set])
     plt.xlabel("NUM_WARPS (resident)"); plt.ylabel("throughput (work-items / cycle, geomean)")
-    plt.title("Latency hiding: throughput vs resident warps")
     plt.legend(fontsize=8); plt.grid(True, alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "dse_warps.png"), dpi=150); plt.close()
 
@@ -95,7 +93,6 @@ def main():
     plt.xscale("log", base=2); plt.yscale("log", base=2)
     plt.xticks(lanes_set, [str(l) for l in lanes_set])
     plt.xlabel("NUM_LANES"); plt.ylabel("throughput (work-items / cycle)")
-    plt.title(f"Per-kernel throughput vs lane count (NUM_WARPS={Wsel})")
     plt.legend(fontsize=8); plt.grid(True, alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "dse_kernels.png"), dpi=150); plt.close()
 

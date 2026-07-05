@@ -78,7 +78,6 @@ def main():
     plt.xscale("log", base=2); plt.xlabel("problem size N (threads)")
     plt.ylabel("throughput  (work-items / cycle)")
     plt.ylim(0, 8.6)
-    plt.title("FP throughput vs problem size (FP16 tracks FP32)")
     leg = plt.legend(fontsize=8, loc="lower right", framealpha=0.9)
     # The hollow FP16 markers are drawn large (ms=14) so the ring encircles the
     # FP32 dot in the plot, but at that size they collide inside the legend box:
@@ -106,7 +105,6 @@ def main():
                      f"{int(b.get_height())}", ha="center", fontsize=8)
     plt.xticks(list(x), [k+f"\n(N={Nmax})" for k in kernels])
     plt.ylabel("cycles (launch to done)")
-    plt.title("Compute cost: FP16 = FP32 cycles")
     plt.legend(fontsize=9); plt.grid(True, axis="y", alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "fp_cost.png"), dpi=150); plt.close()
 
@@ -143,7 +141,6 @@ def kernel_figures():
                      f"{at_max[k]['cycles']/base:.1f}x", ha="center", fontsize=9,
                      color="white", fontweight="bold")
     plt.ylabel(f"cycles (launch to done, N={Nmax})")
-    plt.title("FP application-kernel cost: the multi-cycle SFU shows up in fnorm")
     plt.grid(True, axis="y", alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "fpk_cost.png"), dpi=150); plt.close()
 
@@ -157,7 +154,6 @@ def kernel_figures():
             plt.text(b.get_x()+b.get_width()/2, u-7, f"save\n{100-u:.0f}%",
                      ha="center", fontsize=8, color="white", fontweight="bold")
     plt.ylim(0, 108); plt.ylabel("SIMT lane utilization (%)")
-    plt.title("FP lane utilization (complement = lane-datapath energy gated away)")
     plt.grid(True, axis="y", alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "fpk_energy.png"), dpi=150); plt.close()
     return "fpk_cost, fpk_energy"

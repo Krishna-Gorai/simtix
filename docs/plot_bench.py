@@ -57,7 +57,6 @@ def main():
     plt.axhline(8, ls="--", color="grey", lw=1, label="ideal (8 lanes)")
     plt.xscale("log", base=2); plt.xlabel("problem size N (threads)")
     plt.ylabel("scalar-equivalent IPC  (work/cycle)")
-    plt.title("SIMTiX throughput vs problem size")
     plt.legend(fontsize=8); plt.grid(True, alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "throughput.png"), dpi=150); plt.close()
 
@@ -71,7 +70,6 @@ def main():
     for b,u in zip(bars,utils):
         plt.text(b.get_x()+b.get_width()/2, u+1, f"{u:.1f}%", ha="center", fontsize=8)
     plt.ylim(0,105); plt.ylabel("lane utilisation (%)")
-    plt.title("SIMT lane utilisation (energy a gated design clocks)")
     plt.grid(True, axis="y", alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "laneutil.png"), dpi=150); plt.close()
 
@@ -84,7 +82,6 @@ def main():
         plt.plot(xs, ys, marker="s", label=k)
     plt.xscale("log", base=2); plt.yscale("log", base=2)
     plt.xlabel("problem size N (threads)"); plt.ylabel("global line transactions")
-    plt.title("Global memory traffic (coalescing efficiency)")
     plt.legend(fontsize=8); plt.grid(True, alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "memtraffic.png"), dpi=150); plt.close()
 
@@ -95,7 +92,6 @@ def main():
         plt.bar(["naive\n(all global)","smem\n(staged)"],
                 [n["gmem_txns"], s["gmem_txns"]], color=["#C44E52","#55A868"])
         plt.ylabel("global line transactions")
-        plt.title("Scratchpad data reuse (8x8 matmul row)")
         plt.grid(True, axis="y", alpha=0.3); plt.tight_layout()
         plt.savefig(os.path.join(OUT, "locality.png"), dpi=150); plt.close()
 
@@ -125,7 +121,6 @@ def main():
         plt.axhline(1, ls="--", color="grey", lw=1, label="break-even")
         plt.xscale("log", base=2); plt.xlabel("problem size N (threads)")
         plt.ylabel("speedup over scalar host CPU (x)")
-        plt.title("Measured SIMTiX speedup vs 5-stage RV32I host")
         plt.legend(fontsize=8); plt.grid(True, alpha=0.3); plt.tight_layout()
         plt.savefig(os.path.join(OUT, "speedup.png"), dpi=150); plt.close()
         print("  ------------------------------------------")
