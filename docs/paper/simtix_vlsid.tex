@@ -572,19 +572,46 @@ report.
 %==============================================================================
 \section{Related Work}\label{sec:related}
 %==============================================================================
+\begin{table}[t]
+\caption{Vortex per-core synthesis numbers (from~\cite{vortex}, Table~3) next to
+the complete SIMTiX SoCs, which are \emph{placed and routed} and include the host
+CPU and shared memory. Vortex's FMA maps onto the Intel fabric's hardened
+floating-point DSP blocks, and each core includes its L1 caches (BRAM column).
+W$\times$L = resident warps $\times$ lanes (threads per warp).}
+\label{tab:related}
+\centering
+\footnotesize
+\begin{tabular}{lclrrrl}
+\toprule
+Design & W$\times$L & FP & LUT & FF & BRAM & MHz\\
+\midrule
+Vortex core~\cite{vortex}   & 4$\times$4 & FP32 & 21.5k & 32.7k & 131 & 233 (synth)\\
+Vortex core~\cite{vortex}   & 4$\times$8 & FP32 & 37.9k & 57.6k & 247 & 224 (synth)\\
+SIMTiX SoC, integer         & 4$\times$8 & ---  & 34.9k &  6.1k &   0 & 100 (placed)\\
+SIMTiX SoC, FP              & 4$\times$8 & FP32/16 & 71.6k & 17.8k & 0 & 103.7 (placed)\\
+\bottomrule
+\end{tabular}
+\end{table}
 Open RISC-V GPGPU cores include Vortex~\cite{vortex}, a full OpenCL-capable
 multi-core design, and Ventus~\cite{ventus}, a PTX/Vortex-style GPGPU; both target
 performance and scale and are correspondingly large. Simty~\cite{simty}
-demonstrates generalized SIMT execution of the RISC-V ISA, and Nyuzi~\cite{nyuzi}
-is a synthesizable vector GPGPU for graphics research. Open floating-point units
-such as FPnew~\cite{fpnew} offer multiformat arithmetic as standalone IP; SIMTiX
-instead integrates a per-lane FP datapath into the SIMT pipeline and studies its
-\emph{placed} timing. Relative to these, SIMTiX is deliberately small and readable,
-and its contribution is not raw performance but a complete, reproducible
-RTL-to-bitstream flow paired with a placed timing-closure study of a SIMT
-floating-point datapath---a result, the interconnect-bound nature of an FP-enlarged
-SIMT fabric and the FMA-microarchitecture lever that closes it, that the larger
-cores do not report. Control-divergence handling via reconvergence stacks is long
+demonstrates generalized SIMT execution of the RISC-V ISA (integer-only, reporting
+synthesis area in logic elements on an Intel Cyclone~IV), and Nyuzi~\cite{nyuzi}
+is a synthesizable vector GPGPU for graphics research.
+Table~\ref{tab:related} places SIMTiX next to the per-core FPGA numbers published
+for Vortex, the closest comparable design: the complete SIMTiX SoC---host CPU,
+driver ROM, and eight-bank shared memory included---fits in the logic budget of
+roughly one Vortex core of equal warp/lane geometry. The numbers also answer
+different questions. Vortex reports \emph{synthesis} estimates on Intel fabrics
+whose FMA maps onto \emph{hardened} floating-point DSP blocks, so placed FP timing
+is largely absorbed by the hard macros; on the UltraScale+ fabric the FP datapath
+must be assembled from DSP48 multipliers plus LUT-based align/normalize/round
+logic, and Section~\ref{sec:fppa} showed the resulting placed design is
+interconnect-bound. That placed, signed-off FP closure study is the datum the
+larger cores do not report. Open floating-point units such as FPnew~\cite{fpnew}
+offer multiformat arithmetic as standalone IP; SIMTiX instead integrates a
+per-lane FP datapath into the SIMT pipeline and studies its placed timing.
+Control-divergence handling via reconvergence stacks is long
 studied~\cite{fung,tesla}; we use the standard stack mechanism and reuse its mask
 for lane clock-gating.
 
