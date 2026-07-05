@@ -79,7 +79,15 @@ def main():
     plt.ylabel("throughput  (work-items / cycle)")
     plt.ylim(0, 8.6)
     plt.title("FP throughput vs problem size (FP16 tracks FP32)")
-    plt.legend(fontsize=8, loc="lower right", framealpha=0.9)
+    leg = plt.legend(fontsize=8, loc="lower right", framealpha=0.9)
+    # The hollow FP16 markers are drawn large (ms=14) so the ring encircles the
+    # FP32 dot in the plot, but at that size they collide inside the legend box:
+    # shrink just the legend copies of the marker-only (hollow) entries.
+    for h in getattr(leg, "legend_handles", getattr(leg, "legendHandles", [])):
+        if (getattr(h, "get_markerfacecolor", None)
+                and h.get_markerfacecolor() == "none"
+                and str(h.get_linestyle()).lower() == "none"):
+            h.set_markersize(8)
     plt.grid(True, alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "fp_throughput.png"), dpi=150); plt.close()
 
