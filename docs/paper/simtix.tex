@@ -717,6 +717,20 @@ extension.
 
 \paragraph{Timing closure.} Table~\ref{tab:fpclose} summarizes the placed
 utilization and frequency of each step in the closure; we walk through them in turn.
+Figure~\ref{fig:fpclosure} plots the placed critical path at each step, split into
+logic and routing delay: the routing share never drops below half, which is the
+interconnect-bound finding of this section in one picture.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fp_closure.png}
+\caption{Placed critical path at each closure step, split into logic and routing
+delay (worst path of each sign-off timing report; achieved Fmax above each bar).
+Every step is routing-dominated: the three-stage FMA closes timing by shortening
+the whole cone, not by reducing the wire share, which rises to 79\% in the
+deployable SoC.}
+\label{fig:fpclosure}
+\end{figure}
 To recover frequency we first pipeline the FP unit into two
 stages, split at the FMA accumulator (\texttt{mag}) boundary: the first stage
 forms the 48-bit product and aligns it into the 128-bit fixed-point accumulator,

@@ -460,7 +460,20 @@ section. LUTRAM is the
 distributed-RAM subset of the LUT count (in the SoC row it includes the eight-bank
 shared memory), the design uses zero block RAM throughout, and utilization
 percentages are of the \texttt{xczu7ev} (230{,}400 LUTs, 460{,}800 FFs, 1{,}728
-DSPs).
+DSPs). Figure~\ref{fig:fpclosure} plots the placed critical path at each step,
+split into logic and routing delay: the routing share never drops below half,
+which is the interconnect-bound finding of this section in one picture.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fp_closure.png}
+\caption{Placed critical path at each closure step, split into logic and routing
+delay (worst path of each sign-off timing report; achieved Fmax above each bar).
+Every step is routing-dominated: the three-stage FMA closes timing by shortening
+the whole cone, not by reducing the wire share, which rises to 79\% in the
+deployable SoC.}
+\label{fig:fpclosure}
+\end{figure}
 
 \begin{table*}[t]
 \caption{Placed post-route PPA of the FP-enabled accelerator across the
