@@ -620,7 +620,7 @@ work-items per cycle at full (100\%) lane utilization, with coalesced traffic of
 three line transactions per warp. The extra pipeline stage costs throughput only
 where a dependent FP result is consumed immediately---the tight reductions of
 Section~\ref{sec:fpkernels}---and leaves these streaming kernels unaffected at
-scale. Critically, the FP16 curves lie exactly on the FP32 curves, and the cycle
+scale. Critically, the FP16 points lie exactly on the FP32 curves, and the cycle
 counts are identical (Figure~\ref{fig:fpcost}): half precision shares the same
 pipelined datapath, so it costs no extra time. Half precision therefore delivers
 reduced storage and bandwidth and ISA-level FP16 support at \emph{no} throughput
@@ -631,8 +631,8 @@ penalty; its area and timing cost is part of the PPA discussion below.
 \includegraphics[width=\columnwidth]{fp_throughput.png}
 \caption{Floating-point throughput versus problem size for streaming add and
 multiply-add kernels. The ramp is the same latency-hiding behavior as the
-integer suite; the FP16 curves coincide with the FP32 ones because both use the
-same pipelined datapath.}
+integer suite; the hollow FP16 markers sit exactly on the FP32 curves because
+both use the same pipelined datapath.}
 \label{fig:fpthr}
 \end{figure}
 

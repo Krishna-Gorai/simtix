@@ -402,7 +402,7 @@ issue and the issuing warp parks a single slot until it does, latency that SIMT
 interleaving hides on streaming work. Figure~\ref{fig:fpthr} plots throughput
 versus problem size for streaming add and multiply-add in both precisions: the same
 latency-hiding ramp as the integer suite, saturating near 7 work-items/cycle at
-100\% lane utilization, with the FP16 curves lying exactly on the FP32 ones---half
+100\% lane utilization, with the FP16 points lying exactly on the FP32 curves---half
 precision shares the pipelined datapath and costs no extra time.
 Table~\ref{tab:fpkernels} runs four toolchain-assembled FP kernels through the
 engine. Two effects stand out: the iterative divide/square-root unit is visible
@@ -417,8 +417,8 @@ absolute energy a mask-gated design saves grows with the FP-enlarged lane).
 \includegraphics[width=\columnwidth]{fp_throughput.png}
 \caption{Floating-point throughput versus problem size for streaming add and
 multiply-add kernels. The ramp is the same latency-hiding behavior as the integer
-suite; the FP16 curves coincide with the FP32 ones because both use the same
-pipelined datapath.}
+suite; the hollow FP16 markers sit exactly on the FP32 curves because both use
+the same pipelined datapath.}
 \label{fig:fpthr}
 \end{figure}
 

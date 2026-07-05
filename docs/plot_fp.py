@@ -51,24 +51,36 @@ def main():
     for key in series:
         series[key].sort(key=lambda r: r["N"])
 
-    # 1) Throughput vs N: FP32 solid, FP16 dashed+open markers (overlap is the point).
+    # 1) Throughput vs N. The FP16 cycle counts are bit-identical to FP32, so
+    #    stacked line styles are unreadable: draw FP32 as solid lines with small
+    #    filled markers and FP16 as large hollow markers only (no line) - the
+    #    FP16 ring visibly encircling the FP32 dot IS the coincidence.
     plt.figure(figsize=(6,4))
-    style = {("f32","vadd"):("#4C72B0","-","o","FP32 vadd"),
-             ("f32","mac") :("#C44E52","-","s","FP32 mac (mul+add)"),
-             ("f16","vadd"):("#4C72B0","--","x","FP16 vadd"),
-             ("f16","mac") :("#C44E52","--","+","FP16 mac (mul+add)")}
+    style = {("f32","vadd"):("#4C72B0","o","FP32 vadd"),
+             ("f32","mac") :("#C44E52","s","FP32 mac (mul+add)"),
+             ("f16","vadd"):("#4C72B0","o","FP16 vadd"),
+             ("f16","mac") :("#C44E52","s","FP16 mac (mul+add)")}
     for key in [("f32","vadd"),("f32","mac"),("f16","vadd"),("f16","mac")]:
         if key not in series: continue
-        col, ls, mk, lab = style[key]
+        col, mk, lab = style[key]
         xs = [r["N"] for r in series[key]]
         ys = [r["ipc_x100"]/100 for r in series[key]]
-        plt.plot(xs, ys, color=col, ls=ls, marker=mk, ms=7, label=lab)
-    plt.axhline(8, ls=":", color="grey", lw=1, label="ideal (8 lanes)")
+        if key[0] == "f32":
+            plt.plot(xs, ys, color=col, ls="-", lw=1.8, marker=mk, ms=6,
+                     label=lab, zorder=3)
+        else:
+            plt.plot(xs, ys, color=col, ls="none", marker=mk, ms=14,
+                     mfc="none", mew=1.8, label=lab, zorder=4)
+    plt.axhline(8, ls=":", color="grey", lw=1.2, label="ideal (8 lanes)")
+    plt.annotate("FP16 rings sit exactly on the\nFP32 points: identical cycles",
+                 xy=(64, 5.92), xytext=(120, 3.4), fontsize=8, color="#333333",
+                 arrowprops=dict(arrowstyle="->", color="#666666", lw=0.9))
     plt.xscale("log", base=2); plt.xlabel("problem size N (threads)")
     plt.ylabel("throughput  (work-items / cycle)")
     plt.ylim(0, 8.6)
     plt.title("FP throughput vs problem size (FP16 tracks FP32)")
-    plt.legend(fontsize=8); plt.grid(True, alpha=0.3); plt.tight_layout()
+    plt.legend(fontsize=8, loc="lower right", framealpha=0.9)
+    plt.grid(True, alpha=0.3); plt.tight_layout()
     plt.savefig(os.path.join(OUT, "fp_throughput.png"), dpi=150); plt.close()
 
     # 2) Compute cost: cycles at the largest N, FP32 vs FP16, per kernel.
