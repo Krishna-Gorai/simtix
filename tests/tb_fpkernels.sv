@@ -82,6 +82,8 @@ module tb_fpkernels
     localparam int W_FSAXPY16 = 16;    // kpc 0x040
     localparam int W_FNORM    = 32;    // kpc 0x080
     localparam int W_FDOT     = 48;    // kpc 0x0C0
+    localparam int W_FGEMM    = 96;    // kpc 0x180  (26 words)
+    localparam int W_FSOFTMAX = 128;   // kpc 0x200  (86 words)
 
     localparam logic [31:0] A_BASE = 32'h0000_2000;
     localparam logic [31:0] B_BASE = 32'h0000_4000;
@@ -124,6 +126,48 @@ module tb_fpkernels
         mem[W_FDOT+27]=32'h00437353; mem[W_FDOT+28]=32'h01c3a207; mem[W_FDOT+29]=32'h00437353;
         mem[W_FDOT+30]=32'h00355e13; mem[W_FDOT+31]=32'h002e1e13; mem[W_FDOT+32]=32'h01c68eb3;
         mem[W_FDOT+33]=32'h006ea027; mem[W_FDOT+34]=32'h00000073;
+
+        // fgemm : one warp = one 8x8 FP32 matmul row (fmadd.s), A_row staged in scratch
+        mem[W_FGEMM+0]=32'h00251f93; mem[W_FGEMM+1]=32'h01f58fb3; mem[W_FGEMM+2]=32'h000fa087;
+        mem[W_FGEMM+3]=32'h40000e37; mem[W_FGEMM+4]=32'h00251f93; mem[W_FGEMM+5]=32'h01fe0fb3;
+        mem[W_FGEMM+6]=32'h001fa027; mem[W_FGEMM+7]=32'hf0000353; mem[W_FGEMM+8]=32'h00000293;
+        mem[W_FGEMM+9]=32'h00229f93; mem[W_FGEMM+10]=32'h40000e37; mem[W_FGEMM+11]=32'h01fe0fb3;
+        mem[W_FGEMM+12]=32'h000fa087; mem[W_FGEMM+13]=32'h00329e13; mem[W_FGEMM+14]=32'h00ae0e33;
+        mem[W_FGEMM+15]=32'h002e1e13; mem[W_FGEMM+16]=32'h01c60eb3; mem[W_FGEMM+17]=32'h000ea107;
+        mem[W_FGEMM+18]=32'h3020f343; mem[W_FGEMM+19]=32'h00128293; mem[W_FGEMM+20]=32'h00800f93;
+        mem[W_FGEMM+21]=32'hfdf2c8e3; mem[W_FGEMM+22]=32'h00251f93; mem[W_FGEMM+23]=32'h01f68fb3;
+        mem[W_FGEMM+24]=32'h006fa027; mem[W_FGEMM+25]=32'h00000073;
+
+        // fsoftmax : one warp = numerically-stable softmax over 8 elems (exp = FMA poly)
+        mem[W_FSOFTMAX+0]=32'h00757293; mem[W_FSOFTMAX+1]=32'h00229313; mem[W_FSOFTMAX+2]=32'h400003b7;
+        mem[W_FSOFTMAX+3]=32'h006383b3; mem[W_FSOFTMAX+4]=32'h00251e13; mem[W_FSOFTMAX+5]=32'h01c58eb3;
+        mem[W_FSOFTMAX+6]=32'h000ea087; mem[W_FSOFTMAX+7]=32'h0013a027; mem[W_FSOFTMAX+8]=32'h04029463;
+        mem[W_FSOFTMAX+9]=32'h40000f37; mem[W_FSOFTMAX+10]=32'h000f2507; mem[W_FSOFTMAX+11]=32'h004f2207;
+        mem[W_FSOFTMAX+12]=32'h28451553; mem[W_FSOFTMAX+13]=32'h008f2207; mem[W_FSOFTMAX+14]=32'h28451553;
+        mem[W_FSOFTMAX+15]=32'h00cf2207; mem[W_FSOFTMAX+16]=32'h28451553; mem[W_FSOFTMAX+17]=32'h010f2207;
+        mem[W_FSOFTMAX+18]=32'h28451553; mem[W_FSOFTMAX+19]=32'h014f2207; mem[W_FSOFTMAX+20]=32'h28451553;
+        mem[W_FSOFTMAX+21]=32'h018f2207; mem[W_FSOFTMAX+22]=32'h28451553; mem[W_FSOFTMAX+23]=32'h01cf2207;
+        mem[W_FSOFTMAX+24]=32'h28451553; mem[W_FSOFTMAX+25]=32'h02af2027; mem[W_FSOFTMAX+26]=32'h40000f37;
+        mem[W_FSOFTMAX+27]=32'h020f2507; mem[W_FSOFTMAX+28]=32'h08a0f0d3; mem[W_FSOFTMAX+29]=32'h3fb8bfb7;
+        mem[W_FSOFTMAX+30]=32'ha3bf8f93; mem[W_FSOFTMAX+31]=32'hf00f85d3; mem[W_FSOFTMAX+32]=32'h10b0f153;
+        mem[W_FSOFTMAX+33]=32'hc0010fd3; mem[W_FSOFTMAX+34]=32'hd00ff653; mem[W_FSOFTMAX+35]=32'h08c171d3;
+        mem[W_FSOFTMAX+36]=32'h3c1dae37; mem[W_FSOFTMAX+37]=32'hb92e0e13; mem[W_FSOFTMAX+38]=32'hf00e06d3;
+        mem[W_FSOFTMAX+39]=32'h3d635e37; mem[W_FSOFTMAX+40]=32'h7cfe0e13; mem[W_FSOFTMAX+41]=32'hf00e0753;
+        mem[W_FSOFTMAX+42]=32'h7036f6c3; mem[W_FSOFTMAX+43]=32'h3e760e37; mem[W_FSOFTMAX+44]=32'hdf1e0e13;
+        mem[W_FSOFTMAX+45]=32'hf00e0753; mem[W_FSOFTMAX+46]=32'h7036f6c3; mem[W_FSOFTMAX+47]=32'h3f317e37;
+        mem[W_FSOFTMAX+48]=32'h218e0e13; mem[W_FSOFTMAX+49]=32'hf00e0753; mem[W_FSOFTMAX+50]=32'h7036f6c3;
+        mem[W_FSOFTMAX+51]=32'h3f800e37; mem[W_FSOFTMAX+52]=32'hf00e0753; mem[W_FSOFTMAX+53]=32'h7036f6c3;
+        mem[W_FSOFTMAX+54]=32'h07ff8f93; mem[W_FSOFTMAX+55]=32'h017f9f93; mem[W_FSOFTMAX+56]=32'hf00f87d3;
+        mem[W_FSOFTMAX+57]=32'h10f6f2d3; mem[W_FSOFTMAX+58]=32'h0053a027; mem[W_FSOFTMAX+59]=32'h04029863;
+        mem[W_FSOFTMAX+60]=32'h40000f37; mem[W_FSOFTMAX+61]=32'hf0000353; mem[W_FSOFTMAX+62]=32'h000f2207;
+        mem[W_FSOFTMAX+63]=32'h00437353; mem[W_FSOFTMAX+64]=32'h004f2207; mem[W_FSOFTMAX+65]=32'h00437353;
+        mem[W_FSOFTMAX+66]=32'h008f2207; mem[W_FSOFTMAX+67]=32'h00437353; mem[W_FSOFTMAX+68]=32'h00cf2207;
+        mem[W_FSOFTMAX+69]=32'h00437353; mem[W_FSOFTMAX+70]=32'h010f2207; mem[W_FSOFTMAX+71]=32'h00437353;
+        mem[W_FSOFTMAX+72]=32'h014f2207; mem[W_FSOFTMAX+73]=32'h00437353; mem[W_FSOFTMAX+74]=32'h018f2207;
+        mem[W_FSOFTMAX+75]=32'h00437353; mem[W_FSOFTMAX+76]=32'h01cf2207; mem[W_FSOFTMAX+77]=32'h00437353;
+        mem[W_FSOFTMAX+78]=32'h026f2227; mem[W_FSOFTMAX+79]=32'h40000f37; mem[W_FSOFTMAX+80]=32'h024f2307;
+        mem[W_FSOFTMAX+81]=32'h1862f3d3; mem[W_FSOFTMAX+82]=32'h00251e13; mem[W_FSOFTMAX+83]=32'h01c68eb3;
+        mem[W_FSOFTMAX+84]=32'h007ea027; mem[W_FSOFTMAX+85]=32'h00000073;
     endtask
 
     int unsigned m_cyc, m_gmem, m_scr, m_insn, m_act;
@@ -188,6 +232,35 @@ module tb_fpkernels
         for (int i = 0; i < n; i++) mem[widx(C_BASE)+i] = 32'hdead_beef;
     endtask
 
+    // fgemm : A_row[k]=fa(k) (8), B[k*8+col]=fbpos(((k*8+col)*3+1)&7) (8x8 row-major)
+    function automatic logic [31:0] fgemm_b(input int j);
+        fgemm_b = fbpos(((j*3)+1) & 7);
+    endfunction
+    task automatic preload_fgemm();
+        for (int k = 0; k < 8;  k++) mem[widx(A_BASE)+k] = fa(k);       // A_row (8)
+        for (int j = 0; j < 64; j++) mem[widx(B_BASE)+j] = fgemm_b(j);  // B (8x8)
+        for (int c = 0; c < 8;  c++) mem[widx(C_BASE)+c] = 32'hdead_beef;
+    endtask
+
+    // real view of a 32-bit IEEE-754 word (for the softmax tolerance compare).
+    // Decoded by hand — Verilator does not support $bitstoshortreal under -Wall.
+    function automatic real f2r(input logic [31:0] b);
+        logic        s;
+        logic [7:0]  e;
+        logic [22:0] m;
+        real         mant, val;
+        s = b[31]; e = b[30:23]; m = b[22:0];
+        if (e == 8'h00)                       // zero / subnormal
+            val = (real'(m) / 8388608.0) * $pow(2.0, -126.0);
+        else if (e == 8'hff)                  // inf / NaN — unused by these inputs
+            val = 0.0;
+        else begin                            // normal
+            mant = 1.0 + real'(m) / 8388608.0;
+            val  = mant * $pow(2.0, real'(int'(e)) - 127.0);
+        end
+        f2r = s ? -val : val;
+    endfunction
+
     task automatic chk(input int idx, input logic [31:0] exp, input string tag);
         logic [31:0] got;
         got = mem[widx(C_BASE) + idx];
@@ -246,6 +319,50 @@ module tb_fpkernels
                 chk(w, acc, "fdot");
             end
             report("fdot", sizes[s]);
+        end
+
+        // fgemm : C_row[col] = sum_k A_row[k]*B[k*8+col]  (fmadd.s, one 8x8 row)
+        begin
+            preload_fgemm();
+            run(32'd8, 32'(W_FGEMM*4));
+            for (int col = 0; col < 8; col++) begin
+                logic [31:0] acc;
+                acc = 32'h0000_0000;                                   // +0.0
+                for (int k = 0; k < 8; k++)
+                    acc = ref_fmaf(fa(k), fgemm_b(k*8+col), acc, 0, 0); // fused, left-to-right
+                chk(col, acc, "fgemm");
+            end
+            report("fgemm", 8);
+        end
+
+        // fsoftmax : Y = softmax(X) over one warp of 8.  The kernel's exp is a degree-4
+        // FMA polynomial (SIMTiX has no exp op), so compare to true softmax with a
+        // tolerance rather than bit-exact.
+        begin
+            real xr [8], er [8], m, s, want, got, adiff;
+            int  softmax_fails;
+            softmax_fails = 0;
+            preload32(8);                                              // X = fa(0..7) at A_BASE
+            run(32'd8, 32'(W_FSOFTMAX*4));
+            m = -1.0e30;
+            for (int i = 0; i < 8; i++) begin
+                xr[i] = f2r(fa(i));
+                if (xr[i] > m) m = xr[i];
+            end
+            s = 0.0;
+            for (int i = 0; i < 8; i++) begin er[i] = $exp(xr[i]-m); s += er[i]; end
+            for (int i = 0; i < 8; i++) begin
+                want  = er[i] / s;
+                got   = f2r(mem[widx(C_BASE)+i]);
+                adiff = (got > want) ? (got - want) : (want - got);
+                if (adiff > 1.0e-3) begin
+                    $display("  [FAIL] fsoftmax  Y[%0d] got=%f exp=%f (|d|=%g)", i, got, want, adiff);
+                    errors++; softmax_fails++;
+                end
+            end
+            if (softmax_fails == 0)
+                $display("  fsoftmax   8 | max|err| within 1e-3 across all 8 lanes (exp = FMA poly)");
+            report("fsoftmax", 8);
         end
 
         $display("  ------------------------------------------------------------");

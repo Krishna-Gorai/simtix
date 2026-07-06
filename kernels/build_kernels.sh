@@ -16,11 +16,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Accelerator kernels (rv32im) — the SIMT engine supports `mul`.
 KERNELS="vadd/vadd saxpy/saxpy fir/fir relu/relu collatz/collatz reduce/reduce \
          matmul/matmul_naive matmul/matmul_smem divergence/heavy_div"
+# fgemm is rv32imf (FP), built with the FP list below, but lives in matmul/.
 # Scalar host-CPU baselines (rv32i — the 5-stage core has no `mul`; built below).
 SCALAR="scalar/s_vadd scalar/s_saxpy scalar/s_fir scalar/s_relu scalar/s_collatz scalar/s_reduce"
 # Floating-point kernels (rv32imf — M14: the engine has an f-regfile + flw/fsw).
 FPKERNELS="fptest/fpcopy fptest/fparith fptest/fpvadd fptest/fpfma fptest/fpdivsqrt \
-           fptest/fsaxpy fptest/fnorm fptest/fdot"
+           fptest/fsaxpy fptest/fnorm fptest/fdot matmul/fgemm fptest/fsoftmax"
 # Half-precision kernels (rv32imf_zfh — M14.2: FP16 via NaN-boxing).
 FPHKERNELS="fptest/fparith16 fptest/fpvadd16 fptest/fsaxpy16"
 
