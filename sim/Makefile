@@ -153,6 +153,11 @@ test-requant:
 test-qgemv:
 	$(call run_tb,tb_qgemv,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_qgemv.sv)
 
+# AI-4: end-to-end quantized MNIST MLP inference (needs ml/data/*.hex from
+# `python3 ml/mnist_quant.py`; not in the default `test` since data is generated).
+test-mnist:
+	$(call run_tb,tb_mnist,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_mnist.sv)
+
 # M14.0: floating-point load/store data path (flw/fsw through the f-regfile).
 test-fp:
 	$(call run_tb,tb_fp,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fp.sv)

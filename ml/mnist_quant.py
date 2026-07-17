@@ -65,10 +65,15 @@ M1 = (Sx*Sw1)/Sh                               # layer-1 requant multiplier (acc
 def qx(x,s): return np.clip(np.round(x/s), -128, 127).astype(np.int8)
 
 print("[4/4] integer-exact golden inference + export ...")
-def infer_int(xq):                             # xq: int8[784]  -> predicted digit
+M1f = np.float32(M1)
+def hidden_int(xq):                            # xq: int8[784] -> h int8[128] (post relu)
     acc1 = xq.astype(np.int32) @ W1q.astype(np.int32)          # [128] int32
-    h = np.clip(np.round(acc1*M1), 0, 127).astype(np.int32)    # requant + ReLU -> int8[0,127]
-    acc2 = h @ W2q.astype(np.int32)                            # [10] int32
+    # requant + ReLU in FLOAT32 to match the hw kernel exactly (fcvt.s.w -> fmadd.s
+    # -> fmin/fmax -> fcvt.w.s rne):  f32 multiply, round-half-even, clamp [0,127].
+    f = acc1.astype(np.float32) * M1f
+    return np.clip(np.rint(f), 0, 127).astype(np.int32)
+def infer_int(xq):                             # xq: int8[784] -> predicted digit
+    acc2 = hidden_int(xq) @ W2q.astype(np.int32)              # [10] int32
     return acc2.argmax()
 NIMG = 64
 Xte_q = qx(Xte[:NIMG], Sx)
@@ -78,7 +83,32 @@ print(f"      FP32 test acc = {fp_acc*100:.2f}%   INT8 test acc = {int_acc_all*1
 print(f"      golden {NIMG}-image subset acc = {(gold==Yte[:NIMG]).mean()*100:.2f}%")
 
 np.savez(os.path.join(D,"mnist_int8.npz"),
-         W1q=W1q, W2q=W2q, Sx=Sx, Sw1=Sw1, Sw2=Sw2, Sh=Sh, M1=np.float32(M1),
+         W1q=W1q, W2q=W2q, Sx=Sx, Sw1=Sw1, Sw2=Sw2, Sh=Sh, M1=M1f,
          Xte_q=Xte_q, labels=Yte[:NIMG], gold=gold)
 print("      wrote ml/data/mnist_int8.npz  (W1q 784x128, W2q 128x10, %d test imgs)" % NIMG)
-print("SUMMARY  FP32=%.2f%%  INT8=%.2f%%  M1=%.6g" % (fp_acc*100, int_acc_all*100, M1))
+
+# ── tb-loadable hex export (packed 4 int8 / word, little-endian) ─────────────────
+def pack_words(a4):                            # a4: (..., K) int8 -> (..., K/4) uint32
+    b = a4.astype(np.uint8).astype(np.uint32)
+    return b[...,0::4] | (b[...,1::4]<<8) | (b[...,2::4]<<16) | (b[...,3::4]<<24)
+def write_hex(name, words):
+    with open(os.path.join(D,name),"w") as f:
+        for w in np.asarray(words).reshape(-1): f.write("%08x\n" % (int(w)&0xFFFFFFFF))
+# W packed [Kp][N]: word (kk*N + n) packs W[4kk..4kk+3][n]  (transpose so K is last)
+def pack_weights(Wq):                          # Wq: (K, N) -> (Kp*N,) uint32
+    K,Nn = Wq.shape; Kp=K//4
+    wt = Wq.T.reshape(Nn, Kp, 4)               # [N][Kp][4]  (n, kk, byte)
+    b = wt.astype(np.uint8).astype(np.uint32)
+    wpk = b[...,0] | (b[...,1]<<8) | (b[...,2]<<16) | (b[...,3]<<24)   # [N][Kp]
+    return wpk.T.reshape(-1)                    # [Kp][N] row-major -> word kk*N+n
+write_hex("w1packed.hex", pack_weights(W1q))    # 196*128 = 25088 words
+write_hex("w2packed.hex", pack_weights(W2q))    # 32*10   = 320   words
+write_hex("images.hex",   pack_words(Xte_q))    # 64*196  = 12544 words (img i @ i*196)
+import struct as _st
+m1bits = _st.unpack("<I", _st.pack("<f", float(M1f)))[0]
+write_hex("params.hex", [m1bits, 0])            # scale=M1, zero_point=0
+write_hex("gold.hex",   gold.astype(np.uint32)) # 64 predicted digits
+write_hex("labels.hex", Yte[:NIMG].astype(np.uint32))
+print("      wrote hex: w1packed(25088) w2packed(320) images(12544) params gold labels")
+print("SUMMARY  FP32=%.2f%%  INT8=%.2f%%  M1=%.6g  M1bits=0x%08X" %
+      (fp_acc*100, int_acc_all*100, M1, m1bits))
