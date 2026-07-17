@@ -24,7 +24,9 @@ KERNELS="vadd/vadd saxpy/saxpy fir/fir relu/relu collatz/collatz reduce/reduce \
 SCALAR="scalar/s_vadd scalar/s_saxpy scalar/s_fir scalar/s_relu scalar/s_collatz scalar/s_reduce"
 # Floating-point kernels (rv32imf — M14: the engine has an f-regfile + flw/fsw).
 FPKERNELS="fptest/fpcopy fptest/fparith fptest/fpvadd fptest/fpfma fptest/fpdivsqrt \
-           fptest/fsaxpy fptest/fnorm fptest/fdot matmul/fgemm fptest/fsoftmax"
+           fptest/fsaxpy fptest/fnorm fptest/fdot matmul/fgemm fptest/fsoftmax \
+           quant/requant"
+# quant/requant: AI-3 INT32->INT8 requantize (FP-reuse: fcvt/fmadd/fmin/fmax; rv32imf).
 # Half-precision kernels (rv32imf_zfh — M14.2: FP16 via NaN-boxing).
 FPHKERNELS="fptest/fparith16 fptest/fpvadd16 fptest/fsaxpy16"
 
