@@ -109,6 +109,10 @@ m1bits = _st.unpack("<I", _st.pack("<f", float(M1f)))[0]
 write_hex("params.hex", [m1bits, 0])            # scale=M1, zero_point=0
 write_hex("gold.hex",   gold.astype(np.uint32)) # 64 predicted digits
 write_hex("labels.hex", Yte[:NIMG].astype(np.uint32))
+# Combined weight-ROM image for the on-chip BRAM store (W1 then W2): ROM word 0..
+# = W1packed (25088), then W2packed (320) at offset 25088.
+write_hex("weights_rom.hex", np.concatenate([pack_weights(W1q), pack_weights(W2q)]))
+print("      wrote weights_rom.hex (25408 words: W1@0, W2@25088)")
 print("      wrote hex: w1packed(25088) w2packed(320) images(12544) params gold labels")
 print("SUMMARY  FP32=%.2f%%  INT8=%.2f%%  M1=%.6g  M1bits=0x%08X" %
       (fp_acc*100, int_acc_all*100, M1, m1bits))
