@@ -83,7 +83,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -123,7 +123,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-pdot8 test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip
+test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -140,6 +140,10 @@ test-pool:
 # AI Tier-1: INT8 packed dot-product (pdot8) — bit-exact golden test of W_DOT.
 test-pdot8:
 	$(call run_tb,tb_pdot8,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_pdot8.sv)
+
+# AI Tier-2: INT8 GEMM kernel (qgemm.S) — full 8x8xK tile, bit-exact vs int matmul.
+test-qgemm:
+	$(call run_tb,tb_qgemm,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_qgemm.sv)
 
 # M14.0: floating-point load/store data path (flw/fsw through the f-regfile).
 test-fp:

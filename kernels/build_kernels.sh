@@ -16,8 +16,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Accelerator kernels (rv32im) — the SIMT engine supports `mul`.
 KERNELS="vadd/vadd saxpy/saxpy fir/fir relu/relu collatz/collatz reduce/reduce \
          matmul/matmul_naive matmul/matmul_smem divergence/heavy_div \
-         dotprod/pdot8"
+         dotprod/pdot8 matmul/qgemm"
 # dotprod/pdot8: AI-1 INT8 packed dot-product self-test (custom-0 via .insn; rv32im).
+# matmul/qgemm : AI-2 INT8 GEMM tile using pdot8 (custom-0 via .insn; rv32im).
 # fgemm is rv32imf (FP), built with the FP list below, but lives in matmul/.
 # Scalar host-CPU baselines (rv32i — the 5-stage core has no `mul`; built below).
 SCALAR="scalar/s_vadd scalar/s_saxpy scalar/s_fir scalar/s_relu scalar/s_collatz scalar/s_reduce"

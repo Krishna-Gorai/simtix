@@ -47,8 +47,9 @@ hard **DSP48E2** blocks instead of soft LUT fabric.
 A prior audit ([memory: SIMTiX LUT audit]) established that SIMTiX on the ZCU104
 (`xczu7ev`) uses ~30 % of LUTs, **2.3 % of DSPs, and 0 % of BRAM** — i.e. the FPGA
 has enormous arithmetic headroom. `pdot8` spends a little of that DSP headroom
-(+8 DSP, one per lane) to buy a 4× INT8 throughput multiplier, which is exactly
-the right trade for an accelerator that is nowhere near DSP-bound.
+(+32 DSP, four per lane — see §4.2) to buy a 4× INT8 throughput multiplier, which
+is exactly the right trade for an accelerator that is nowhere near DSP-bound (the
+measured build sits at 72/1728 DSP = 4.2%).
 
 ---
 
@@ -353,9 +354,46 @@ the full regression (`make -C sim test`) stays green.
 * **Tensor / systolic engine** — the natural place for the WP486 "2 INT8 per DSP"
   weight-sharing packing and for output-stationary MAC arrays; this is where
   SIMTiX would fold in the separate INT8 systolic accelerator project.
-* **FPGA PPA** — re-run OOC synthesis to confirm the expected **+8 DSP** (40→48),
-  negligible LUT delta, and no timing impact (the DSP engine is pipelined and
-  off the critical path). *(To be measured.)*
+---
+
+## 8a. Measured FPGA PPA (ZCU104 / xczu7ev, placed OOC, 100 MHz)
+
+Placed (synth → opt → place → phys_opt → route → power) via `fpga/impl_ai.tcl`;
+reports in `fpga/reports_ai_pdot8/`. Compared to the pre-`pdot8` M17 baseline:
+
+| Resource | AI-1/AI-2 build | M17 baseline | Δ |
+|----------|----------------:|-------------:|----:|
+| LUT | 70,779 (30.7%) | 69,987 | +792 (~1%) |
+| FF | 17,411 | 14,954 | +2,457 |
+| DSP | **72** (4.2%) | 40 | **+32** (4/lane × 8) |
+| BRAM | 0 | 0 | 0 |
+| Placed Fmax | **112.2 MHz** (WNS +1.089 ns @100 MHz) | 100.7 | +11.5 |
+| Power (vectorless) | 0.969 W (0.376 dyn + 0.594 static) | ~1.53 | run-variance* |
+
+The result confirms the design thesis: the INT8 engine costs **+32 DSP and ~1% LUT
+and does NOT regress Fmax** (it is a pipelined DSP background engine, off the
+fetch→execute path). *Note: `report_power` is a vectorless estimate at default
+toggle rates and is run-sensitive, so the apparent power drop vs. M17 is not
+claimed as a real reduction — 0.969 W is this build's measured value.*
+
+**Efficiency (INT8, ops = 2×MAC).** An 8-lane core lands in the GOPS range, not TOPS:
+
+| | @100 MHz (met) | @112.2 MHz (placed Fmax) |
+|---|---|---|
+| Measured (qgemm, 1.90 MAC/cyc) | 0.38 GOP/s → **0.39 GOP/s/W** | 0.43 → **0.44 GOP/s/W** |
+| Datapath ceiling (32 MAC/cyc) | 6.4 GOP/s → **6.6 GOP/s/W** | 7.2 → **7.4 GOP/s/W** |
+
+The measured-vs-ceiling gap is the single-slot `W_DOT` scoreboard plus the
+memory/accumulate stalls in `qgemm` (see [ai2_qgemm.md](ai2_qgemm.md) §6); closing
+it is the motivation for the Tier-3 tensor engine.
+
+## 8b. Future work
+
+* **Wider packing** — `pdot8` over two source registers (8 bytes) per instruction.
+* **Requantization op** — INT32 accumulator → INT8 with scale + clamp.
+* **Tensor / systolic engine** — the natural place for the WP486 "2 INT8 per DSP"
+  weight-sharing packing and output-stationary MAC arrays; where SIMTiX folds in
+  the separate INT8 systolic accelerator project.
 
 ---
 
