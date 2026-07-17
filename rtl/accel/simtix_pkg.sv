@@ -84,6 +84,25 @@ package simtix_pkg;
   parameter logic [6:0] OP_OP     = 7'b0110011;
   parameter logic [6:0] OP_SYSTEM = 7'b1110011;  // csr / ecall
 
+  // ── AI extension: INT8 packed dot-product (custom-0) ────────────────────────
+  // `pdot8 rd, rs1, rs2` — a 4-way INT8 dot product: each 32-bit source holds four
+  // packed signed/unsigned INT8 lanes, and rd receives their 32-bit dot product
+  //     rd = Σ(i=0..3) ext(rs1.byte[i]) × ext(rs2.byte[i]).
+  // It uses the RISC-V custom-0 major opcode (reserved for non-standard extensions,
+  // so it never collides with the rv32imf the toolchain emits) and R-type layout.
+  // funct3 selects the signedness variant; funct7 = 0 (room for future custom ops).
+  // Like RV32M `mul`, it executes in a background DSP engine (W_DOT) so the DSP
+  // stays off the fetch→execute critical path. See docs/pdot8.md for the full spec.
+  parameter logic [6:0] OP_CUSTOM0 = 7'b0001011;  // custom-0: pdot8 family
+
+  // pdot8 signedness variant = funct3 (instr[14:12]). Mirrors RISC-V vqdot naming:
+  //   SS = rs1 signed   × rs2 signed     (weights×weights, or symmetric)
+  //   UU = rs1 unsigned × rs2 unsigned   (activations×activations)
+  //   SU = rs1 signed   × rs2 unsigned   (weights×activations — the inference case)
+  parameter logic [2:0] DOT8_SS = 3'b000;
+  parameter logic [2:0] DOT8_UU = 3'b001;
+  parameter logic [2:0] DOT8_SU = 3'b010;
+
   // ALU control encoding (mirrors the reused rtl/cpu/alu.v).
   parameter logic [3:0] ALU_ADD   = 4'b0000;
   parameter logic [3:0] ALU_SUB   = 4'b0001;

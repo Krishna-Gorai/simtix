@@ -109,7 +109,7 @@ module warp_pool
     // pipelined FP-compute unit (M15). W_MUL: parked on the pipelined integer-multiply
     // unit (B1) — all mirror W_MEM's "park on a side engine while the scheduler keeps
     // issuing other warps" pattern.
-    typedef enum logic [2:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_MUL, W_DONE } wstate_e;
+    typedef enum logic [3:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_MUL, W_DOT, W_DONE } wstate_e;
     wstate_e        wstate    [0:NW-1];
 
     // Vector register file — one independent distributed-RAM (LUTRAM) bank per lane,
@@ -340,6 +340,14 @@ module warp_pool
     // multi-cycle DSP-pipelined multiplier (W_MUL) so the DSP leaves the critical path.
     assign is_mul   = (opcode == OP_OP) && (funct3 == 3'b000) && funct7b0;
 
+    // AI extension: INT8 packed dot-product `pdot8` (custom-0, funct7 = 0). Like `mul`
+    // it does not execute in the single-cycle ALU — it parks on the DSP-pipelined
+    // dot engine (W_DOT). funct3 carries the signedness variant (DOT8_SS/UU/SU).
+    logic       is_dot;
+    logic [2:0] dot_mode;
+    assign is_dot   = (opcode == OP_CUSTOM0) && (instr[31:25] == 7'd0);
+    assign dot_mode = funct3;
+
     // ── M14.0: floating-point decode ────────────────────────────────────────────
     // FP loads/stores reuse the integer memory engine (the address register is an
     // INTEGER reg in RV32F, so address-gen is unchanged); is_fp_mem only steers the
@@ -453,8 +461,10 @@ module warp_pool
     logic        wb_en [0:NL-1];   // integer-VRF writeback enable
     logic [NL-1:0] fwb_en;         // per-lane FP-compute writeback enable (-> fpc_we)
     logic [NL-1:0] mwb_en;         // per-lane integer-mul writeback enable (-> mul_we)
+    logic [NL-1:0] dwb_en;         // per-lane INT8-dot writeback enable (-> dot_we)
     logic [31:0] fpu_res[0:NL-1];  // per-lane FP32 execute result (combinational)
     logic [31:0] mul_res[0:NL-1];  // per-lane integer-mul result (pipelined DSP tree)
+    logic [31:0] dot_res[0:NL-1];  // per-lane INT8-dot result (pipelined DSP MAC)
 
     // ── A1: FPU input pipeline registers (captured at FP-compute issue) ───────────────
     // Placed timing showed the worst path was: warp-state -> f-file LUTRAM read -> operand
@@ -467,6 +477,11 @@ module warp_pool
     // B1: integer-multiply operand hold registers (captured at issue, held while the
     // warp is parked on W_MUL so the DSP pipeline streams one constant pair to result).
     logic [31:0] q_mul_a [0:NL-1], q_mul_b [0:NL-1];
+    // AI: INT8-dot operand hold registers (captured at issue, held while the warp is
+    // parked on W_DOT; the per-lane DSP MAC streams the 4 byte-products into its P
+    // accumulator). q_dot_mode holds the signedness variant for the whole op.
+    logic [31:0] q_dot_a [0:NL-1], q_dot_b [0:NL-1];
+    logic [2:0]  q_dot_mode;
     logic [4:0]  q_fp_funct5;
     logic [2:0]  q_fp_rm;
     logic [1:0]  q_fp_fmt;
@@ -538,6 +553,55 @@ module warp_pool
         end
     endgenerate
 
+    // ── AI: per-lane INT8 dot-product engine (4 parallel DSP products + pipe tree) ────
+    // Mirrors the W_MUL streaming style: operands are captured at issue and HELD constant
+    // in q_dot_a/b while the warp is parked on W_DOT, so this is a fixed-latency pipeline
+    // whose output `dot_res` is valid once the pipe fills (and then stays stable, since
+    // the inputs no longer change — the scoreboard captures it a cycle later, robustly).
+    // Each lane forms the four signed byte-products a_i*b_i in parallel (one DSP each,
+    // AREG/BREG + MREG + PREG → clean DSP pack) and reduces them through a registered
+    // adder tree. Per-operand signedness (sa/sb) is set by the funct3 variant (DOT8_*):
+    //   SS: both signed   UU: both unsigned   SU: rs1 signed, rs2 unsigned (weight×act).
+    // An unsigned byte extends with a 0 sign bit; a signed byte sign-extends — so a single
+    // signed 9×9 multiply serves every variant. Sum of 4 products ≤ ±260 100 → fits 32b.
+    // Latency: q-capture(1) + A/B reg(1) + M(1) + P(1) + add(1) + add(1) = 6; the W_DOT
+    // countdown (DOT_CNT_INIT) captures at +7, one safe cycle after it settles.
+    genvar gd;
+    generate
+        for (gd = 0; gd < NL; gd++) begin : g_idot
+            logic sa, sb;   // per-operand signedness (see DOT8_* in simtix_pkg)
+            assign sa = (q_dot_mode == DOT8_SS) || (q_dot_mode == DOT8_SU);
+            assign sb = (q_dot_mode == DOT8_SS);
+            // Stage 0: sign/zero-extend the four byte pairs to 9-bit signed (DSP A/B regs).
+            logic signed [8:0] a0, a1, a2, a3, b0, b1, b2, b3;
+            always_ff @(posedge clk) begin
+                a0 <= $signed({sa & q_dot_a[gd][ 7], q_dot_a[gd][ 7: 0]});
+                a1 <= $signed({sa & q_dot_a[gd][15], q_dot_a[gd][15: 8]});
+                a2 <= $signed({sa & q_dot_a[gd][23], q_dot_a[gd][23:16]});
+                a3 <= $signed({sa & q_dot_a[gd][31], q_dot_a[gd][31:24]});
+                b0 <= $signed({sb & q_dot_b[gd][ 7], q_dot_b[gd][ 7: 0]});
+                b1 <= $signed({sb & q_dot_b[gd][15], q_dot_b[gd][15: 8]});
+                b2 <= $signed({sb & q_dot_b[gd][23], q_dot_b[gd][23:16]});
+                b3 <= $signed({sb & q_dot_b[gd][31], q_dot_b[gd][31:24]});
+            end
+            // Stage 1-2: four signed byte-products on DSPs (MREG then PREG).
+            (* use_dsp = "yes" *) logic signed [17:0] m0, m1, m2, m3;
+            logic signed [17:0] p0, p1, p2, p3;
+            always_ff @(posedge clk) begin
+                m0 <= a0 * b0;  m1 <= a1 * b1;  m2 <= a2 * b2;  m3 <= a3 * b3;
+                p0 <= m0;       p1 <= m1;       p2 <= m2;       p3 <= m3;
+            end
+            // Stage 3-4: registered adder tree → 32-bit signed dot product.
+            logic signed [31:0] s01, s23, dsum;
+            always_ff @(posedge clk) begin
+                s01  <= 32'($signed(p0)) + 32'($signed(p1));   // sign-extend 18b→32b
+                s23  <= 32'($signed(p2)) + 32'($signed(p3));
+                dsum <= s01 + s23;
+            end
+            assign dot_res[gd] = dsum;
+        end
+    endgenerate
+
     // ── M16: ONE shared serial divide/sqrt core, sequenced over the active lanes ─────
     // M14.3 placed a full fp_divsqrt in EVERY lane (8 cores ~= 5.5k LUT) running in
     // lockstep. Placed timing (M15) showed the FP datapath is interconnect-bound, so we
@@ -606,6 +670,7 @@ module warp_pool
     // the memory and SFU engines). Only one FP-compute op is in flight at a time.
     logic        do_fp;             // issue is an FP-compute op (not div/sqrt, not mem)
     logic        do_mul;            // issue is an RV32M `mul` (parks on W_MUL)
+    logic        do_dot;            // issue is a `pdot8` INT8 dot (parks on W_DOT)
     // B2: simt_fpu is now a 5-stage pipeline (operands at T -> result at T+5), so the FPC
     // scoreboard waits the latency with a countdown (fpc_cnt) before capturing the result:
     // IDLE -> WAIT(cnt) -> WB. The +3-cycle deepening came from making the significand
@@ -637,6 +702,25 @@ module warp_pool
     logic [3:0]       mul_cnt;        // DSP-tree latency countdown
     logic             mul_wb_fire;    // held mul result drives the integer VRF this cycle
     localparam logic [3:0] MUL_CNT_INIT = 4'd6;   // 7 cycles issue→result (q-capture + 6 stages)
+
+    // ── AI: pipelined INT8 dot-product scoreboard (W_DOT) ─────────────────────────────
+    // Mirrors W_MUL exactly: one dot in flight, operands captured at issue (q_dot_a/b),
+    // the warp parked while each lane's single DSP serially accumulates the four INT8
+    // byte-products into its 48-bit P register (dot_cnt counts the latency), then the
+    // per-lane dot results write back to the INTEGER VRF when the port is free (yields
+    // to the memory + FPC + MUL engines). pdot8 is always integer-dest.
+    typedef enum logic [1:0] { DOT_IDLE, DOT_RUN, DOT_WB } dot_st_e;
+    dot_st_e          dot_state;
+    logic [WIDXW-1:0] dot_w;
+    logic [4:0]       dot_rd;
+    logic [NL-1:0]    dot_we;         // per-lane writeback enable (mask + x0 guard)
+    logic [31:0]      dot_resume_pc;
+    logic [31:0]      dot_data [0:NL-1];
+    logic [3:0]       dot_cnt;        // DSP-MAC latency countdown
+    logic             dot_wb_fire;    // held dot result drives the integer VRF this cycle
+    // Latency = q-capture (1) + input reg (1) + 4 serial MAC accumulate cycles + P reg
+    // drain (1) = 7 cycles issue→result. dot_cnt counts 6..0 like MUL_CNT_INIT.
+    localparam logic [3:0] DOT_CNT_INIT = 4'd6;
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -711,6 +795,9 @@ module warp_pool
             // B1: per-lane integer-mul writeback enable, captured at issue into mul_we.
             // mul is integer-dest, so honor rd!=x0; masked-off lanes never write.
             mwb_en[l]  = cur_mask[l] && (rd != 5'd0);
+            // AI: per-lane INT8-dot writeback enable, captured at issue into dot_we.
+            // pdot8 is integer-dest, same rd!=x0 + mask guards as mul.
+            dwb_en[l]  = cur_mask[l] && (rd != 5'd0);
         end
     end
 
@@ -844,7 +931,7 @@ module warp_pool
         for (int k = 0; k < NW; k++)
             if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM) ||
                 (wstate[k] == W_SFU) || (wstate[k] == W_FPC) ||
-                (wstate[k] == W_MUL)) any_busy = 1'b1;
+                (wstate[k] == W_MUL) || (wstate[k] == W_DOT)) any_busy = 1'b1;
     end
 
     // ── VRF write arbiter (one write port per lane bank) ────────────────────────────
@@ -903,9 +990,13 @@ module warp_pool
     // B1: an RV32M `mul` — retires through the pipelined integer-multiply engine (W_MUL).
     assign do_mul         = issue_valid && !do_pop && !is_ecall && !is_mem &&
                             !is_sfu_op && is_mul;
-    // A single-cycle INTEGER compute: not a pop/ecall/memory/divide-sqrt/FP-compute/mul.
+    // AI: a `pdot8` — retires through the pipelined INT8 dot engine (W_DOT).
+    assign do_dot         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+                            !is_sfu_op && is_dot;
+    // A single-cycle INTEGER compute: not a pop/ecall/memory/divide-sqrt/FP-compute/
+    // mul/dot.
     assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem &&
-                            !is_sfu_op && !do_fp && !do_mul;
+                            !is_sfu_op && !do_fp && !do_mul && !do_dot;
 
     // The held SFU result drives the f-file when the unit is in writeback and the
     // memory engine is not using the FP port this cycle (mem wins; SFU result waits).
@@ -926,12 +1017,20 @@ module warp_pool
     assign mul_wb_fire = (mul_state == MUL_WB) &&
                          !((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp));
 
+    // AI: the held INT8-dot result drives the integer VRF when the unit is in writeback
+    // and the port is free. Deferrable like MUL: it yields to the integer memory
+    // writeback, the integer-dest FPC writeback, AND the integer-mul writeback (it sits
+    // one tier below mul in the same port); if blocked it waits (warp parked in W_DOT).
+    assign dot_wb_fire    = (dot_state == DOT_WB) &&
+                         !((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
+                           mul_wb_fire);
+
     // A single-cycle integer compute (always integer-VRF dest now) is squashed when
     // its port is taken this cycle by an integer memory load, the integer-dest FPC
     // writeback, or the integer-mul writeback. It re-issues next cycle (idempotent).
     assign squash_wb      = do_compute &&
                             ((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
-                             mul_wb_fire);
+                             mul_wb_fire || dot_wb_fire);
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -989,6 +1088,12 @@ module warp_pool
                 v_wr[l] = mul_rd;
                 v_wa[l] = vaddr(mul_w, mul_rd);
                 v_wd[l] = mul_data[l];
+            end else if (dot_wb_fire && dot_we[l]) begin               // pipelined INT8-dot
+                v_we[l] = 1'b1;
+                v_ww[l] = dot_w;
+                v_wr[l] = dot_rd;
+                v_wa[l] = vaddr(dot_w, dot_rd);
+                v_wd[l] = dot_data[l];
             end else if (do_compute && !squash_wb && wb_en[l]) begin   // int compute writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = issue_w;
@@ -1064,6 +1169,7 @@ module warp_pool
             sfu_core_start <= 1'b0;
             fpc_state      <= FPC_IDLE;
             mul_state      <= MUL_IDLE;
+            dot_state      <= DOT_IDLE;
             issue_valid    <= 1'b0;
             instr          <= 32'd0;
             for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
@@ -1168,7 +1274,8 @@ module warp_pool
                     if (!do_pop && !(is_mem && mem_busy) && !squash_wb &&
                         !(is_sfu_op && sfu_state != SFU_IDLE) &&
                         !(do_fp && fpc_state != FPC_IDLE) &&
-                        !(do_mul && mul_state != MUL_IDLE)) begin
+                        !(do_mul && mul_state != MUL_IDLE) &&
+                        !(do_dot && dot_state != DOT_IDLE)) begin
                         dbg_issued_insns <= dbg_issued_insns + 32'd1;
                         dbg_active_lanes <= dbg_active_lanes +
                                             {{(31-LIDXW){1'b0}}, n_active};
@@ -1231,6 +1338,27 @@ module warp_pool
                             end
                         end
                         // else: multiplier busy → warp waits.
+                    end else if (do_dot) begin
+                        // AI: `pdot8` — capture the packed-INT8 operands into the dot
+                        // engine's hold registers, park the warp on the single-slot W_DOT
+                        // scoreboard, and arm the latency countdown. The scheduler keeps
+                        // issuing other warps while the DSP MAC tree streams. If the dot
+                        // engine is busy with another warp, this warp waits (stays W_RUN).
+                        if (dot_state == DOT_IDLE) begin
+                            dot_w           <= issue_w;
+                            dot_rd          <= rd;
+                            dot_we          <= dwb_en;
+                            dot_resume_pc   <= fallthru;
+                            q_dot_mode      <= dot_mode;   // signedness variant for the op
+                            wstate[issue_w] <= W_DOT;
+                            dot_state       <= DOT_RUN;
+                            dot_cnt         <= DOT_CNT_INIT;
+                            for (int l = 0; l < NL; l++) begin
+                                q_dot_a[l] <= rv1[l];
+                                q_dot_b[l] <= rv2[l];
+                            end
+                        end
+                        // else: dot engine busy → warp waits.
                     end else if (is_sfu_op) begin
                         // Divide / square-root: capture every lane's f-operands now (they
                         // are live this cycle but move on with the scheduler), park the
@@ -1422,6 +1550,28 @@ module warp_pool
                         mul_state                 <= MUL_IDLE;
                     end
                     default: mul_state <= MUL_IDLE;
+                endcase
+
+                // 3f) DOT (pipelined INT8 dot-product) engine step. Identical shape to
+                //     W_MUL: RUN counts the DSP-MAC latency down (operands held constant
+                //     in q_dot_a/b while the pipe fills), then captures the per-lane dot
+                //     results; WB drives them onto the integer VRF when the port is free
+                //     (yields to memory + FPC + MUL), then resumes the parked warp.
+                unique case (dot_state)
+                    DOT_IDLE: ;   // armed in the issue step (sets DOT_RUN, captures operands)
+                    DOT_RUN: begin
+                        if (dot_cnt != 4'd0) dot_cnt <= dot_cnt - 4'd1;
+                        else begin
+                            for (int l = 0; l < NL; l++) dot_data[l] <= dot_res[l];
+                            dot_state <= DOT_WB;
+                        end
+                    end
+                    DOT_WB: if (dot_wb_fire) begin
+                        stk_npc[dot_w][sp[dot_w]] <= dot_resume_pc;
+                        wstate[dot_w]             <= W_RUN;
+                        dot_state                 <= DOT_IDLE;
+                    end
+                    default: dot_state <= DOT_IDLE;
                 endcase
 
                 // 3b) Mark written registers valid. The VRF data write itself happens

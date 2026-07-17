@@ -16,8 +16,21 @@ with milestones:
 | Jump       | `jal jalr`                                     | M5        |
 | Thread id  | `csrr rd, TID` (CSR 0xCC0, read-only)          | M1        |
 | Terminate  | `ecall` (thread retires)                       | M1        |
+| Multiply   | `mul` (RV32M, low 32; DSP engine `W_MUL`)      | M6        |
+| INT8 dot   | `pdot8 pdot8u pdot8su` (custom-0; DSP `W_DOT`)  | AI-1      |
 
 The lane ALU reuses the `alucontrol` encoding from `rtl/cpu/alu.v`.
+
+### AI extension: INT8 packed dot-product (`pdot8`)
+
+`pdot8` is a custom (custom-0, `opcode = 0x0B`, `funct7 = 0`) R-type instruction:
+each of `rs1`/`rs2` holds four packed INT8 values and `rd` receives their 32-bit
+4-way dot product, `rd = Σ(i=0..3) ext(rs1.byte[i]) × ext(rs2.byte[i])`. `funct3`
+selects signedness: `000` signed×signed (`pdot8`), `001` unsigned×unsigned
+(`pdot8u`), `010` signed×unsigned (`pdot8su`, the weight×activation inference
+case). Like `mul` it parks on a pipelined DSP engine (`W_DOT`) so the DSP stays
+off the critical path. gcc does not emit it — encode with
+`.insn r 0x0B, <funct3>, 0, rd, rs1, rs2`. Full spec: [ai1_pdot8.md](ai1_pdot8.md).
 
 ### Thread identity
 
