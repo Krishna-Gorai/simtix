@@ -22,7 +22,17 @@
 
 module chip_top
   import simtix_pkg::*;
-(
+#(
+    // Demo selection: "vadd" = the M10 checksum driver (default, hand-assembled
+    // case ROM); "mnist" = the AI-4 on-chip MNIST inference driver (assembled
+    // rv32i program in driver_rom, streaming weights out of the BRAM store).
+    parameter         DRIVER       = "vadd",
+    parameter         MDRIVER_INIT = "../kernels/mnist/mnist_driver.hex",
+    // BRAM weight/data store: init image + word capacity. The MNIST demo grows
+    // it to hold the two weight matrices, images, params and golden preds.
+    parameter         WSTORE_INIT  = "../ml/data/weights_rom.hex",
+    parameter int     WSTORE_WORDS = 1 << 15
+)(
     input  logic        clk,
     input  logic        rst,            // active-high
     output logic        done,           // kernel finished + result published
@@ -57,8 +67,15 @@ module chip_top
         .mem_ready    (cpu_mem_ready)
     );
 
-    // ── Driver instruction ROM ────────────────────────────────────────────────────
-    cpu_driver_rom u_irom (.addr(PCF), .instr(InstrF));
+    // ── Driver instruction ROM (demo-selected) ───────────────────────────────────
+    generate
+        if (DRIVER == "mnist") begin : g_mnist_driver
+            driver_rom #(.WORDS(1024), .INIT(MDRIVER_INIT))
+                u_irom (.addr(PCF), .instr(InstrF));
+        end else begin : g_vadd_driver
+            cpu_driver_rom u_irom (.addr(PCF), .instr(InstrF));
+        end
+    endgenerate
 
     // ── Address decode ────────────────────────────────────────────────────────────
     logic is_mmio, is_result, is_weight, is_shared;
@@ -84,7 +101,7 @@ module chip_top
     // Ready everywhere except the first cycle of a weight read (async elsewhere).
     assign cpu_mem_ready = wrom_en ? wr_pending : 1'b1;
 
-    weight_rom u_wrom (
+    weight_rom #(.WORDS(WSTORE_WORDS), .INIT(WSTORE_INIT)) u_wrom (
         .clk   (clk),
         .en    (wrom_en),
         .addr  (ALUResultM),

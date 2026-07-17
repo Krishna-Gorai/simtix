@@ -113,6 +113,40 @@ write_hex("labels.hex", Yte[:NIMG].astype(np.uint32))
 # = W1packed (25088), then W2packed (320) at offset 25088.
 write_hex("weights_rom.hex", np.concatenate([pack_weights(W1q), pack_weights(W2q)]))
 print("      wrote weights_rom.hex (25408 words: W1@0, W2@25088)")
+
+# ── Full on-chip BRAM data store for the AI-4 chip_top MNIST demo ─────────────────
+# One block-RAM image (region 0xA of chip_top) holding EVERYTHING the host CPU
+# driver streams into the 16 KB LUTRAM working memory: the two accelerator kernels,
+# the requant params, both weight matrices, and all 64 test images. Fixed word
+# offsets (word = byte/4) the driver hard-codes:
+#     qgemv   @ word 0      (0xA0000000, 20 words)   accelerator kernel
+#     rqr     @ word 24     (0xA0000060, 16 words)   requant_relu kernel
+#     params  @ word 40     (0xA00000A0, 2 words)    M1 scale, zero_point
+#     gold    @ word 42     (0xA00000A8, 64 words)   golden preds (driver self-check)
+#     W1      @ word 1024   (0xA0001000, 25088 w)    W1packed [196][128]
+#     W2      @ word 26624  (0xA001A000, 320 w)      W2packed [32][10]
+#     images  @ word 27648  (0xA001B000, 12544 w)    img i @ +i*196 (packed x)
+# The kernels are the exact assembled words verified bit-exact by tb_mnist.
+QGEMV_ROM = [0x10000293,0x0002a303,0x00251393,0x007603b3,0x00271e13,0x00058e93,
+             0x00000f13,0x00000f93,0x000ea403,0x0003a483,0x0094090b,0x012f0f33,
+             0x004e8e93,0x01c383b3,0x001f8f93,0xfe6fc2e3,0x00251993,0x013689b3,
+             0x01e9a023,0x00000073]
+RQR_ROM   = [0x00251293,0x00558333,0x00032383,0x00062087,0x00462107,0xd003f1d3,
+             0x1011f1c3,0x42fe0e37,0xf00e0253,0xf00002d3,0x284181d3,0x285191d3,
+             0xc0018ed3,0x00a68f33,0x01df0023,0x00000073]
+STORE_WORDS = 1 << 16
+store = np.zeros(STORE_WORDS, np.uint32)
+store[0:20]                  = np.asarray(QGEMV_ROM, np.uint32)   # qgemv @ word 0
+store[24:40]                 = np.asarray(RQR_ROM,   np.uint32)   # requant_relu @ word 24
+store[40]                    = m1bits                             # params: scale (M1)
+store[41]                    = 0                                  #         zero_point
+store[42:42+NIMG]            = gold.astype(np.uint32)             # golden preds @ word 42
+store[1024:1024+25088]       = pack_weights(W1q)                  # W1 @ word 1024
+store[26624:26624+320]       = pack_weights(W2q)                  # W2 @ word 26624
+store[27648:27648+12544]     = pack_words(Xte_q).reshape(-1)      # images @ word 27648
+write_hex("mnist_store.hex", store)
+print("      wrote mnist_store.hex (%d words: kernels@0, params@40, W1@1024, W2@26624, IMG@27648)"
+      % STORE_WORDS)
 print("      wrote hex: w1packed(25088) w2packed(320) images(12544) params gold labels")
 print("SUMMARY  FP32=%.2f%%  INT8=%.2f%%  M1=%.6g  M1bits=0x%08X" %
       (fp_acc*100, int_acc_all*100, M1, m1bits))

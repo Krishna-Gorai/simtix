@@ -66,6 +66,7 @@ CHIP_RTL := \
 	../rtl/soc/shared_mem.sv \
 	../rtl/soc/weight_rom.sv \
 	../rtl/soc/cpu_driver_rom.sv \
+	../rtl/soc/driver_rom.sv \
 	../rtl/soc/chip_top.sv \
 	$(CHIP_CPU_RTL)
 
@@ -84,7 +85,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip mnist-driver test-chip-mnist bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -250,6 +251,25 @@ test-chip:
 	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_chip_top $(CHIP_RTL) ../tests/tb_chip_top.sv -o tb_chip_top
 	@echo "[test] running tb_chip_top..."
 	$(MDIR)/tb_chip_top
+
+# AI-4: assemble the on-chip MNIST host driver (rv32i) into a hex ROM image for
+# driver_rom. Run after editing kernels/mnist/mnist_driver.S (the .hex is committed).
+RISCV_GCC     ?= riscv64-unknown-elf-gcc
+RISCV_OBJCOPY ?= riscv64-unknown-elf-objcopy
+mnist-driver:
+	$(RISCV_GCC) -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -Wl,-Ttext=0 \
+		-o ../kernels/mnist/mnist_driver.elf ../kernels/mnist/mnist_driver.S
+	$(RISCV_OBJCOPY) -O binary ../kernels/mnist/mnist_driver.elf ../kernels/mnist/mnist_driver.bin
+	python3 -c "import struct;d=open('../kernels/mnist/mnist_driver.bin','rb').read();open('../kernels/mnist/mnist_driver.hex','w').write(''.join('%08x\n'%struct.unpack('<I',d[i:i+4])[0] for i in range(0,len(d),4)));print('[mnist-driver] %d words'%(len(d)//4))"
+
+# AI-4: end-to-end on-chip MNIST inference. Needs kernels/mnist/mnist_driver.hex
+# (make mnist-driver) and ml/data/mnist_store.hex (python3 ml/mnist_quant.py).
+# SLOW (weights streamed per image); not in the default `test`.
+test-chip-mnist:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_chip_mnist $(CHIP_RTL) ../tests/tb_chip_mnist.sv -o tb_chip_mnist
+	@echo "[test] running tb_chip_mnist..."
+	$(MDIR)/tb_chip_mnist
 
 # Benchmark suite (publication evaluation): runs every kernel at several sizes,
 # verifies golden results, and prints a metrics table + CSV rows. Capture with:
