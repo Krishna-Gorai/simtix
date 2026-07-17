@@ -26,6 +26,7 @@ module riscv_pipeline (
     output wire [31:0] WriteDataM,
     input  wire [31:0] ReadDataM,
     output wire        MemWriteM,
+    output wire        MemReadM,      // M-stage op is a load (ResultSrc == ReadData)
     output wire [ 2:0] Funct3M,
 
     // Data memory ready (stall whole pipeline while dmem is clearing)
@@ -301,6 +302,7 @@ module riscv_pipeline (
     assign ALUResultM = ALUResultM_int;
     assign WriteDataM = WriteDataM_r;
     assign MemWriteM  = MemWriteM_r & mem_ready;  // suppress writes during clear
+    assign MemReadM   = (ResultSrcM == 2'b01);    // load in M (ResultSrc = ReadData)
     assign Funct3M    = Funct3M_r;
 
     // =========================================================================

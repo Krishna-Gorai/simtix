@@ -64,6 +64,7 @@ CHIP_RTL := \
 	../rtl/accel/warp_pool.sv \
 	../rtl/accel/simt_accel.sv \
 	../rtl/soc/shared_mem.sv \
+	../rtl/soc/weight_rom.sv \
 	../rtl/soc/cpu_driver_rom.sv \
 	../rtl/soc/chip_top.sv \
 	$(CHIP_CPU_RTL)

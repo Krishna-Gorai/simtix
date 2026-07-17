@@ -32,12 +32,15 @@ module chip_top
     localparam logic [31:0] RESET_VECTOR     = 32'h0000_0000;  // driver entry
     localparam logic [3:0]  HI_MMIO          = 4'h8;           // 0x8.. MMIO page
     localparam logic [3:0]  HI_RESULT        = 4'h9;           // 0x9.. result reg
+    localparam logic [3:0]  HI_WEIGHT        = 4'hA;           // 0xA.. BRAM weight ROM
+    localparam int          SHARED_WORDS     = 4096;           // 16 KB working memory
 
     // ── Host CPU bus wires ────────────────────────────────────────────────────────
     logic [31:0] PCF, InstrF;
     logic [31:0] ALUResultM, WriteDataM, ReadDataM;
-    logic        MemWriteM;
+    logic        MemWriteM, MemReadM;
     logic [2:0]  Funct3M;
+    logic        cpu_mem_ready;         // low for one cycle on a BRAM weight read
 
     riscv_pipeline cpu (
         .clk          (clk),
@@ -49,18 +52,45 @@ module chip_top
         .WriteDataM   (WriteDataM),
         .ReadDataM    (ReadDataM),
         .MemWriteM    (MemWriteM),
+        .MemReadM     (MemReadM),
         .Funct3M      (Funct3M),
-        .mem_ready    (1'b1)             // preloaded RAM is always ready
+        .mem_ready    (cpu_mem_ready)
     );
 
     // ── Driver instruction ROM ────────────────────────────────────────────────────
     cpu_driver_rom u_irom (.addr(PCF), .instr(InstrF));
 
     // ── Address decode ────────────────────────────────────────────────────────────
-    logic is_mmio, is_result, is_shared;
+    logic is_mmio, is_result, is_weight, is_shared;
     assign is_result = (ALUResultM[31:28] == HI_RESULT);
     assign is_mmio   = (ALUResultM[31:28] == HI_MMIO);
-    assign is_shared = ~is_result & ~is_mmio;
+    assign is_weight = (ALUResultM[31:28] == HI_WEIGHT);
+    assign is_shared = ~is_result & ~is_mmio & ~is_weight;
+
+    // ── BRAM weight ROM + CPU stall handshake ─────────────────────────────────────
+    // A weight LOAD triggers a synchronous BRAM read: `wrom_rvalid`/`wrom_rdata`
+    // arrive the cycle after `en`. We stall the CPU exactly one cycle per weight
+    // read by holding mem_ready low until the read is served. `wr_pending` is set
+    // the cycle a weight read is issued and cleared once served, so back-to-back
+    // weight loads each get their single stall cycle.
+    logic        wrom_en, wrom_rvalid, wr_pending;
+    logic [31:0] wrom_rdata;
+    assign wrom_en = is_weight & MemReadM;
+
+    always_ff @(posedge clk) begin
+        if (rst) wr_pending <= 1'b0;
+        else     wr_pending <= wrom_en & ~wr_pending;   // high the cycle after issue
+    end
+    // Ready everywhere except the first cycle of a weight read (async elsewhere).
+    assign cpu_mem_ready = wrom_en ? wr_pending : 1'b1;
+
+    weight_rom u_wrom (
+        .clk   (clk),
+        .en    (wrom_en),
+        .addr  (ALUResultM),
+        .rdata (wrom_rdata),
+        .rvalid(wrom_rvalid)
+    );
 
     // ── Accelerator (MMIO target + shared-memory master) ──────────────────────────
     logic [31:0]          accel_rdata;
@@ -89,7 +119,7 @@ module chip_top
 
     // ── On-chip shared memory (kernel + data; CPU and accelerator both reach it) ──
     logic [31:0] shared_rdata;
-    shared_mem u_mem (
+    shared_mem #(.WORDS(SHARED_WORDS)) u_mem (
         .clk        (clk),
         .imem_addr  (accel_imem_addr),
         .imem_data  (accel_imem_data),
@@ -105,8 +135,10 @@ module chip_top
         .cpu_rdata  (shared_rdata)
     );
 
-    // ── Host read-data return mux (MMIO status vs shared memory) ──────────────────
-    assign ReadDataM = is_mmio ? accel_rdata : shared_rdata;
+    // ── Host read-data return mux (MMIO status vs BRAM weights vs shared memory) ──
+    assign ReadDataM = is_mmio   ? accel_rdata :
+                       is_weight ? wrom_rdata  :
+                                   shared_rdata;
 
     // ── Chip result register: a CPU store to 0x9.. publishes the answer ──────────
     always_ff @(posedge clk) begin
