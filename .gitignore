@@ -28,6 +28,8 @@ fpga/clockInfo.txt
 fpga/vivado_project/
 # managed FP GUI project (regenerate with fpga/create_project_fp.tcl)
 fpga/vivado_project_fp/
+# managed MNIST GUI project (regenerate with fpga/create_project_mnist.tcl)
+fpga/vivado_project_mnist/
 # post-implementation sim: generated netlist/SDF + xsim work files
 fpga/postimpl/chip_top_funcsim.v
 fpga/postimpl/chip_top_funcsim.sdf

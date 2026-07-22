@@ -1,0 +1,1996 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
+| Date              : Wed Jul 22 15:43:35 2026
+| Host              : Krishna_NITjsr running 64-bit major release  (build 9200)
+| Command           : report_timing_summary -max_paths 10 -file {D:/Verilog Projects/simtix/fpga/reports_chip_mnist/post_synth_timing.rpt}
+| Design            : chip_top_mnist
+| Device            : xczu7ev-ffvc1156
+| Speed File        : -2  PRODUCTION 1.30 05-15-2022
+| Design State      : Synthesized
+| Temperature Grade : E
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Summary Report
+
+------------------------------------------------------------------------------------------------
+| Timer Settings
+| --------------
+------------------------------------------------------------------------------------------------
+
+  Enable Multi Corner Analysis               :  Yes
+  Enable Pessimism Removal                   :  Yes
+  Pessimism Removal Resolution               :  Nearest Common Node
+  Enable Input Delay Default Clock           :  No
+  Enable Preset / Clear Arcs                 :  No
+  Disable Flight Delays                      :  No
+  Ignore I/O Paths                           :  No
+  Timing Early Launch at Borrowing Latches   :  No
+  Borrow Time for Max Delay Exceptions       :  Yes
+  Merge Timing Exceptions                    :  Yes
+  Inter-SLR Compensation                     :  Conservative
+
+  Corner  Analyze    Analyze    
+  Name    Max Paths  Min Paths  
+  ------  ---------  ---------  
+  Slow    Yes        Yes        
+  Fast    Yes        Yes        
+
+
+------------------------------------------------------------------------------------------------
+| Report Methodology
+| ------------------
+------------------------------------------------------------------------------------------------
+
+No report available as report_methodology has not been run prior. Run report_methodology on the current design for the summary of methodology violations.
+
+
+
+check_timing report
+
+Table of Contents
+-----------------
+1. checking no_clock (0)
+2. checking constant_clock (0)
+3. checking pulse_width_clock (0)
+4. checking unconstrained_internal_endpoints (0)
+5. checking no_input_delay (1)
+6. checking no_output_delay (33)
+7. checking multiple_clock (0)
+8. checking generated_clocks (0)
+9. checking loops (0)
+10. checking partial_input_delay (0)
+11. checking partial_output_delay (0)
+12. checking latch_loops (0)
+
+1. checking no_clock (0)
+------------------------
+ There are 0 register/latch pins with no clock.
+
+
+2. checking constant_clock (0)
+------------------------------
+ There are 0 register/latch pins with constant_clock.
+
+
+3. checking pulse_width_clock (0)
+---------------------------------
+ There are 0 register/latch pins which need pulse_width check
+
+
+4. checking unconstrained_internal_endpoints (0)
+------------------------------------------------
+ There are 0 pins that are not constrained for maximum delay.
+
+ There are 0 pins that are not constrained for maximum delay due to constant clock.
+
+
+5. checking no_input_delay (1)
+------------------------------
+ There are 0 input ports with no input delay specified.
+
+ There is 1 input port with no input delay but user has a false path constraint. (MEDIUM)
+
+
+6. checking no_output_delay (33)
+--------------------------------
+ There are 33 ports with no output delay specified. (HIGH)
+
+ There are 0 ports with no output delay but user has a false path constraint
+
+ There are 0 ports with no output delay but with a timing clock defined on it or propagating through it
+
+
+7. checking multiple_clock (0)
+------------------------------
+ There are 0 register/latch pins with multiple clocks.
+
+
+8. checking generated_clocks (0)
+--------------------------------
+ There are 0 generated clocks that are not connected to a clock source.
+
+
+9. checking loops (0)
+---------------------
+ There are 0 combinational loops in the design.
+
+
+10. checking partial_input_delay (0)
+------------------------------------
+ There are 0 input ports with partial input delay specified.
+
+
+11. checking partial_output_delay (0)
+-------------------------------------
+ There are 0 ports with partial output delay specified.
+
+
+12. checking latch_loops (0)
+----------------------------
+ There are 0 combinational latch loops in the design through latch input
+
+
+
+------------------------------------------------------------------------------------------------
+| Design Timing Summary
+| ---------------------
+------------------------------------------------------------------------------------------------
+
+    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints     WPWS(ns)     TPWS(ns)  TPWS Failing Endpoints  TPWS Total Endpoints  
+    -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------     --------     --------  ----------------------  --------------------  
+      1.707        0.000                      0               135207        0.057        0.000                      0               135207        4.458        0.000                       0                 33355  
+
+
+All user specified timing constraints are met.
+
+
+------------------------------------------------------------------------------------------------
+| Clock Summary
+| -------------
+------------------------------------------------------------------------------------------------
+
+Clock  Waveform(ns)       Period(ns)      Frequency(MHz)
+-----  ------------       ----------      --------------
+clk    {0.000 5.000}      10.000          100.000         
+
+
+------------------------------------------------------------------------------------------------
+| Intra Clock Table
+| -----------------
+------------------------------------------------------------------------------------------------
+
+Clock             WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints     WPWS(ns)     TPWS(ns)  TPWS Failing Endpoints  TPWS Total Endpoints  
+-----             -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------     --------     --------  ----------------------  --------------------  
+clk                 1.707        0.000                      0               135207        0.057        0.000                      0               135207        4.458        0.000                       0                 33355  
+
+
+------------------------------------------------------------------------------------------------
+| Inter Clock Table
+| -----------------
+------------------------------------------------------------------------------------------------
+
+From Clock    To Clock          WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints  
+----------    --------          -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------  
+
+
+------------------------------------------------------------------------------------------------
+| Other Path Groups Table
+| -----------------------
+------------------------------------------------------------------------------------------------
+
+Path Group    From Clock    To Clock          WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints  
+----------    ----------    --------          -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------  
+
+
+------------------------------------------------------------------------------------------------
+| Timing Details
+| --------------
+------------------------------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------------------------------
+From Clock:  clk
+  To Clock:  clk
+
+Setup :            0  Failing Endpoints,  Worst Slack        1.707ns,  Total Violation        0.000ns
+Hold  :            0  Failing Endpoints,  Worst Slack        0.057ns,  Total Violation        0.000ns
+PW    :            0  Failing Endpoints,  Worst Slack        4.458ns,  Total Violation        0.000ns
+---------------------------------------------------------------------------------------------------
+
+
+Max Delay Paths
+--------------------------------------------------------------------------------------
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[0][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[0][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[0][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[1][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[1][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[1][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[2][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[2][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[2][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[2].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[3][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[3][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[3][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[3].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[4][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[4][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[4][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[4].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[5][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[5][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[5][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[5].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[6][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[6][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[6][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[6].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             1.707ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[7][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.211ns  (logic 2.417ns (29.436%)  route 5.794ns (70.564%))
+  Logic Levels:           37  (CARRY8=12 LUT2=3 LUT3=4 LUT4=6 LUT5=4 LUT6=8)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[7][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[7][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[2])
+                                                      0.067     6.807 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/O[2]
+                         net (fo=2, unplaced)         0.188     6.995    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_13
+                         LUT4 (Prop_LUT4_I2_O)        0.090     7.085 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_15/O
+                         net (fo=1, unplaced)         0.186     7.271    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_15_n_0
+                         LUT5 (Prop_LUT5_I4_O)        0.038     7.309 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_13/O
+                         net (fo=1, unplaced)         0.186     7.495    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_13_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.533 f  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     7.719    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_8_n_0
+                         LUT6 (Prop_LUT6_I5_O)        0.038     7.757 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_4/O
+                         net (fo=1, unplaced)         0.186     7.943    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_4_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     8.013 r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     8.241    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[7].u_fpu/e_reg[4][add_spec]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -8.241    
+  -------------------------------------------------------------------
+                         slack                                  1.707    
+
+Slack (MET) :             2.710ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[0][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][63]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        7.208ns  (logic 2.240ns (31.077%)  route 4.968ns (68.923%))
+  Logic Levels:           36  (CARRY8=15 LUT1=1 LUT2=3 LUT3=4 LUT4=4 LUT5=3 LUT6=6)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[0][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[0][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.762 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.767    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.789 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][39]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.794    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][39]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.816 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.821    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][47]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[3])
+                                                      0.060     6.881 f  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][50]_srl4_i_1/CO[3]
+                         net (fo=2, unplaced)         0.091     6.972    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][50]_srl4_i_1_n_4
+                         LUT1 (Prop_LUT1_I0_O)        0.038     7.010 r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][63]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     7.238    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][63]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][63]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][63]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[0].u_fpu/e_reg[4][add_mag][63]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -7.238    
+  -------------------------------------------------------------------
+                         slack                                  2.710    
+
+Slack (MET) :             2.710ns  (required time - arrival time)
+  Source:                 u_chip/u_accel/u_pool/q_frv1_reg[1][29]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][63]_srl4/D
+                            (rising edge-triggered cell SRL16E clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        7.208ns  (logic 2.240ns (31.077%)  route 4.968ns (68.923%))
+  Logic Levels:           36  (CARRY8=15 LUT1=1 LUT2=3 LUT3=4 LUT4=4 LUT5=3 LUT6=6)
+  Clock Path Skew:        0.013ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    0.043ns = ( 10.043 - 10.000 ) 
+    Source Clock Delay      (SCD):    0.030ns
+    Clock Pessimism Removal (CPR):    0.000ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.030     0.030    u_chip/u_accel/u_pool/clk
+                         FDRE                                         r  u_chip/u_accel/u_pool/q_frv1_reg[1][29]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.077     0.107 f  u_chip/u_accel/u_pool/q_frv1_reg[1][29]/Q
+                         net (fo=4, unplaced)         0.166     0.273    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/a[29]
+                         LUT6 (Prop_LUT6_I0_O)        0.150     0.423 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8/O
+                         net (fo=1, unplaced)         0.186     0.609    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_8_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.647 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5/O
+                         net (fo=5, unplaced)         0.204     0.851    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][14]_srl4_i_5_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.038     0.889 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e[1][minmax_h][0]_i_2/O
+                         net (fo=20, unplaced)        0.235     1.124    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e[1][minmax_h][0]_i_2_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.070     1.194 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][sgnj_h][12]_srl4_i_1/O
+                         net (fo=5, unplaced)         0.204     1.398    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/p_0_in[2]
+                         LUT3 (Prop_LUT3_I2_O)        0.070     1.468 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_5/O
+                         net (fo=2, unplaced)         0.186     1.654    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_5_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.038     1.692 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_3/O
+                         net (fo=18, unplaced)        0.233     1.925    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_3_n_0
+                         LUT5 (Prop_LUT5_I2_O)        0.038     1.963 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_1/O
+                         net (fo=59, unplaced)        0.214     2.177    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][opa][24]_srl4_i_1_n_0
+                         LUT4 (Prop_LUT4_I0_O)        0.139     2.316 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_57/O
+                         net (fo=1, unplaced)         0.186     2.502    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_57_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     2.540 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_42/O
+                         net (fo=148, unplaced)       0.280     2.820    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod2_reg_i_42_n_0
+                         LUT2 (Prop_LUT2_I1_O)        0.070     2.890 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod3_reg_i_7/O
+                         net (fo=22, unplaced)        0.237     3.127    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/prod3_reg_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     3.197 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12/O
+                         net (fo=1, unplaced)         0.260     3.457    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_12_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[3])
+                                                      0.182     3.639 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_3/CO[3]
+                         net (fo=1, unplaced)         0.091     3.730    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/p_73_in
+                         LUT6 (Prop_LUT6_I1_O)        0.038     3.768 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2/O
+                         net (fo=96, unplaced)        0.271     4.039    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_ebig][7]_srl4_i_2_n_0
+                         LUT3 (Prop_LUT3_I1_O)        0.070     4.109 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_45/O
+                         net (fo=1, unplaced)         0.140     4.249    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_45_n_0
+                         LUT6 (Prop_LUT6_I1_O)        0.090     4.339 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_25/O
+                         net (fo=114, unplaced)       0.228     4.567    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_25_n_0
+                         LUT3 (Prop_LUT3_I0_O)        0.090     4.657 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][50]_srl4_i_7/O
+                         net (fo=30, unplaced)        0.244     4.901    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][50]_srl4_i_7_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.070     4.971 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_134/O
+                         net (fo=1, unplaced)         0.260     5.231    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_134_n_0
+                         CARRY8 (Prop_CARRY8_DI[0]_CO[7])
+                                                      0.139     5.370 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_109/CO[7]
+                         net (fo=1, unplaced)         0.005     5.375    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_109_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.397 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_92/CO[7]
+                         net (fo=1, unplaced)         0.005     5.402    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_92_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.424 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_74/CO[7]
+                         net (fo=1, unplaced)         0.005     5.429    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_74_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.451 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_37/CO[7]
+                         net (fo=1, unplaced)         0.005     5.456    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_37_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.478 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_21/CO[7]
+                         net (fo=1, unplaced)         0.005     5.483    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_21_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     5.505 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_25/CO[7]
+                         net (fo=1, unplaced)         0.005     5.510    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_25_n_0
+                         CARRY8 (Prop_CARRY8_CI_O[0])
+                                                      0.056     5.566 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_71/O[0]
+                         net (fo=1, unplaced)         0.186     5.752    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_71_n_15
+                         LUT6 (Prop_LUT6_I0_O)        0.038     5.790 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_29/O
+                         net (fo=1, unplaced)         0.186     5.976    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_29_n_0
+                         LUT5 (Prop_LUT5_I0_O)        0.038     6.014 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_17/O
+                         net (fo=1, unplaced)         0.186     6.200    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_17_n_0
+                         LUT6 (Prop_LUT6_I4_O)        0.038     6.238 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_14/O
+                         net (fo=1, unplaced)         0.186     6.424    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_14_n_0
+                         LUT4 (Prop_LUT4_I3_O)        0.038     6.462 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_10/O
+                         net (fo=1, unplaced)         0.020     6.482    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_10_n_0
+                         CARRY8 (Prop_CARRY8_S[0]_CO[7])
+                                                      0.199     6.681 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.686    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][7]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.708 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][15]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.713    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][15]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.735 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][23]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.740    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][23]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.762 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][31]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.767    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][31]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.789 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][39]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.794    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][39]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[7])
+                                                      0.022     6.816 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_1/CO[7]
+                         net (fo=1, unplaced)         0.005     6.821    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][47]_srl4_i_1_n_0
+                         CARRY8 (Prop_CARRY8_CI_CO[3])
+                                                      0.060     6.881 f  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][50]_srl4_i_1/CO[3]
+                         net (fo=2, unplaced)         0.091     6.972    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][50]_srl4_i_1_n_4
+                         LUT1 (Prop_LUT1_I0_O)        0.038     7.010 r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][63]_srl4_i_1/O
+                         net (fo=1, unplaced)         0.228     7.238    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][63]_srl4_i_1_n_0
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][63]_srl4/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)       10.000    10.000 r  
+                                                      0.000    10.000 r  clk (IN)
+                         net (fo=33682, unset)        0.043    10.043    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/clk
+                         SRL16E                                       r  u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][63]_srl4/CLK
+                         clock pessimism              0.000    10.043    
+                         clock uncertainty           -0.035    10.008    
+                         SRL16E (Setup_SRL16E_CLK_D)
+                                                     -0.060     9.948    u_chip/u_accel/u_pool/g_fpu[1].u_fpu/e_reg[4][add_mag][63]_srl4
+  -------------------------------------------------------------------
+                         required time                          9.948    
+                         arrival time                          -7.238    
+  -------------------------------------------------------------------
+                         slack                                  2.710    
+
+
+
+
+
+Min Delay Paths
+--------------------------------------------------------------------------------------
+Slack (MET) :             0.057ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[10]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[10]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.109ns  (logic 0.056ns (51.376%)  route 0.053ns (48.624%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[10]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[10]/Q
+                         net (fo=1, unplaced)         0.046     0.097    u_chip/u_accel/cyc_count_reg_n_0_[10]
+                         CARRY8 (Prop_CARRY8_S[1]_O[1])
+                                                      0.018     0.115 r  u_chip/u_accel/cycles_reg[16]_i_1/O[1]
+                         net (fo=2, unplaced)         0.007     0.122    u_chip/u_accel/p_0_in[10]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[10]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[10]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[10]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.122    
+  -------------------------------------------------------------------
+                         slack                                  0.057    
+
+Slack (MET) :             0.057ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[18]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[18]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.109ns  (logic 0.056ns (51.376%)  route 0.053ns (48.624%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[18]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[18]/Q
+                         net (fo=1, unplaced)         0.046     0.097    u_chip/u_accel/cyc_count_reg_n_0_[18]
+                         CARRY8 (Prop_CARRY8_S[1]_O[1])
+                                                      0.018     0.115 r  u_chip/u_accel/cycles_reg[24]_i_1/O[1]
+                         net (fo=2, unplaced)         0.007     0.122    u_chip/u_accel/p_0_in[18]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[18]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[18]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[18]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.122    
+  -------------------------------------------------------------------
+                         slack                                  0.057    
+
+Slack (MET) :             0.057ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[26]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[26]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.109ns  (logic 0.056ns (51.376%)  route 0.053ns (48.624%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[26]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[26]/Q
+                         net (fo=1, unplaced)         0.046     0.097    u_chip/u_accel/cyc_count_reg_n_0_[26]
+                         CARRY8 (Prop_CARRY8_S[1]_O[1])
+                                                      0.018     0.115 r  u_chip/u_accel/cycles_reg[31]_i_2/O[1]
+                         net (fo=2, unplaced)         0.007     0.122    u_chip/u_accel/p_0_in[26]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[26]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[26]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[26]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.122    
+  -------------------------------------------------------------------
+                         slack                                  0.057    
+
+Slack (MET) :             0.057ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[2]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[2]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.109ns  (logic 0.056ns (51.376%)  route 0.053ns (48.624%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[2]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[2]/Q
+                         net (fo=1, unplaced)         0.046     0.097    u_chip/u_accel/cyc_count_reg_n_0_[2]
+                         CARRY8 (Prop_CARRY8_S[1]_O[1])
+                                                      0.018     0.115 r  u_chip/u_accel/cycles_reg[8]_i_1/O[1]
+                         net (fo=2, unplaced)         0.007     0.122    u_chip/u_accel/p_0_in[2]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[2]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[2]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[2]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.122    
+  -------------------------------------------------------------------
+                         slack                                  0.057    
+
+Slack (MET) :             0.058ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[15]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[15]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.110ns  (logic 0.056ns (50.909%)  route 0.054ns (49.091%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[15]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[15]/Q
+                         net (fo=1, unplaced)         0.047     0.098    u_chip/u_accel/cyc_count_reg_n_0_[15]
+                         CARRY8 (Prop_CARRY8_S[6]_O[6])
+                                                      0.018     0.116 r  u_chip/u_accel/cycles_reg[16]_i_1/O[6]
+                         net (fo=2, unplaced)         0.007     0.123    u_chip/u_accel/p_0_in[15]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[15]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[15]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[15]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.123    
+  -------------------------------------------------------------------
+                         slack                                  0.058    
+
+Slack (MET) :             0.058ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[16]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[16]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.110ns  (logic 0.056ns (50.909%)  route 0.054ns (49.091%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[16]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[16]/Q
+                         net (fo=1, unplaced)         0.047     0.098    u_chip/u_accel/cyc_count_reg_n_0_[16]
+                         CARRY8 (Prop_CARRY8_S[7]_O[7])
+                                                      0.018     0.116 r  u_chip/u_accel/cycles_reg[16]_i_1/O[7]
+                         net (fo=2, unplaced)         0.007     0.123    u_chip/u_accel/p_0_in[16]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[16]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[16]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[16]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.123    
+  -------------------------------------------------------------------
+                         slack                                  0.058    
+
+Slack (MET) :             0.058ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[17]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[17]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.110ns  (logic 0.057ns (51.818%)  route 0.053ns (48.182%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[17]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[17]/Q
+                         net (fo=1, unplaced)         0.046     0.097    u_chip/u_accel/cyc_count_reg_n_0_[17]
+                         CARRY8 (Prop_CARRY8_S[0]_O[0])
+                                                      0.019     0.116 r  u_chip/u_accel/cycles_reg[24]_i_1/O[0]
+                         net (fo=2, unplaced)         0.007     0.123    u_chip/u_accel/p_0_in[17]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[17]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[17]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[17]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.123    
+  -------------------------------------------------------------------
+                         slack                                  0.058    
+
+Slack (MET) :             0.058ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[1]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[1]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.110ns  (logic 0.057ns (51.818%)  route 0.053ns (48.182%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[1]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[1]/Q
+                         net (fo=1, unplaced)         0.046     0.097    u_chip/u_accel/cyc_count_reg_n_0_[1]
+                         CARRY8 (Prop_CARRY8_S[0]_O[0])
+                                                      0.019     0.116 r  u_chip/u_accel/cycles_reg[8]_i_1/O[0]
+                         net (fo=2, unplaced)         0.007     0.123    u_chip/u_accel/p_0_in[1]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[1]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[1]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[1]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.123    
+  -------------------------------------------------------------------
+                         slack                                  0.058    
+
+Slack (MET) :             0.058ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[23]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[23]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.110ns  (logic 0.056ns (50.909%)  route 0.054ns (49.091%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[23]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[23]/Q
+                         net (fo=1, unplaced)         0.047     0.098    u_chip/u_accel/cyc_count_reg_n_0_[23]
+                         CARRY8 (Prop_CARRY8_S[6]_O[6])
+                                                      0.018     0.116 r  u_chip/u_accel/cycles_reg[24]_i_1/O[6]
+                         net (fo=2, unplaced)         0.007     0.123    u_chip/u_accel/p_0_in[23]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[23]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[23]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[23]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.123    
+  -------------------------------------------------------------------
+                         slack                                  0.058    
+
+Slack (MET) :             0.058ns  (arrival time - required time)
+  Source:                 u_chip/u_accel/cyc_count_reg[24]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_chip/u_accel/cycles_reg[24]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Hold (Min at Fast Process Corner)
+  Requirement:            0.000ns  (clk rise@0.000ns - clk rise@0.000ns)
+  Data Path Delay:        0.110ns  (logic 0.056ns (50.909%)  route 0.054ns (49.091%))
+  Logic Levels:           1  (CARRY8=1)
+  Clock Path Skew:        0.006ns (DCD - SCD - CPR)
+    Destination Clock Delay (DCD):    0.019ns
+    Source Clock Delay      (SCD):    0.013ns
+    Clock Pessimism Removal (CPR):    -0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.013     0.013    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cyc_count_reg[24]/C
+  -------------------------------------------------------------------    -------------------
+                         FDRE (Prop_FDRE_C_Q)         0.038     0.051 r  u_chip/u_accel/cyc_count_reg[24]/Q
+                         net (fo=1, unplaced)         0.047     0.098    u_chip/u_accel/cyc_count_reg_n_0_[24]
+                         CARRY8 (Prop_CARRY8_S[7]_O[7])
+                                                      0.018     0.116 r  u_chip/u_accel/cycles_reg[24]_i_1/O[7]
+                         net (fo=2, unplaced)         0.007     0.123    u_chip/u_accel/p_0_in[24]
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[24]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=33682, unset)        0.019     0.019    u_chip/u_accel/clk
+                         FDRE                                         r  u_chip/u_accel/cycles_reg[24]/C
+                         clock pessimism              0.000     0.019    
+                         FDRE (Hold_FDRE_C_D)         0.046     0.065    u_chip/u_accel/cycles_reg[24]
+  -------------------------------------------------------------------
+                         required time                         -0.065    
+                         arrival time                           0.123    
+  -------------------------------------------------------------------
+                         slack                                  0.058    
+
+
+
+
+
+Pulse Width Checks
+--------------------------------------------------------------------------------------
+Clock Name:         clk
+Waveform(ns):       { 0.000 5.000 }
+Period(ns):         10.000
+Sources:            { clk }
+
+Check Type        Corner  Lib Pin             Reference Pin  Required(ns)  Actual(ns)  Slack(ns)  Location  Pin
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_0/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_1/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_10/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_11/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_12/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_13/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_14/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_15/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_16/CLKARDCLK
+Min Period        n/a     RAMB36E2/CLKARDCLK  n/a            1.355         10.000      8.645                u_chip/u_wrom/rdata_reg_0_17/CLKARDCLK
+Low Pulse Width   Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_0/CLKARDCLK
+Low Pulse Width   Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_0/CLKARDCLK
+Low Pulse Width   Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_1/CLKARDCLK
+Low Pulse Width   Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_1/CLKARDCLK
+Low Pulse Width   Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_10/CLKARDCLK
+Low Pulse Width   Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_10/CLKARDCLK
+Low Pulse Width   Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_11/CLKARDCLK
+Low Pulse Width   Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_11/CLKARDCLK
+Low Pulse Width   Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_12/CLKARDCLK
+Low Pulse Width   Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_12/CLKARDCLK
+High Pulse Width  Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_0/CLKARDCLK
+High Pulse Width  Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_0/CLKARDCLK
+High Pulse Width  Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_1/CLKARDCLK
+High Pulse Width  Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_1/CLKARDCLK
+High Pulse Width  Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_10/CLKARDCLK
+High Pulse Width  Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_10/CLKARDCLK
+High Pulse Width  Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_11/CLKARDCLK
+High Pulse Width  Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_11/CLKARDCLK
+High Pulse Width  Slow    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_12/CLKARDCLK
+High Pulse Width  Fast    RAMB36E2/CLKARDCLK  n/a            0.542         5.000       4.458                u_chip/u_wrom/rdata_reg_0_12/CLKARDCLK
+
+
+

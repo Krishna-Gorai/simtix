@@ -103,21 +103,84 @@ Combined with the measured PPA ([ai1_pdot8.md](ai1_pdot8.md) §8a: 72 DSP, 112 M
 0.969 W), this is a complete, honest story: a programmable RISC-V SIMT core that
 runs a real quantized network end-to-end on measured hardware.
 
-## 7. Next: on-chip demo (step 4)
+## 7. On-chip demo (step 4) — done
 
-The tb stands in for the host. The final step wires the same sequence into
-`chip_top`'s **CPU driver** (the host RISC-V core sets the MMIO base/`Kp`/go
-registers and reads back the argmax), so the whole inference runs on the
-integrated chip exactly as the "result = 964" bring-up demo does — the deployable
-end-to-end MNIST accelerator.
+The tb above stands in for the host; step 4 moves the *whole* inference onto the
+integrated `chip_top`, driven by the on-chip host RISC-V CPU exactly as the
+"result = 964" bring-up demo is. The weights no longer arrive from a testbench —
+they live in a **256 KB on-chip block-RAM store** (`weight_rom`, region `0xA`), and
+the host CPU **streams** each weight tile from BRAM into the 16 KB LUTRAM working
+memory, launches `qgemv`/`requant_relu` per tile via the accelerator MMIO, runs the
+argmax, and self-checks each prediction against the golden — **the accelerator core
+is untouched**.
 
-## 8. Files
+* **Driver** — `kernels/mnist/mnist_driver.S`, a 182-instruction rv32i program
+  assembled into `driver_rom` (`DRIVER="mnist"`). It boots by copying the two
+  kernels + params from BRAM to working memory, then per image `i=0..63` copies the
+  image, streams the layer-1 weights in 8 tiles (`Nt=16`, repacked to the tile
+  stride), launches `qgemv`→`requant_relu`, streams layer-2, launches the final
+  `qgemv`, takes the argmax, and self-checks against the golden byte. A two-phase
+  poll (wait `BUSY`, then `DONE`) survives the dispatcher's held-`DONE` between
+  launches.
+* **BRAM latency** — a weight read stalls the CPU one cycle (`mem_ready`), so the
+  1-cycle block-RAM read is absorbed transparently; no accelerator change.
+* **Result** — `tests/tb_chip_mnist.sv`, `make -C sim test-chip-mnist`: the chip
+  publishes the correct-count to `0x90000000` and the tb checks it is **64/64
+  bit-exact** with the golden — full end-to-end MNIST inference on the integrated
+  chip, host-driven, out of on-chip BRAM.
+
+## 8. On-chip PPA — BRAM-inclusive (xczu7ev / ZCU104)
+
+This is the first SIMTiX build with a **non-zero BRAM footprint**: the 256 KB
+weight/data store is inferred as block RAM. Out-of-context, timing-driven synthesis
+of the complete MNIST chip (`chip_top_mnist` = `chip_top` fixed to `DRIVER="mnist"`
++ 65536-word store), `fpga/synth_chip_mnist.tcl`:
+
+| Resource | Used | Avail | Util % |
+|----------|------|-------|--------|
+| CLB LUTs | 83,475 | 230,400 | 36.2 |
+| — LUT as logic | 69,247 | 230,400 | 30.1 |
+| — LUT as memory (LUTRAM) | 14,228 | 101,760 | 14.0 |
+| CLB registers (FF) | 18,939 | 460,800 | 4.1 |
+| **Block RAM (RAMB36E2)** | **64** | 312 | **20.5** |
+| — RAMB18 | 0 | 624 | 0.0 |
+| DSP | 72 | 1,728 | 4.2 |
+
+* **Timing (100 MHz target):** setup WNS **+1.707 ns → MET**, critical-path delay
+  8.293 ns, synth Fmax 120.6 MHz.
+* **Power:** 1.358 W total (0.762 dynamic + 0.596 static).
+
+**Reading the numbers.**
+* **64 RAMB36 (20.5 %)** — the `weight_rom` store (65536 × 32 = 2 Mbit) maps to 64
+  RAMB36 tiles: 65536 deep ÷ 1024 words/tile, stacked depth-wise. The raw-bit floor
+  is ~57 tiles; 64 is the real count once Vivado maps the fixed 1K×36 primitive
+  geometry. Initialised bit-exact from `mnist_store.hex`, so the power estimate is
+  faithful. This is the first non-zero BRAM in the project — every earlier build put
+  the register file, scratchpad and shared memory in LUTRAM.
+* **72 DSP** — the FP fabric's 40 plus the `pdot8` `W_DOT` INT8 dot engine's 32,
+  matching the accelerator-level AI PPA ([ai1_pdot8.md](ai1_pdot8.md) §8a) now
+  confirmed at chip level with the BRAM store attached.
+* **Caveat — this is OOC synthesis**, so Fmax (120.6 MHz) is congestion-blind and
+  optimistic; a placed-and-routed run would come down (cf. the FP timing arc: synth
+  88 → placed 78 → 100 MHz after the 3-stage FMA). The **area figures (LUT/FF/BRAM/
+  DSP) are accurate at synthesis**; a full `impl` run is the next step for a placed
+  Fmax + a `.bit`.
+
+## 9. Files
 
 | File | Change |
 |------|--------|
-| `ml/mnist_quant.py` | train + quantize + float32 golden + hex export |
+| `ml/mnist_quant.py` | train + quantize + float32 golden + hex export (incl. `mnist_store.hex`) |
 | `ml/data/mnist_int8.npz` | weights/scales/golden (tracked) |
-| `ml/data/*.hex` | tb-loadable packed data (generated, gitignored) |
-| `tests/tb_mnist.sv` | end-to-end orchestration + golden check |
-| `sim/Makefile` | `test-mnist` target |
+| `ml/data/*.hex` | tb/chip-loadable packed data (generated, gitignored) |
+| `tests/tb_mnist.sv` | accelerator end-to-end orchestration + golden check |
+| `tests/tb_chip_mnist.sv` | on-chip (chip_top) end-to-end, 64/64 self-check |
+| `kernels/mnist/mnist_driver.S` | on-chip host driver (rv32i, streams BRAM weights) |
+| `rtl/soc/weight_rom.sv` | 256 KB block-RAM weight/data store |
+| `rtl/soc/driver_rom.sv` | generic `$readmemh` host instruction ROM |
+| `rtl/soc/chip_top.sv` | parameterized `DRIVER`/`WSTORE_*`; BRAM read + `mem_ready` stall |
+| `rtl/soc/chip_top_mnist.sv` | synthesis/impl top: chip fixed to the MNIST config |
+| `fpga/synth_chip_mnist.tcl` | OOC synth + BRAM-inclusive PPA of the MNIST chip |
+| `fpga/create_project_mnist.tcl` | managed GUI project (elaborated-schematic browsing) |
+| `sim/Makefile` | `test-mnist`, `test-chip-mnist`, `mnist-driver` targets |
 | `docs/ai4_mnist.md` | this document |
