@@ -30,6 +30,8 @@ fpga/vivado_project/
 fpga/vivado_project_fp/
 # managed MNIST GUI project (regenerate with fpga/create_project_mnist.tcl)
 fpga/vivado_project_mnist/
+# managed MNIST post-synth sim project (regenerate with fpga/create_project_mnist_sim.tcl)
+fpga/vivado_project_mnist_sim/
 # post-implementation sim: generated netlist/SDF + xsim work files
 fpga/postimpl/chip_top_funcsim.v
 fpga/postimpl/chip_top_funcsim.sdf

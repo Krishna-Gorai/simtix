@@ -33,6 +33,15 @@
 # Assemble: riscv64-unknown-elf-gcc -march=rv32i -mabi=ilp32 -nostdlib
 #           -nostartfiles -Wl,-Ttext=0 -o mnist_driver.elf mnist_driver.S
 # =============================================================================
+# Number of test images the host processes. Defaults to the full set (64); a
+# reduced build (e.g. -DNIMG=2, the mnist-driver-short target) bakes a shorter loop
+# into the driver ROM so a post-synthesis gate-level simulation finishes in minutes
+# instead of hours, while exercising the identical datapath. The .S is assembled
+# through gcc (cpp), so this preprocessor define works.
+#ifndef NIMG
+#define NIMG 64
+#endif
+
     .text
     .globl _start
 _start:
@@ -193,10 +202,10 @@ nocorr:
     addi s0, s0, 1
     addi s1, s1, 0x310       # img_src += 196 words
     addi s2, s2, 4           # pred_ptr += 1 word
-    li   t0, 64
+    li   t0, NIMG
     blt  s0, t0, image_loop
 
-    # ── publish golden-match count (== 64 when bit-exact) and halt ─────────────
+    # ── publish golden-match count (== NIMG when bit-exact) and halt ───────────
     li   t0, 0x90000000
     sw   s3, 0(t0)           # result = correct, done = 1
 halt:

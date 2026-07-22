@@ -85,7 +85,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip mnist-driver test-chip-mnist bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -262,6 +262,18 @@ mnist-driver:
 	$(RISCV_OBJCOPY) -O binary ../kernels/mnist/mnist_driver.elf ../kernels/mnist/mnist_driver.bin
 	python3 -c "import struct;d=open('../kernels/mnist/mnist_driver.bin','rb').read();open('../kernels/mnist/mnist_driver.hex','w').write(''.join('%08x\n'%struct.unpack('<I',d[i:i+4])[0] for i in range(0,len(d),4)));print('[mnist-driver] %d words'%(len(d)//4))"
 
+# AI-4: reduced (NIMG-image) build of the SAME driver for a fast post-synthesis
+# gate-level simulation. Bakes a short image loop into the driver ROM so a
+# post-synth xsim run finishes in minutes; the datapath exercised is identical.
+# Override the count with `make mnist-driver-short NIMG=1`.
+NIMG ?= 2
+mnist-driver-short:
+	$(RISCV_GCC) -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -Wl,-Ttext=0 \
+		-DNIMG=$(NIMG) \
+		-o ../kernels/mnist/mnist_driver_short.elf ../kernels/mnist/mnist_driver.S
+	$(RISCV_OBJCOPY) -O binary ../kernels/mnist/mnist_driver_short.elf ../kernels/mnist/mnist_driver_short.bin
+	python3 -c "import struct;d=open('../kernels/mnist/mnist_driver_short.bin','rb').read();open('../kernels/mnist/mnist_driver_short.hex','w').write(''.join('%08x\n'%struct.unpack('<I',d[i:i+4])[0] for i in range(0,len(d),4)));print('[mnist-driver-short] NIMG=$(NIMG), %d words'%(len(d)//4))"
+
 # AI-4: end-to-end on-chip MNIST inference. Needs kernels/mnist/mnist_driver.hex
 # (make mnist-driver) and ml/data/mnist_store.hex (python3 ml/mnist_quant.py).
 # SLOW (weights streamed per image); not in the default `test`.
@@ -270,6 +282,18 @@ test-chip-mnist:
 	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_chip_mnist $(CHIP_RTL) ../tests/tb_chip_mnist.sv -o tb_chip_mnist
 	@echo "[test] running tb_chip_mnist..."
 	$(MDIR)/tb_chip_mnist
+
+# AI-4: behavioral smoke test of the reduced-image (chip_top_mnist_short) config —
+# the same design that the fast post-synthesis Vivado sim runs. The short wrapper
+# references its init images by basename, so copy them next to the run cwd (sim/).
+# Needs kernels/mnist/mnist_driver_short.hex (make mnist-driver-short) and
+# ml/data/mnist_store.hex (python3 ml/mnist_quant.py).
+test-chip-mnist-short:
+	cp ../kernels/mnist/mnist_driver_short.hex ../ml/data/mnist_store.hex .
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_chip_mnist_short $(CHIP_RTL) ../rtl/soc/chip_top_mnist_short.sv ../tests/tb_chip_mnist_short.sv -o tb_chip_mnist_short
+	@echo "[test] running tb_chip_mnist_short..."
+	$(MDIR)/tb_chip_mnist_short
 
 # Benchmark suite (publication evaluation): runs every kernel at several sizes,
 # verifies golden results, and prints a metrics table + CSV rows. Capture with:
