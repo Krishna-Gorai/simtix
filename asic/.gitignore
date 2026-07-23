@@ -1,0 +1,6 @@
+# Regenerated every run from the RTL; never edit or commit.
+gen/
+# Tool outputs.
+reports/
+results/
+.synth_sky130.resolved.ys

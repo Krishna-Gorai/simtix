@@ -1,0 +1,53 @@
+# synth_sky130.ys - Yosys ASIC synthesis of the SIMTiX accelerator to the
+# SkyWater 130 nm open PDK (sky130_fd_sc_hd, typical corner).
+#
+# Target is simt_accel, the same out-of-context block the FPGA numbers in
+# docs/paper Table IV describe, so the ASIC and FPGA results share a boundary.
+#
+# INPUT IS sv2v OUTPUT, NOT THE RTL DIRECTLY. The yosys shipped in the OpenLane
+# image (0.30) supports "only a small subset" of SystemVerilog by its own
+# admission, and chokes on the package import in a module header that these
+# sources use, e.g. mmio_regs.sv:
+#     module mmio_regs
+#       import simtix_pkg::*;
+#     ( ... );
+# sv2v elaborates the packages, typedefs, enums and generate blocks down to
+# Verilog-2005 first. run_synth_sky130.sh regenerates gen/simt_accel_flat.v on
+# every run, so the RTL stays the single source of truth.
+#
+# The Xilinx (* use_dsp *), (* ram_style *) and (* rom_style *) attributes
+# survive conversion and are ignored by yosys, which is correct: sky130 has no
+# distributed RAM and no DSP48, so those arrays map to flip-flops and those
+# multiplies to synthesized multiplier logic.
+
+# ---------------------------------------------------------------- read RTL
+read_verilog -sv gen/simt_accel_flat.v
+
+# ---------------------------------------------------------------- elaborate
+hierarchy -check -top TOP_MODULE
+
+# ---------------------------------------------------------------- synthesize
+# FLATTEN is a substituted placeholder, empty or "-flatten".
+#
+# DO NOT flatten simt_accel on a small host. Flattening gives abc the whole cone
+# (which is what the FPGA runs did, cross-boundary and timing-driven), but the
+# flat accelerator hands abc a 483k-gate / 574k-wire network with 90k inputs and
+# abc is killed for memory on an 8 GB box. Hierarchical synthesis keeps abc's
+# cones per-module and completes. Flattening is fine for small tops such as
+# simt_fpu.
+synth -top TOP_MODULE FLATTEN
+
+# ------------------------------------------------------- map to sky130 cells
+# dfflibmap before abc is required: abc must see the flops already mapped.
+dfflibmap -liberty LIBERTY_PATH
+abc -liberty LIBERTY_PATH -D CLOCK_PERIOD_PS
+
+# ---------------------------------------------------------------- clean up
+setundef -zero
+splitnets
+opt_clean -purge
+
+# ---------------------------------------------------------------- report
+tee -o reports/stat_TOP_MODULE.txt stat -liberty LIBERTY_PATH
+tee -o reports/check_TOP_MODULE.txt check -noinit
+write_verilog -noattr results/TOP_MODULE_sky130.v
