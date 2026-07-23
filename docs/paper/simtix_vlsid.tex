@@ -371,7 +371,7 @@ rounding first to FP32 and then to FP16 equals rounding directly to
 FP16~\cite{figueroa}, so FP16 add, subtract, multiply, the fused multiply-add, and
 the conversions are correctly single-rounded. Half precision therefore reuses the
 verified single-precision logic almost entirely, adding only the widen, narrow,
-and box steps and, as Fig.~\ref{fig:fpthr} shows, no extra cycles.
+and box steps, and no extra cycles.
 
 \textbf{Fused multiply-add.} The FMA computes $\pm(a\cdot b)\pm c$ with a single
 rounding~\cite{muller}, so it cannot be built by chaining the multiplier and the
@@ -396,18 +396,15 @@ about $k$ times as long, hidden across warps) for the area saving quantified in
 Section~\ref{sec:fppa}.
 
 \textbf{Verification.} Each unit is verified standalone against a DPI-C IEEE-754
-reference: FP32 against the host's correctly-rounded \texttt{float} operations,
-including \texttt{fmaf} and \texttt{sqrtf}, and FP16 against a
-\texttt{double}-based reference cross-checked with \texttt{\_Float16}. Over random
-vectors spanning the product-dominant, balanced (cancellation), and
-addend-dominant regimes, plus directed infinity, NaN, zero, flush, and overflow
-corners together with divide-by-zero, square-root-of-negative, mis-boxed-operand,
-and conversion cases, the pipelined unit passes $96{,}066$ checks and the
-iterative divide/square-root unit a further $20{,}023$, all bit-exact
-(Table~\ref{tab:fpverif}). End-to-end FP kernels then exercise the full warp pool:
-streaming add and multiply-add in each precision, a fused $C_i=A_iB_i+C_i$, and
-$C_i=\sqrt{A_i/B_i}$ with two dependent multi-cycle operations per thread, all
-bit-exact to 1024 threads.
+reference: FP32 against the host's correctly-rounded \texttt{float} operations
+including \texttt{fmaf} and \texttt{sqrtf}, FP16 against a \texttt{double}-based
+reference cross-checked with \texttt{\_Float16}. Over random vectors spanning the
+product-dominant, balanced (cancellation), and addend-dominant regimes, plus
+directed infinity, NaN, zero, flush, overflow, divide-by-zero,
+square-root-of-negative, mis-boxed-operand, and conversion corners, the pipelined
+unit passes $96{,}066$ checks and the iterative divide/square-root unit a further
+$20{,}023$, all bit-exact (Table~\ref{tab:fpverif}). End-to-end FP kernels then
+exercise the full warp pool, bit-exact to 1024 threads.
 
 \begin{table}[t]
 \caption{Floating-point operation coverage; every operation is implemented and
@@ -436,11 +433,11 @@ Move / classify & \texttt{fmv.x.\_}, \texttt{fmv.\_.x}, \texttt{fclass}\\
 \textbf{Throughput and application kernels.} The FP unit is pipelined
 (Section~\ref{sec:fppa}); an FP instruction commits a fixed number of cycles after
 issue and the issuing warp parks a single slot until it does, a latency that SIMT
-interleaving hides on streaming work. Fig.~\ref{fig:fpthr} plots throughput
-against problem size for streaming add and multiply-add in both precisions. The
-latency-hiding ramp matches the integer suite and saturates near 7 work-items per
-cycle at 100\% lane utilization, with the FP16 points lying exactly on the FP32
-curves because half precision shares the pipelined datapath.
+interleaving hides on streaming work. Measured against problem size on streaming
+add and multiply-add in both precisions, the latency-hiding ramp matches the
+integer suite and saturates near 7 work-items per cycle at 100\% lane utilization,
+with the FP16 points falling exactly on the FP32 curves because half precision
+shares the pipelined datapath.
 Table~\ref{tab:fpkernels} runs four toolchain-assembled FP kernels through the
 engine. Two effects stand out. The iterative divide/square-root unit is visible:
 \texttt{fnorm} $=A/\sqrt{B}$ takes about $6\times$ the cycles of streaming
@@ -448,15 +445,6 @@ engine. Two effects stand out. The iterative divide/square-root unit is visible:
 also interacts with the now-larger lane datapath: \texttt{fdot}'s reduction leaves
 one of eight lanes active during the collapse, at 45\% utilization, so the
 absolute energy a mask-gated design saves grows with the FP-enlarged lane.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fp_throughput.png}
-\caption{Floating-point throughput versus problem size for streaming add and
-multiply-add kernels. The hollow FP16 markers sit exactly on the FP32 curves
-because both precisions use the same pipelined datapath.}
-\label{fig:fpthr}
-\end{figure}
 
 \begin{table}[t]
 \caption{FP application kernels at $N{=}256$ (FP32 unless noted), all verified
@@ -481,30 +469,35 @@ Kernel & Computation & Cycles & Gmem & Lane util.\\
 %==============================================================================
 Floating point raises the accelerator from $30{,}088$ to $74{,}342$ LUTs
 ($2.5\times$), flip-flops from $4{,}590$ to $7{,}894$, and DSP blocks from 24 to
-40 for the FP multipliers, at 1.34~W. The increase is dominated by the
-common-case arithmetic unit---eight per-lane copies of the
-add/multiply/FMA/convert datapath, with the fused multiply-add the largest single
-block---and not by the iterative divide/square-root cores, which synthesize to
-only 689 LUTs each, about 7\% of the design. The FMA is also the longest
-combinational chain: as a single-cycle block its raw path is 16.2~ns (61~MHz),
-which makes it the frequency bottleneck.
+40, at 1.34~W. The increase is dominated by the common-case arithmetic unit---eight
+per-lane copies of the add/multiply/FMA/convert datapath, the FMA largest among
+them---and not by the iterative divide/square-root cores, which synthesize to only
+689 LUTs each, about 7\% of the design. The FMA is also the longest combinational
+chain: as a single-cycle block its raw path is 16.2~ns (61~MHz), making it the
+frequency bottleneck.
+
+\textbf{A delay model, and what it predicts.} The steps below are predictions of
+one model rather than independent attempts. Write the placed period of the FMA
+path as $T_{\text{placed}} = T_{\text{logic}}/S + t_{\text{reg}} +
+T_{\text{route}}(A_{\text{local}})$, with $S$ the number of stages the chain is
+split across, $t_{\text{reg}}$ the register overhead, and $A_{\text{local}}$ the
+placed density of the region holding that one cone. Conventional sizing uses only
+the first two terms: halving a 16.2~ns chain leaves 8.1~ns plus overhead, inside
+the 10~ns budget, so two stages should suffice. That is the argument Step~1
+applies and the argument Step~1 falsifies. The third term is why---it does not
+shrink with $S$, and it follows \emph{local} density rather than total design
+size, which yields two opposite and independently testable predictions: removing
+logic from inside the congested lane should raise \Fmax\ with the arithmetic
+untouched, whereas removing whole lanes should not. Step~2 tests the first and the
+design-space point the second; the model earns its place by predicting the
+negative result as well as the positive one.
 
 Table~\ref{tab:fpclose} summarizes the placed utilization and frequency of every
 step in the closure. Steps~1--3 are out-of-context runs holding the lane count at
 eight, the DSE row trims the design to four lanes, and the final row is the
 complete system-on-chip implemented in-context with full pin constraints after the
-fetch/execute split described at the end of this section. Fig.~\ref{fig:fpclosure}
-plots the placed critical path at each step, split into logic and routing delay;
-the routing share never drops below half.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fp_closure.png}
-\caption{Placed critical path at each closure step, split into logic and routing
-delay (worst path of each sign-off timing report, with the achieved \Fmax\ above
-each bar). Every step is routing-dominated.}
-\label{fig:fpclosure}
-\end{figure}
+fetch/execute split described at the end of this section. Across every step the
+routing share of the placed critical path never drops below half.
 
 \begin{table*}[t]
 \caption{Placed post-route results across the timing-closure steps, the four-lane
@@ -512,19 +505,19 @@ DSE point, and the final deployable system-on-chip.}
 \label{tab:fpclose}
 \centering
 \footnotesize
-\setlength{\tabcolsep}{9pt}
-\begin{tabular}{clrrrrrrrl}
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{clrrrrrrrlr}
 \toprule
 \# & Configuration & Lanes & LUT & LUT\% & LUTRAM & FF & DSP & Power (W)
-   & \multicolumn{1}{c}{\Fmax\ (MHz)} \\
+   & \multicolumn{1}{c}{\Fmax\ (MHz)} & LUT/lane$\cdot$MHz \\
 \midrule
-1 & Two-stage FMA               & 8 & 72{,}573 & 31.5 & 3{,}348 & 12{,}347 & 40 & 1.53 & \phantom{0}78.0 \\
-2 & \quad + shared serial SFU   & 8 & 68{,}914 & 29.9 & 3{,}348 & 11{,}153 & 40 & 1.22 & \phantom{0}84.1 \\
-3 & \quad + three-stage FMA     & 8 & 69{,}987 & 30.4 & 3{,}348 & 14{,}954 & 40 & 1.22 & \textbf{100.7} \\
+1 & Two-stage FMA               & 8 & 72{,}573 & 31.5 & 3{,}348 & 12{,}347 & 40 & 1.53 & \phantom{0}78.0 & 116.3 \\
+2 & \quad + shared serial SFU   & 8 & 68{,}914 & 29.9 & 3{,}348 & 11{,}153 & 40 & 1.22 & \phantom{0}84.1 & 102.4 \\
+3 & \quad + three-stage FMA     & 8 & 69{,}987 & 30.4 & 3{,}348 & 14{,}954 & 40 & 1.22 & \textbf{100.7} & \textbf{86.9} \\
 \midrule
-  & DSE point: four lanes       & 4 & 36{,}785 & 16.0 & 1{,}748 & \phantom{0}6{,}953 & 20 & 0.98 & \phantom{0}79.7 \\
+  & DSE point: four lanes       & 4 & 36{,}785 & 16.0 & 1{,}748 & \phantom{0}6{,}953 & 20 & 0.98 & \phantom{0}79.7 & 115.4 \\
 \midrule
-  & Deployable SoC (in-context) & 8 & 71{,}567 & 31.1 & 7{,}244 & 17{,}834 & 40 & 1.20 & \textbf{103.7} \\
+  & Deployable SoC (in-context) & 8 & 71{,}567 & 31.1 & 7{,}244 & 17{,}834 & 40 & 1.20 & \textbf{103.7} & \textbf{86.3} \\
 \bottomrule
 \end{tabular}
 
@@ -536,43 +529,67 @@ Target \texttt{xczu7ev} ($230{,}400$ LUTs, $460{,}800$ FFs, $1{,}728$ DSPs) at a
 count; LUTRAM is the distributed-RAM subset of the LUT column and, in the SoC row,
 includes the eight-bank shared memory. Placed critical path by row: the FMA cone
 in rows~1, 2 and at the DSE point; the VRF LUTRAM read multiplexer in row~3; the
-FP control broadcast in the SoC row.
+FP control broadcast in the SoC row. The last column is a normalized area-time
+product, LUT divided by peak lane throughput (lanes $\times$ \Fmax); lower is
+better, and unlike LUT or \Fmax\ alone it prices area and speed against the work
+the configuration can actually retire.
 \end{minipage}
 \end{table*}
 
-\textbf{Step 1: two-stage FMA, 78~MHz.} The FP unit is first pipelined into two
-stages, split at the FMA accumulator (\texttt{mag}) boundary. The warp pool
-absorbs the extra cycle with a single-slot scoreboard (\texttt{W\_FPC}), the same
-park-and-resume mechanism used for memory and the SFU, so no new structural hazard
-arises and SIMT interleaving hides the latency. Timing-driven synthesis with
-retiming cuts the FP logic depth to 5.3~ns, yet place-and-route closes at 12.8~ns
-(78~MHz). The placed critical path is still the first FMA stage but is now
-routing-dominated, with 7.4 of 12.8~ns (58\%) in wire delay, because in the
-FP-enlarged fabric ($2.5\times$ the integer LUTs across eight wide FP lanes)
-interconnect rather than logic depth has become the binding constraint.
+\textbf{Step 1: two-stage FMA, 78~MHz.} Two stages is the minimum depth the
+conventional sizing argument admits, so it is where the closure starts. The split
+point is chosen by balance rather than convenience: the FMA accumulator
+(\texttt{mag}) boundary is the one cut that leaves the product and alignment
+network on one side and normalization and rounding on the other with comparable
+delay, and an unbalanced cut is worth nothing because the deeper stage sets the
+period. The warp pool absorbs the extra cycle with a single-slot scoreboard
+(\texttt{W\_FPC}), the same park-and-resume mechanism used for memory and the SFU,
+so no new structural hazard arises and SIMT interleaving hides the latency.
+Timing-driven synthesis with retiming cuts the FP logic depth to 5.3~ns, yet
+place-and-route closes at 12.8~ns (78~MHz). The placed critical path is still the
+first FMA stage but is now routing-dominated, with 7.4 of 12.8~ns (58\%) in wire
+delay. The sizing argument was not wrong about the logic---5.3~ns is well inside
+the budget---it was incomplete: in the FP-enlarged fabric ($2.5\times$ the integer
+LUTs across eight wide FP lanes) the routing term exceeds the logic term, and no
+amount of splitting reduces it.
 
-\textbf{Step 2: confirming the diagnosis, 84~MHz.} If congestion is the limit,
-de-congesting the fabric should raise frequency with the logic unchanged. The
-eight per-lane divide/square-root cores are folded into a single shared serial
-unit fed lane by lane. This removes about $3.7$k LUTs and $1.2$k flip-flops and
-drops power from 1.53 to 1.22~W; crucially it leaves the FMA critical path
-structurally unchanged yet cuts that path's routing delay from 7.4 to 6.5~ns,
-raising the placed maximum to 84~MHz and reducing near-critical endpoints from
-$8.7$k to $3.2$k. Same logic, less congestion, higher frequency: a direct
-confirmation that interconnect, not logic depth, bounds this design.
+\textbf{Step 2: confirming the diagnosis, 84~MHz.} The model says that removing
+logic from inside the congested lane should raise \Fmax\ with the arithmetic
+untouched. The divide/square-root cores are the ideal instrument: they sit inside
+each lane, they are large at 689 LUTs each, and they are off the FMA path
+entirely, so folding the eight of them into a single shared serial unit fed lane
+by lane changes $A_{\text{local}}$ and nothing else. Sharing also carries its own
+break-even. Serialization stretches a divide or square root by at most the lane
+count, so if $r$ is the fraction of runtime a workload spends in these operations
+with private units, sharing costs a factor $1+(L-1)r$ in cycles and returns
+$1.078$ in frequency: a net win whenever $r < 0.078/7 \approx 1.1\%$. The bound is
+pessimistic, assuming none of the serialization is hidden when in practice the
+parked warp lets the scheduler issue three others. Against the measured mix the
+decision is not close---the streaming kernels of Table~\ref{tab:fpkernels} issue
+no divides or square roots at all, and only \texttt{fnorm} pays, which is where
+its $6\times$ cost appears. The predicted frequency effect follows: sharing
+removes about $3.7$k LUTs and $1.2$k flip-flops, drops power from 1.53 to 1.22~W,
+leaves the FMA path structurally unchanged yet cuts its routing delay from 7.4 to
+6.5~ns, raising the placed maximum to 84~MHz and near-critical endpoints from
+$8.7$k to $3.2$k. Same logic, less congestion, higher frequency, and the area-time
+product improves from 116 to 102.
 
-\textbf{Localizing the limit: frequency does not scale with fabric size.} A
-natural question is whether trimming the FP fabric relieves congestion further. It
-does not. Placing the design at four lanes (Table~\ref{tab:fpclose}, DSE row)
-halves its area, $36{,}785$ versus $68{,}914$ LUTs and 20 versus 40 DSP blocks,
-but reaches only 79.7~MHz, marginally below the eight-lane 84.1~MHz, and the
-router still reports CLB congestion. The critical path is a single lane's FMA
-cone, whose logic depth and locally dense 128-bit datapath are independent of the
-lane count; halving the lanes replicates that cone fewer times but packs the
-smaller design into a denser region that gives the lone FMA no relief. The
-eight-lane configuration therefore Pareto-dominates the four-lane one, at equal
-frequency and twice the throughput, and identifies the true frequency lever as the
-FMA microarchitecture rather than the fabric size.
+\textbf{Localizing the limit: the control experiment.} Step~2 alone cannot
+separate the two readings of its own result---that congestion is local to the
+lane, or merely that a smaller design routes better. The model distinguishes them,
+predicting that cutting total area without cutting density around the FMA cone
+buys nothing. The four-lane point (Table~\ref{tab:fpclose}, DSE row) does exactly
+that: it halves the area, $36{,}785$ versus $68{,}914$ LUTs and 20 versus 40 DSP
+blocks, yet reaches only 79.7~MHz, marginally \emph{below} the eight-lane
+84.1~MHz, with the router still reporting CLB congestion. The critical path is a
+single lane's FMA cone, whose logic depth and locally dense 128-bit datapath are
+independent of the lane count; halving the lanes replicates that cone fewer times
+but packs the smaller design into a denser region that gives the lone FMA no
+relief. The negative result is the informative one: it rules out total area as the
+lever, and the area-time product prices the trade without ambiguity, 115.4 at four
+lanes against 102.4 at eight, so the eight-lane configuration Pareto-dominates at
+equal frequency and twice the throughput. What remains is the FMA
+microarchitecture itself.
 
 \textbf{Step 3: closing 100~MHz with a three-stage FMA.} Acting on that finding,
 the FMA is split across three stages---product, 128-bit align-and-add, and
@@ -582,41 +599,42 @@ writeback latency that SIMT interleaving continues to hide on streaming work. Th
 added registers raise flip-flops to $14{,}954$ while leaving LUTs ($69{,}987$),
 DSP blocks, power (1.22~W), and the bit-exact results unchanged. Place-and-route
 now meets timing at 100~MHz with a worst setup slack of $+0.071$~ns, tracing
-$78\rightarrow84\rightarrow100.7$~MHz across the three steps, and the critical
-path moves off the FMA onto the vector-register-file LUTRAM read multiplexer, the
-same structure that bounds the integer design (Section~\ref{sec:impl}). The
-floating-point datapath is no longer the frequency limiter, which confirms that
-FMA logic depth---the lever the design-space exploration identified---was the true
-constraint.
+$78\rightarrow84\rightarrow100.7$~MHz across the three steps and the area-time
+product from 116.3 to 86.9, and the critical path moves off the FMA onto the
+vector-register-file LUTRAM read multiplexer, the same structure that bounds the
+integer design (Section~\ref{sec:impl}). The floating-point datapath is no longer
+the frequency limiter, which confirms that FMA logic depth---the lever the
+design-space exploration identified---was the true constraint.
+
+That observation is also the stopping criterion. A fourth stage would subdivide a
+cone that is no longer the longest path, so it cannot lower $T_{\text{placed}}$ at
+all while still adding a cycle of writeback latency to every FP instruction.
+Deeper pipelining stops paying exactly where the structure being pipelined stops
+being critical---a bound set by the design rather than the budget.
 
 \textbf{From out-of-context closure to a deployable SoC.} Closing the accelerator
 out-of-context is not yet a chip. Integrated into \texttt{chip\_top} with the host
 core and the eight-bank shared memory, the FP-enlarged SoC first places at only
-82.5~MHz. The worst path is again congestion-bound, but now through the warp
-scheduler's fetch--execute cloud: instruction fetch from the asynchronous LUTRAM
-memory, decode, register-file read, execute, and writeback all completed in one
-combinational cycle, and 82\% of the placed path was routing on its two
-highest-fanout broadcast nets. Registering FP operands at issue, replicating the
-broadcast nets, and fully pipelining the DSP multiplies recover part of the gap
-(96.4~MHz) but leave the single-cycle cloud intact. The last of those changes also
-deepens the FP unit: \texttt{fmul} and the FMA need the same 48-bit significand
-product, so it is computed once on a \emph{shared} $24\times24$ DSP cascade
-carrying a full input register and three output registers, the pattern that draws
-no DSP pipelining advisories. That places the product four cycles after the
-operands and makes the unit in the deployed chip five stages deep rather than
-three; the stage-0 payload rides a matching delay line, the arithmetic is untouched
-and every bit-exact result unchanged, and the single-slot \texttt{W\_FPC}
-scoreboard counts out the longer latency. Splitting the fetch--execute cloud with a
-fetch/execute pipeline register---the fetched instruction and its warp context are
-registered at a new stage boundary, and a per-warp in-flight bit preserves the
-scheduler's re-issue semantics exactly---applies the SIMT latency-hiding argument
-at instruction grain: with two or more runnable warps the pipeline stays full, and
-the measured cycle cost is at most 0.3\% on 1024-element kernels. The full chip
-then places at 107.3~MHz unconstrained and, with every port pin-constrained for
-the ZCU104 (clock on a clock-capable pin) and a warning-free design-rule check
-with no waivers or severity downgrades, signs off at $+0.360$~ns worst setup slack
-(103.7~MHz), $71{,}567$ LUTs (31\%), 40 DSP blocks, zero block RAM, and 1.20~W
-(Table~\ref{tab:fpclose}, final row), yielding a deployable bitstream.
+82.5~MHz. The same model applies at a new site: the worst path is congestion-bound
+through the warp scheduler's fetch--execute cloud, where fetch from asynchronous
+LUTRAM, decode, register-file read, execute, and writeback all complete in one
+combinational cycle, with 82\% of the placed path routing on its two
+highest-fanout broadcast nets. Registering FP operands at issue, replicating those
+nets, and fully pipelining the DSP multiplies recover part of the gap (96.4~MHz).
+The last of these also deepens the FP unit: \texttt{fmul} and the FMA need the
+same 48-bit significand product, so it is computed once on a \emph{shared}
+$24\times24$ DSP cascade, placing the product four cycles after the operands and
+making the deployed unit five stages deep rather than three, with the stage-0
+payload on a matching delay line, the arithmetic untouched, and \texttt{W\_FPC}
+counting out the longer latency. Splitting the cloud itself with a fetch/execute
+pipeline register---a per-warp in-flight bit preserves the scheduler's re-issue
+semantics exactly---applies the SIMT latency-hiding argument at instruction grain:
+with two or more runnable warps the pipeline stays full, at a measured cycle cost
+of at most 0.3\% on 1024-element kernels. The full chip then places at 107.3~MHz
+unconstrained and, with every port pin-constrained for the ZCU104 and a
+warning-free design-rule check with no waivers, signs off at $+0.360$~ns worst
+setup slack (103.7~MHz), $71{,}567$ LUTs (31\%), 40 DSP blocks, zero block RAM,
+and 1.20~W (Table~\ref{tab:fpclose}, final row), yielding a deployable bitstream.
 
 %==============================================================================
 \section{Related Work}\label{sec:related}
@@ -660,23 +678,20 @@ graphics research.
 Table~\ref{tab:related} places SIMTiX next to the per-core FPGA numbers published
 for Vortex, the closest comparable design: the complete SIMTiX SoC, host CPU,
 driver ROM, and eight-bank shared memory included, fits in the logic budget of
-roughly one Vortex core of equal warp and lane geometry. The frequency columns,
-however, are not directly comparable, and we do not read the gap as a two-fold
-speed deficit. The Vortex entries are pre-placement synthesis estimates on an
-Intel fabric; the system actually demonstrated in~\cite{vortex} runs at 200~MHz.
-The SIMTiX entries are post-route on UltraScale+ and are bounded by the 100~MHz
-target we constrain the build to rather than by a swept maximum: both SoCs close
-that target with positive slack, so the reported figure is a signed-off operating
-point, not a ceiling. The wider point is that a pre-placement number says little
-about the placed one: Section~\ref{sec:fppa} reports our FP design synthesizing to
-a 5.3~ns logic depth yet closing at 12.8~ns placed, because the binding constraint
-turned out to be routing congestion rather than logic depth. That placed,
-signed-off closure study is not reported for the larger cores. Open floating-point units such as
-FPnew~\cite{fpnew} offer multiformat arithmetic as standalone IP; SIMTiX instead
-integrates a per-lane FP datapath into the SIMT pipeline and studies its placed
-timing. Control-divergence handling via reconvergence stacks is long
-studied~\cite{fung,tesla}; SIMTiX uses the standard stack mechanism and reuses its
-mask for lane clock-gating.
+roughly one Vortex core of equal warp and lane geometry. The frequency columns are
+not directly comparable and we do not read the gap as a speed deficit. The Vortex
+entries are pre-placement synthesis estimates on an Intel fabric, and the system
+actually demonstrated in~\cite{vortex} runs at 200~MHz; the SIMTiX entries are
+post-route on UltraScale+ and bounded by the 100~MHz target we constrain to rather
+than a swept maximum, a signed-off operating point rather than a ceiling. The
+wider point is that a pre-placement number says little about the placed one:
+Section~\ref{sec:fppa} reports our FP design synthesizing to a 5.3~ns logic depth
+yet closing at 12.8~ns placed, and that placed closure study is not reported for
+the larger cores. Open floating-point units such as FPnew~\cite{fpnew} offer
+multiformat arithmetic as standalone IP; SIMTiX instead integrates a per-lane FP
+datapath into the SIMT pipeline and studies its placed timing. Control-divergence
+handling via reconvergence stacks is long studied~\cite{fung,tesla}; SIMTiX uses
+the standard stack mechanism and reuses its mask for lane clock-gating.
 
 %==============================================================================
 \section{Conclusion}
@@ -685,16 +700,18 @@ SIMTiX shows that the full SIMT mechanism set fits in a compact RISC-V
 accelerator that runs end-to-end through a real implementation flow, with a
 distributed-RAM register file the key to making it small and fast on FPGA, and a
 per-lane unit adding FP32 and FP16 arithmetic verified bit-exact over
-$116{,}089$ vectors. The central result is a placed timing-closure study: the
-FP-enlarged fabric is interconnect-bound, a limit diagnosed, confirmed by
-de-congestion, and localized to a single lane's FMA cone, then closed at 100~MHz
-with a three-stage FMA that moves the critical path onto the same register-file
-read multiplexer that bounds the integer design. A fetch/execute pipeline in the
-warp scheduler carries that closure to the complete SoC, which signs off at
-103.7~MHz with full ZCU104 pin constraints and a warning-free design-rule check,
-at a measured cycle cost under 0.3\%. An ASIC path through the SkyWater
-130\,nm PDK~\cite{sky130} with OpenLane~\cite{openlane} would turn these FPGA
-numbers into silicon-relevant area, frequency, and power.
+$116{,}089$ vectors. The central result is a placed timing-closure study driven by
+a single delay model: the FP-enlarged fabric is interconnect-bound, a limit
+diagnosed, confirmed by de-congestion, and localized by a control experiment that
+the model correctly predicts will fail, then closed at 100~MHz with a three-stage
+FMA that moves the critical path onto the same register-file read multiplexer that
+bounds the integer design, improving the area-time product by 25\% along the way.
+A fetch/execute pipeline carries that closure to the complete SoC, which signs off
+at 103.7~MHz with full ZCU104 pin constraints and a warning-free design-rule
+check, at a measured cycle cost under 0.3\%. The broader lesson is that on a
+design small enough to re-place in full, a frequency limit can be named, tested
+against a prediction that could have failed, and removed---a loop that a
+synthesis-only estimate cannot close.
 
 %==============================================================================
 %----- REQUIRED BY THE VLSID CFP: "You must explicitly declare the use of AI in
@@ -758,13 +775,8 @@ Arithmetic}, 2nd ed. Birkh\"auser, 2018.
 Morgan Kaufmann, 2004.
 \bibitem{figueroa} S.~A.~Figueroa, ``When is double rounding innocuous?,''
 \emph{ACM SIGNUM Newsletter}, vol.~30, no.~3, pp.~21--26, 1995.
-\bibitem{verilator} W.~Snyder, ``Verilator: Open-Source SystemVerilog
-Simulation and Verification,'' Veripool, \url{https://www.veripool.org/verilator}.
-\bibitem{sky130} SkyWater Technology and Google, ``SkyWater Open Source PDK
-(sky130),'' \url{https://github.com/google/skywater-pdk}.
-\bibitem{openlane} A.~Ghazy and M.~Shalan, ``OpenLane: The Open-Source Digital
-ASIC Implementation Flow,'' in \emph{Workshop on Open-Source EDA Technology
-(WOSET)}, 2020.
+\bibitem{verilator} W.~Snyder, ``Verilator,'' Veripool,
+\url{https://www.veripool.org/verilator}.
 \end{thebibliography}
 
 \end{document}
