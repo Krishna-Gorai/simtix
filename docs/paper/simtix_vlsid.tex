@@ -74,12 +74,13 @@ floating-point unit covering FP32 and FP16 add, multiply, fused multiply-add, an
 iterative divide and square root, verified bit-exact against an IEEE-754 reference
 over $116{,}089$ vectors; half precision reuses the single-precision datapath
 through NaN-boxed widen--compute--narrow at no cycle cost. The central result is a
-\emph{placed} timing-closure study of this datapath on a Zynq UltraScale+ FPGA.
-The floating-point fabric is interconnect-bound: we diagnose the limit, confirm it
-by de-congestion, localize it to a single lane's fused-multiply-add cone, and
-close 100~MHz with a three-stage unit that moves the critical path off the
-floating-point datapath. The complete system-on-chip signs off at 103.7~MHz as a
-deployable, pin-constrained bitstream with a warning-free design-rule check.
+\emph{placed} timing-closure study of this datapath on a Zynq UltraScale+ FPGA,
+organized around an explicit delay model. The floating-point fabric is
+interconnect-bound: we diagnose the limit, confirm it by de-congestion, localize
+it to a single lane's fused-multiply-add cone, and close 100~MHz with a
+three-stage unit that moves the critical path off the floating-point datapath. The
+complete system-on-chip signs off at 103.7~MHz as a deployable, pin-constrained
+bitstream with a clean design-rule check.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -356,16 +357,17 @@ intermediate carries a 24-bit significand and $24\ge 2\cdot11+2$, rounding to FP
 then to FP16 equals rounding directly to FP16~\cite{figueroa}, so FP16 add,
 subtract, multiply, FMA, and the conversions are correctly single-rounded. Half
 precision thus reuses the verified single-precision logic almost entirely, adding
-only widen, narrow, and box steps, and no extra cycles.
+only widen, narrow, and box steps and, as Fig.~\ref{fig:fpthr} shows, no extra
+cycles.
 
 \textbf{Fused multiply-add.} The FMA computes $\pm(a\cdot b)\pm c$ with a single
 rounding~\cite{muller}, so it cannot be built by chaining the multiplier and the
 adder. The unit forms the exact 48-bit product, anchors it in a wide fixed-point
 accumulator, aligns the addend while capturing a sticky bit, and normalizes and
 rounds once. When the addend out-ranges the product beyond the rounding window the
-product is provably below half a unit in the last place, which yields the addend
-exactly and bounds the alignment shifter. Section~\ref{sec:fppa} describes how
-this combinational chain is pipelined for timing closure.
+product is provably below half a unit in the last place, yielding the addend
+exactly and bounding the alignment shifter. Section~\ref{sec:fppa} pipelines this
+chain for timing closure.
 
 \textbf{Multi-cycle divide and square root.} Division and square root produce one
 quotient or root bit per cycle by a digit recurrence~\cite{ercegovac} and are the
@@ -388,73 +390,61 @@ $116{,}089$ bit-exact comparisons, zero mismatches.
 
 \textbf{Throughput and application kernels.} The FP unit is pipelined
 (Section~\ref{sec:fppa}); an FP instruction commits a fixed number of cycles after
-issue and the issuing warp parks a single slot until it does, a latency that SIMT
-interleaving hides on streaming work. Measured against problem size on streaming
-add and multiply-add in both precisions, the latency-hiding ramp matches the
-integer suite and saturates near 7 work-items per cycle at 100\% lane utilization,
-with the FP16 points falling exactly on the FP32 curves because half precision
-shares the pipelined datapath.
-Table~\ref{tab:fpkernels} runs four toolchain-assembled FP kernels through the
-engine. Two effects stand out. The iterative divide/square-root unit is visible:
-\texttt{fnorm} $=A/\sqrt{B}$ takes about $6\times$ the cycles of streaming
-\texttt{fsaxpy}, the cost of correctly-rounded iterative operations. Divergence
-interacts with the now-larger lane datapath: \texttt{fdot}'s reduction leaves one
-of eight lanes active during the collapse, at 45\% utilization, so the absolute
-energy a mask-gated design saves grows with the FP-enlarged lane.
+issue and the issuing warp parks a single slot until it does, a latency SIMT
+interleaving hides on streaming work. Fig.~\ref{fig:fpthr} plots throughput
+against problem size for streaming add and multiply-add in both precisions: the
+ramp matches the integer suite and saturates near 7 work-items per cycle at 100\%
+utilization, the FP16 points falling exactly on the FP32 curves because half
+precision shares the pipelined datapath.
 
-\begin{table}[t]
-\caption{FP application kernels at $N{=}256$ (FP32 unless noted), all verified
-bit-exact.}
-\label{tab:fpkernels}
+\begin{figure}[t]
 \centering
-\footnotesize
-\begin{tabular}{llrrr}
-\toprule
-Kernel & Computation & Cycles & Gmem & Util.\\
-\midrule
-\texttt{fsaxpy}   & $\alpha A_i + B_i$ (\texttt{fmadd}) & 419     & \phantom{0}96 & 100\%\\
-\texttt{fsaxpy16} & $\alpha A_i + B_i$ (FP16)           & 451     & \phantom{0}96 & 100\%\\
-\texttt{fnorm}    & $A_i/\sqrt{B_i}$ (div\,+\,sqrt)     & 2{,}396 & \phantom{0}96 & 100\%\\
-\texttt{fdot}     & $\sum_l A_{8w+l}B_{8w+l}$           & 1{,}991 & \phantom{0}96 & \phantom{0}45\%\\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=\columnwidth]{fp_throughput.png}
+\caption{Floating-point throughput versus problem size for streaming add and
+multiply-add kernels. The hollow FP16 markers sit exactly on the FP32 curves
+because both precisions use the same pipelined datapath.}
+\label{fig:fpthr}
+\end{figure}
+Four bit-exact kernels at $N{=}256$ isolate two further effects. Streaming
+\texttt{fsaxpy} ($\alpha A_i+B_i$) takes 419 cycles at 100\% utilization, its FP16
+form 451. Against that baseline the iterative unit is plainly visible:
+\texttt{fnorm} $=A_i/\sqrt{B_i}$ takes $2{,}396$ cycles, about $6\times$
+\texttt{fsaxpy}, the price of correctly-rounded iteration. Divergence interacts
+with the larger lane datapath: \texttt{fdot}'s cross-lane reduction ($1{,}991$
+cycles) leaves one of eight lanes active during the collapse, at 45\% utilization,
+so the absolute energy a mask-gated design saves grows with the FP-enlarged lane.
 
 %==============================================================================
 \section{Placed Timing Closure of the FP Datapath}\label{sec:fppa}
 %==============================================================================
 Floating point raises the accelerator from $30{,}088$ to $74{,}342$ LUTs
-($2.5\times$), flip-flops from $4{,}590$ to $7{,}894$, and DSP blocks from 24 to
-40, at 1.34~W. The increase is dominated by the common-case arithmetic unit---eight
+($2.5\times$), flip-flops from $4{,}590$ to $7{,}894$, and DSPs from 24 to 40, at
+1.34~W. The increase is dominated by the common-case arithmetic unit---eight
 per-lane copies of the add/multiply/FMA/convert datapath, the FMA largest among
-them---and not by the iterative divide/square-root cores, which synthesize to only
-689 LUTs each, about 7\% of the design. The FMA is also the longest combinational
-chain: as a single-cycle block its raw path is 16.2~ns (61~MHz), making it the
-frequency bottleneck.
+them---not by the iterative divide/square-root cores, only 689 LUTs each or about
+7\% of the design. The FMA is also the longest combinational chain: as a
+single-cycle block its raw path is 16.2~ns (61~MHz), making it the bottleneck.
 
 \textbf{A delay model, and what it predicts.} The steps below are predictions of
 one model rather than independent attempts. Write the placed period of the FMA
 path as $T_{\text{placed}} = T_{\text{logic}}/S + t_{\text{reg}} +
-T_{\text{route}}(A_{\text{local}})$, with $S$ the number of stages the chain is
-split across, $t_{\text{reg}}$ the register overhead, and $A_{\text{local}}$ the
-placed density of the region holding that one cone. Conventional sizing uses only
-the first two terms: halving a 16.2~ns chain leaves 8.1~ns plus overhead, inside
-the 10~ns budget, so two stages should suffice. That is the argument Step~1
-applies and the argument Step~1 falsifies. The third term is why---it does not
-shrink with $S$, and it follows \emph{local} density rather than total design
-size, which yields two opposite and independently testable predictions: removing
-logic from inside the congested lane should raise \Fmax\ with the arithmetic
-untouched, whereas removing whole lanes should not. Step~2 tests the first and the
-design-space point the second; the model earns its place by predicting the
-negative result as well as the positive one.
+T_{\text{route}}(A_{\text{local}})$, with $S$ the stages the chain is split
+across, $t_{\text{reg}}$ the register overhead, and $A_{\text{local}}$ the placed
+density of the region holding that cone. Conventional sizing uses only the first
+two terms: halving a 16.2~ns chain leaves 8.1~ns plus overhead, inside the 10~ns
+budget, so two stages should suffice. That is the argument Step~1 applies and the
+argument Step~1 falsifies. The third term is why---it does not shrink with $S$ and
+follows \emph{local} density rather than total design size, yielding two opposite
+testable predictions: removing logic from inside the congested lane should raise
+\Fmax\ with the arithmetic untouched, whereas removing whole lanes should not.
+Step~2 tests the first and the design-space point the second; the model earns its
+place by predicting the negative result as well as the positive one.
 
 Table~\ref{tab:fpclose} summarizes the placed utilization and frequency of every
-step in the closure. Steps~1--3 are out-of-context runs holding the lane count at
-eight, the DSE row trims the design to four lanes, and the final row is the
-complete system-on-chip implemented in-context with full pin constraints after the
-fetch/execute split described at the end of this section. Fig.~\ref{fig:fpclosure}
-plots the placed critical path at each step, split into logic and routing delay;
-the routing share never drops below half.
+step: Steps~1--3 are out-of-context runs at eight lanes, the DSE row trims to
+four, and the final row is the complete system-on-chip implemented in-context with
+full pin constraints. Fig.~\ref{fig:fpclosure} splits each placed critical path
+into logic and routing delay; the routing share never drops below half.
 
 \begin{figure}[t]
 \centering
@@ -527,7 +517,7 @@ with private units, sharing costs $1+(L-1)r$ in cycles and returns $1.078$ in
 frequency: a net win whenever $r < 0.078/7 \approx 1.1\%$. The bound is
 pessimistic, assuming none of the serialization is hidden when the parked warp
 lets the scheduler issue three others. Against the measured mix the decision is
-not close---the streaming kernels of Table~\ref{tab:fpkernels} issue no divides or
+not close---the streaming kernels of Section~\ref{sec:fp} issue no divides or
 square roots at all, and only \texttt{fnorm} pays, which is where its $6\times$
 cost appears. The predicted frequency effect follows: sharing removes about
 $3.7$k LUTs and $1.2$k flip-flops, drops power from 1.53 to 1.22~W, leaves the FMA
@@ -578,9 +568,9 @@ core and the eight-bank shared memory, the FP-enlarged SoC first places at only
 82.5~MHz. The same model applies at a new site: the worst path is congestion-bound
 through the warp scheduler's fetch--execute cloud, where fetch from asynchronous
 LUTRAM, decode, register-file read, execute, and writeback all complete in one
-combinational cycle, with 82\% of the placed path routing on its two
-highest-fanout broadcast nets. Registering FP operands at issue, replicating those
-nets, and fully pipelining the DSP multiplies recover part of the gap (96.4~MHz).
+combinational cycle, 82\% of the placed path routing on its two highest-fanout
+broadcast nets. Registering FP operands at issue, replicating those nets, and
+fully pipelining the DSP multiplies recover part of the gap (96.4~MHz).
 The last also deepens the FP unit: \texttt{fmul} and the FMA need the same 48-bit
 significand product, so it is computed once on a \emph{shared} $24\times24$ DSP
 cascade, placing the product four cycles after the operands and making the
@@ -588,11 +578,11 @@ deployed unit five stages deep rather than three, the arithmetic untouched and
 \texttt{W\_FPC} counting out the longer latency. Splitting the cloud itself with a
 fetch/execute pipeline register---a per-warp in-flight bit preserves re-issue
 semantics exactly---applies the latency-hiding argument at instruction grain: with
-two or more runnable warps the pipeline stays full, at a measured cycle cost of at
-most 0.3\%. The full chip then places at 107.3~MHz unconstrained and, with every
-port pin-constrained for the ZCU104 and a warning-free design-rule check with no
-waivers, signs off at $+0.360$~ns worst setup slack (103.7~MHz), $71{,}567$ LUTs
-(31\%), 40 DSPs, zero block RAM, and 1.20~W, yielding a deployable bitstream.
+two or more runnable warps the pipeline stays full, at a cycle cost of at most
+0.3\%. The full chip then places at 107.3~MHz unconstrained and, pin-constrained
+for the ZCU104 with a warning-free design-rule check and no waivers, signs off at
+$+0.360$~ns worst slack (103.7~MHz), $71{,}567$ LUTs (31\%), 40 DSPs, zero block
+RAM, and 1.20~W: a deployable bitstream.
 
 %==============================================================================
 \section{Related Work}\label{sec:related}
@@ -634,9 +624,8 @@ Southern Islands ISA as an FPGA soft GPGPU, but its memory subsystem---L2 cache,
 on-chip network, and memory controller---is modeled behaviorally in C/C++ rather
 than RTL, so it does not carry a complete design through an implementation flow.
 Simty~\cite{simty} demonstrates generalized SIMT execution of the RISC-V ISA,
-integer-only and reporting synthesis area in logic elements on an Intel
-Cyclone~IV, and Nyuzi (published as Nyami)~\cite{nyuzi} is a synthesizable vector
-GPGPU for graphics research.
+integer-only and reporting synthesis area on an Intel Cyclone~IV, and Nyuzi
+(published as Nyami)~\cite{nyuzi} is a synthesizable vector GPGPU for graphics.
 
 Table~\ref{tab:related} places SIMTiX next to the published FPGA numbers for these
 designs: the complete SIMTiX SoC, host CPU, driver ROM, and shared memory
@@ -653,15 +642,14 @@ reported for the larger cores.
 
 Two observations from that literature corroborate ours. Ventus reports the vector
 register file as the largest block of its streaming multiprocessor, 54.4\% of
-area~\cite{ventus25}; SIMTiX reaches the same structure from the timing side,
-its read multiplexer bounding both the integer design and, once the FMA is
-pipelined, the FP one. On performance, Ventus measures 0.47, 0.40, and 0.32
-instructions per cycle at 4, 8, and 16 threads, counting one warp-wide operation
-as one instruction; SIMTiX averages 0.78 by that convention across
-Table~\ref{tab:speedup} (0.68--0.87). These are not like-for-like---ours is taken
-under a single-cycle behavioral memory model and so excludes the memory-hierarchy
-stalls that dominate Ventus's---and it therefore bounds what the scheduler
-achieves, not what a cached system would. Open floating-point units such as FPnew~\cite{fpnew} offer
+area~\cite{ventus25}; SIMTiX reaches the same structure from the timing side, its
+read multiplexer bounding both the integer design and, once the FMA is pipelined,
+the FP one. Ventus also measures 0.47, 0.40, and 0.32 instructions per cycle at 4,
+8, and 16 threads, counting one warp-wide operation as one instruction; SIMTiX
+averages 0.78 by that convention across Table~\ref{tab:speedup} (0.68--0.87).
+These are not like-for-like---ours excludes the memory-hierarchy stalls that
+dominate Ventus's, being taken under a single-cycle behavioral memory model---so
+it bounds what the scheduler achieves, not what a cached system would. Open floating-point units such as FPnew~\cite{fpnew} offer
 multiformat arithmetic as standalone IP; SIMTiX instead integrates a per-lane FP
 datapath into the SIMT pipeline and studies its placed timing. Control-divergence
 handling via reconvergence stacks is long studied~\cite{fung,tesla}; SIMTiX uses
@@ -711,9 +699,9 @@ take full responsibility for this paper.
 \emph{Proc. IEEE/ACM MICRO}, 2021.
 \bibitem{ventus} F.~Zhang \emph{et al.}, ``Ventus: a RISC-V based GPGPU,''
 open-source project, 2022.
-\bibitem{ventus25} J.~Li, F.~Yu, M.~Ma, W.~Liu, Y.~Wang, H.~Wu, and H.~He,
-``RISC-V-Based GPGPU With Vector Capabilities for High-Performance Computing,''
-\emph{IEEE Trans. VLSI Syst.}, vol.~33, no.~8, pp.~2239--2252, Aug. 2025.
+\bibitem{ventus25} J.~Li \emph{et al.}, ``RISC-V-Based GPGPU With Vector
+Capabilities for High-Performance Computing,'' \emph{IEEE Trans. VLSI Syst.},
+vol.~33, no.~8, pp.~2239--2252, Aug. 2025.
 \bibitem{miaow} R.~Balasubramanian \emph{et al.}, ``Enabling GPGPU Low-Level
 Hardware Explorations with MIAOW: An Open-Source RTL Implementation of a GPGPU,''
 \emph{ACM Trans. Archit. Code Optim.}, vol.~12, no.~2, 2015.
@@ -733,9 +721,8 @@ graphics-specific workloads,'' in \emph{Proc. IEEE ISPASS}, 2015.
 2018.
 \bibitem{hennessy} J.~L.~Hennessy and D.~A.~Patterson, \emph{Computer
 Architecture: A Quantitative Approach}, 6th ed. Morgan Kaufmann, 2017.
-\bibitem{gpgpusim} A.~Bakhoda, G.~L.~Yuan, W.~W.~L.~Fung, H.~Wong, and
-T.~M.~Aamodt, ``Analyzing CUDA Workloads Using a Detailed GPU Simulator,'' in
-\emph{Proc. IEEE ISPASS}, 2009.
+\bibitem{gpgpusim} A.~Bakhoda \emph{et al.}, ``Analyzing CUDA Workloads Using a
+Detailed GPU Simulator,'' in \emph{Proc. IEEE ISPASS}, 2009.
 \bibitem{gpuwattch} J.~Leng \emph{et al.}, ``GPUWattch: Enabling Energy
 Optimizations in GPGPUs,'' in \emph{Proc. ACM/IEEE ISCA}, 2013.
 \bibitem{fpnew} S.~Mach, F.~Schuiki, F.~Zaruba, and L.~Benini, ``FPnew: An
