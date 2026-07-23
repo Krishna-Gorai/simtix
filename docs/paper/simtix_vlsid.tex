@@ -94,21 +94,28 @@ Graphics processing units execute thousands of scalar threads in lockstep groups
 called \emph{warps} under a Single-Instruction Multiple-Thread (SIMT) model. The
 mechanisms that make this efficient---warp scheduling for latency hiding, memory
 coalescing, control-divergence handling, and on-chip scratchpads---are well
-documented for commercial GPUs~\cite{hennessy,aamodt} but hard to study in RTL.
-Production GPUs are proprietary; open GPGPU cores such as Vortex~\cite{vortex}
-are powerful but large and complex to bring up; and small academic cores are
-often simulator-only or stop short of a real implementation flow.
+documented for commercial GPUs~\cite{hennessy,aamodt}, but what they cost once
+placed and routed is not. Production GPUs are proprietary; open GPGPU cores such
+as Vortex~\cite{vortex} are powerful but large, and report pre-placement
+synthesis estimates; and small academic cores are often simulator-only or stop
+short of a real implementation flow. The result is that the physical behavior of
+the SIMT mechanism set---which structure actually bounds frequency, and why---is
+largely unreported.
 
 This paper presents SIMTiX, a deliberately compact SIMT accelerator for RISC-V
 whose entire path, from RTL through bitstream and post-route gate-level
 sign-off, is carried out on a single workstation with free or widely available
-tools. SIMTiX is small enough to be understood end-to-end yet implements the
-complete SIMT mechanism set, and every lane is extended with a pipelined
-floating-point unit. Its headline result is a \emph{placed} timing-closure study
-showing that, once the lanes carry floating point, the design becomes
-interconnect-bound rather than logic-bound, and that 100~MHz is reached by
-attacking the per-lane fused multiply-add (FMA) microarchitecture, a lever
-identified through a measured diagnose--confirm--localize sequence.
+tools. Compactness here is a method rather than a goal. A design small enough to
+re-place and re-route in full, in hours, is one whose frequency limit can be
+attributed to a named structure and then \emph{tested} by changing only that
+structure and re-running the flow---a controlled experiment that is impractical
+on a large core and unavailable in a simulator. SIMTiX implements the complete
+SIMT mechanism set, and every lane is extended with a pipelined floating-point
+unit. Its headline result is a \emph{placed} timing-closure study showing that,
+once the lanes carry floating point, the design becomes interconnect-bound
+rather than logic-bound, and that 100~MHz is reached by attacking the per-lane
+fused multiply-add (FMA) microarchitecture, a lever identified through a
+measured diagnose--confirm--localize sequence.
 
 \noindent\textbf{Contributions.}
 \begin{itemize}
@@ -175,8 +182,10 @@ data reused across a warp's lanes be staged once, cutting global traffic.
 
 The active mask additionally drives a per-lane clock enable, so masked-off lanes
 are not clocked; the unused-lane fraction is dynamic energy that a
-divergence-aware design saves, up to 22.5\% on a divergence-heavy
-kernel~\cite{gpuwattch}. Every mechanism is instrumented with hardware counters
+divergence-aware design saves. From lane utilization measured in our own RTL
+counters, under a first-order equal-energy-per-lane-instruction model in the
+spirit of activity-based GPU power models~\cite{gpuwattch}, that saving reaches
+22.5\% of lane-datapath dynamic energy on a heavily divergent kernel. Every mechanism is instrumented with hardware counters
 and is therefore measured directly in RTL rather than estimated in a software
 model~\cite{gpgpusim}.
 
@@ -256,7 +265,10 @@ loop runs in hardware.
 \caption{SIMTiX system architecture. The five-stage RISC-V host drives the SIMT
 accelerator over a memory-mapped offload interface and exchanges operands and
 results through the eight-bank on-chip shared memory. Floating-point blocks are
-tinted blue; register files and the scratchpad live in distributed RAM (LUTRAM).}
+tinted blue; register files and the scratchpad live in distributed RAM (LUTRAM).
+The FP unit is drawn as deployed: the three-stage FMA that closes 100~MHz
+(Section~\ref{sec:fppa}) becomes five stages in the final chip once the
+significand multiply is fully pipelined onto DSP blocks.}
 \label{fig:arch}
 \end{figure}
 
@@ -643,7 +655,8 @@ multi-core design, and Ventus~\cite{ventus}, a PTX/Vortex-style GPGPU; both targ
 performance and scale and are correspondingly large. Simty~\cite{simty}
 demonstrates generalized SIMT execution of the RISC-V ISA, integer-only and
 reporting synthesis area in logic elements on an Intel Cyclone~IV, and
-Nyuzi~\cite{nyuzi} is a synthesizable vector GPGPU for graphics research.
+Nyuzi (published as Nyami)~\cite{nyuzi} is a synthesizable vector GPGPU for
+graphics research.
 
 Table~\ref{tab:related} places SIMTiX next to the per-core FPGA numbers published
 for Vortex, the closest comparable design: the complete SIMTiX SoC, host CPU,
