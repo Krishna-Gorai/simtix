@@ -41,8 +41,8 @@
 
 \begin{document}
 
-\title{SIMTiX: An Open-Source SIMT Accelerator\\
-for RISC-V with a Pipelined FP32/FP16 Datapath}
+\title{SIMTiX: A Compact SIMT Accelerator for\\
+RISC-V with a Pipelined FP32/FP16 Datapath}
 
 \ifanon
 \author{\IEEEauthorblockN{Anonymous Author(s)}
@@ -61,9 +61,9 @@ Email: bikram@iitmandi.ac.in}}
 \maketitle
 
 \begin{abstract}
-We present SIMTiX, a compact open-source Single-Instruction Multiple-Thread
-(SIMT) accelerator for RISC-V whose complete path---RTL, simulation, synthesis,
-place-and-route, and post-route gate-level sign-off---is reproducible on a single
+We present SIMTiX, a compact Single-Instruction Multiple-Thread (SIMT)
+accelerator for RISC-V whose complete path---RTL, simulation, synthesis,
+place-and-route, and post-route gate-level sign-off---is carried out on a single
 workstation. Eight lanes grouped into four resident warps attach to a five-stage
 RISC-V host through a memory-mapped offload interface and implement the full SIMT
 mechanism set: warp scheduling with a background memory engine, address
@@ -84,7 +84,7 @@ deployable, pin-constrained bitstream with a warning-free design-rule check.
 
 \begin{IEEEkeywords}
 SIMT, GPGPU, RISC-V, hardware accelerator, floating-point, half precision,
-fused multiply-add, timing closure, FPGA, open-source hardware.
+fused multiply-add, timing closure, FPGA, place-and-route.
 \end{IEEEkeywords}
 
 %==============================================================================
@@ -99,10 +99,10 @@ Production GPUs are proprietary; open GPGPU cores such as Vortex~\cite{vortex}
 are powerful but large and complex to bring up; and small academic cores are
 often simulator-only or stop short of a real implementation flow.
 
-This paper presents SIMTiX, a deliberately compact open-source SIMT accelerator
-for RISC-V whose entire path, from RTL through bitstream and post-route
-gate-level sign-off, is reproducible on a single workstation with free or widely
-available tools. SIMTiX is small enough to read end-to-end yet implements the
+This paper presents SIMTiX, a deliberately compact SIMT accelerator for RISC-V
+whose entire path, from RTL through bitstream and post-route gate-level
+sign-off, is carried out on a single workstation with free or widely available
+tools. SIMTiX is small enough to be understood end-to-end yet implements the
 complete SIMT mechanism set, and every lane is extended with a pipelined
 floating-point unit. Its headline result is a \emph{placed} timing-closure study
 showing that, once the lanes carry floating point, the design becomes
@@ -112,10 +112,11 @@ identified through a measured diagnose--confirm--localize sequence.
 
 \noindent\textbf{Contributions.}
 \begin{itemize}
-\item A compact open-source SIMT accelerator (eight lanes, four resident warps)
-integrated with a five-stage RISC-V host as a self-contained system-on-chip that
-exercises the entire RTL-to-bitstream flow
-(Sections~\ref{sec:arch}--\ref{sec:impl}).
+\item A SIMT accelerator (eight lanes, four resident warps) that implements the
+complete mechanism set---warp scheduling, coalescing, a reconvergence stack, and
+a scratchpad---in a design compact enough to carry through the entire
+RTL-to-bitstream flow, integrated with a five-stage RISC-V host as a
+self-contained system-on-chip (Sections~\ref{sec:arch}--\ref{sec:impl}).
 \item An implementation result showing that moving the vector register file and
 the scratchpad into distributed RAM reduces LUT usage by $5.7\times$ and closes
 100~MHz timing, with an analysis of why the register-file read multiplexer, not
@@ -278,9 +279,8 @@ at 1.09~W; the accelerator accounts for roughly 87\% of the logic.
 cycle-accurate RTL simulation with self-checking testbenches
 (Verilator~\cite{verilator}); behavioral simulation in the vendor GUI; full
 place-and-route with post-route timing sign-off; and post-implementation
-gate-level functional simulation of the routed netlist (UNISIM primitives), which
-reproduces the integrated chip's golden checksum of 964 bit-for-bit. The benchmark
-suite below adds a fifth, breadth-oriented level.
+gate-level functional simulation of the routed netlist (UNISIM primitives). The
+benchmark suite below adds a fifth, breadth-oriented level.
 
 %==============================================================================
 \section{Platform Evaluation}\label{sec:results}
@@ -669,7 +669,7 @@ mask for lane clock-gating.
 %==============================================================================
 \section{Conclusion}
 %==============================================================================
-SIMTiX shows that the full SIMT mechanism set fits in a compact open-source RISC-V
+SIMTiX shows that the full SIMT mechanism set fits in a compact RISC-V
 accelerator that runs end-to-end through a real implementation flow, with a
 distributed-RAM register file the key to making it small and fast on FPGA. A
 per-lane floating-point unit adds FP32 and FP16 arithmetic, including the fused
@@ -685,8 +685,7 @@ out-of-context accelerator to the complete SoC, which signs off at 103.7~MHz wit
 full ZCU104 pin constraints and a warning-free design-rule check, at a measured
 cycle cost under 0.3\%. An open-source ASIC path through the SkyWater 130\,nm
 PDK~\cite{sky130} with OpenLane~\cite{openlane} would turn these FPGA numbers into
-silicon-relevant area, frequency, and power. The design and its evaluation
-infrastructure \ifanon will be released as open source.\else are public.\fi
+silicon-relevant area, frequency, and power.
 
 %==============================================================================
 \begin{thebibliography}{99}
