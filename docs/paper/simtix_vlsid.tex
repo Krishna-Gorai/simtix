@@ -125,8 +125,7 @@ usage by $5.7\times$, with an analysis of why the register-file read multiplexer
 not the ALUs, dominates a naive SIMT datapath (Section~\ref{sec:impl});
 (iii)~a per-lane FP32/FP16 extension in which half precision is obtained from the
 single-precision path by NaN-boxed widen--compute--narrow, shown to be correctly
-single-rounded and verified bit-exact over $116{,}089$ vectors, evaluated on
-kernels up to a complete INT8 MNIST inference that runs on the chip
+single-rounded and verified bit-exact over $116{,}089$ vectors
 (Section~\ref{sec:fp}); and (iv)~a placed timing-closure study organized around an
 explicit delay model that diagnoses the FP design as interconnect-bound, confirms
 this by de-congestion, localizes the limit to one lane's FMA cone through a
@@ -395,27 +394,13 @@ add and multiply-add in both precisions, the latency-hiding ramp matches the
 integer suite and saturates near 7 work-items per cycle at 100\% lane utilization,
 with the FP16 points falling exactly on the FP32 curves because half precision
 shares the pipelined datapath.
-Table~\ref{tab:fpkernels} runs toolchain-assembled kernels through the engine.
-Three effects stand out. The iterative divide/square-root unit is visible:
+Table~\ref{tab:fpkernels} runs four toolchain-assembled FP kernels through the
+engine. Two effects stand out. The iterative divide/square-root unit is visible:
 \texttt{fnorm} $=A/\sqrt{B}$ takes about $6\times$ the cycles of streaming
 \texttt{fsaxpy}, the cost of correctly-rounded iterative operations. Divergence
 interacts with the now-larger lane datapath: \texttt{fdot}'s reduction leaves one
 of eight lanes active during the collapse, at 45\% utilization, so the absolute
 energy a mask-gated design saves grows with the FP-enlarged lane.
-
-Third, the coalescer admits a closed-form prediction and meets it exactly. A
-four-way packed dot-product instruction extends the engine to quantized integer
-work: \texttt{qgemm} computes an $8\times8$ INT8 matrix product with $K{=}16$,
-$1{,}024$ multiply-accumulates, in 538 cycles. Grouping active lanes by cache line
-predicts $8\times(2K/4+1) = 72$ global transactions against $64\times(2K/4+1) =
-576$ for a per-lane engine, an $8\times$ reduction; the measured count is 72,
-matching the model exactly. Composing these kernels gives a complete application:
-a $784{\rightarrow}128{\rightarrow}10$ INT8 multilayer perceptron for MNIST, built
-from \texttt{qgemv} and a fused requantize-and-ReLU pass, runs end-to-end on the
-integrated chip with the host streaming weight tiles into the scratchpad. It
-reproduces the reference inference $64/64$ bit-exact at 98.4\% classification
-accuracy, the quantization itself costing 0.29\% against the FP32 model (96.53\%
-versus 96.82\%) --- real inference, not a synthetic kernel.
 
 \begin{table}[t]
 \caption{FP application kernels at $N{=}256$ (FP32 unless noted), all verified
@@ -467,8 +452,18 @@ Table~\ref{tab:fpclose} summarizes the placed utilization and frequency of every
 step in the closure. Steps~1--3 are out-of-context runs holding the lane count at
 eight, the DSE row trims the design to four lanes, and the final row is the
 complete system-on-chip implemented in-context with full pin constraints after the
-fetch/execute split described at the end of this section. Across every step the
-routing share of the placed critical path never drops below half.
+fetch/execute split described at the end of this section. Fig.~\ref{fig:fpclosure}
+plots the placed critical path at each step, split into logic and routing delay;
+the routing share never drops below half.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fp_closure.png}
+\caption{Placed critical path at each closure step, split into logic and routing
+delay (worst path of each sign-off timing report, with the achieved \Fmax\ above
+each bar). Every step is routing-dominated.}
+\label{fig:fpclosure}
+\end{figure}
 
 \begin{table*}[t]
 \caption{Placed post-route results across the timing-closure steps, the four-lane
@@ -678,8 +673,8 @@ the standard stack mechanism and reuses its mask for lane clock-gating.
 SIMTiX shows that the full SIMT mechanism set fits in a compact RISC-V
 accelerator running end-to-end through a real implementation flow, with a
 distributed-RAM register file the key to making it small and fast on FPGA and a
-per-lane unit adding FP32 and FP16 verified bit-exact over $116{,}089$ vectors,
-up to a complete INT8 MNIST inference on the chip. The central result is a placed
+per-lane unit adding FP32 and FP16 verified bit-exact over $116{,}089$ vectors.
+The central result is a placed
 timing-closure study driven by one delay model: the FP-enlarged fabric is
 interconnect-bound, a limit diagnosed, confirmed by de-congestion, localized by a
 control experiment the model predicts will fail, then closed at 100~MHz with a
