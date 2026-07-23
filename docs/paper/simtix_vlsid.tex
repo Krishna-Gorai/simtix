@@ -319,10 +319,9 @@ and calls for a dedicated cross-lane reduction primitive. SIMTiX is parameterize
 in its lane and warp counts: a sweep over
 $\mathrm{NUM\_LANES}\in\{4,8,16,32\}$ and $\mathrm{NUM\_WARPS}\in\{2,4,8\}$, in
 which all twelve configurations elaborate and verify bit-exact, shows throughput
-scaling near-linearly with lanes ($\sim\!1.97\times$ per doubling) while the
-resident-warp count makes little difference under the single-cycle behavioral
-memory model. Occupancy beyond two warps pays off only under realistic
-multi-cycle memory.
+scaling near-linearly with lanes ($\sim\!1.97\times$ per doubling), while
+occupancy beyond two warps pays off only under realistic multi-cycle memory, not
+under the single-cycle behavioral model used here.
 
 \begin{table}[t]
 \caption{Measured cycles and speedup over the five-stage RV32I host running
@@ -684,21 +683,36 @@ mask for lane clock-gating.
 %==============================================================================
 SIMTiX shows that the full SIMT mechanism set fits in a compact RISC-V
 accelerator that runs end-to-end through a real implementation flow, with a
-distributed-RAM register file the key to making it small and fast on FPGA. A
-per-lane floating-point unit adds FP32 and FP16 arithmetic, including the fused
-multiply-add and iterative divide and square root, with half precision obtained
-from the single-precision path and verified bit-exact over $116{,}089$ vectors.
-The central result is a placed timing-closure study: the FP-enlarged fabric is
-interconnect-bound, a limit diagnosed, confirmed by de-congestion, and localized
-to a single lane's FMA cone, then closed at 100~MHz with a three-stage FMA that
-moves the critical path off the floating-point datapath onto the same
-register-file read multiplexer that bounds the integer design. A final
-fetch/execute pipeline in the warp scheduler carries that closure from the
-out-of-context accelerator to the complete SoC, which signs off at 103.7~MHz with
-full ZCU104 pin constraints and a warning-free design-rule check, at a measured
-cycle cost under 0.3\%. An open-source ASIC path through the SkyWater 130\,nm
-PDK~\cite{sky130} with OpenLane~\cite{openlane} would turn these FPGA numbers into
-silicon-relevant area, frequency, and power.
+distributed-RAM register file the key to making it small and fast on FPGA, and a
+per-lane unit adding FP32 and FP16 arithmetic verified bit-exact over
+$116{,}089$ vectors. The central result is a placed timing-closure study: the
+FP-enlarged fabric is interconnect-bound, a limit diagnosed, confirmed by
+de-congestion, and localized to a single lane's FMA cone, then closed at 100~MHz
+with a three-stage FMA that moves the critical path onto the same register-file
+read multiplexer that bounds the integer design. A fetch/execute pipeline in the
+warp scheduler carries that closure to the complete SoC, which signs off at
+103.7~MHz with full ZCU104 pin constraints and a warning-free design-rule check,
+at a measured cycle cost under 0.3\%. An ASIC path through the SkyWater
+130\,nm PDK~\cite{sky130} with OpenLane~\cite{openlane} would turn these FPGA
+numbers into silicon-relevant area, frequency, and power.
+
+%==============================================================================
+%----- REQUIRED BY THE VLSID CFP: "You must explicitly declare the use of AI in
+%----- the acknowledgments section of your manuscript." The declaration is
+%----- required in the SUBMITTED (double-blind) version, so it must stay outside
+%----- the \ifanon guard. Only identifying thanks (funding, colleagues) belong in
+%----- the \else branch, which is empty for now.
+\section*{Acknowledgment}
+%==============================================================================
+Per the conference policy on artificial intelligence, the authors declare that a
+large language model (Anthropic Claude, via Claude Code) assisted this work: RTL
+and testbench code, scripting, figure generation, and the drafting and editing of
+this manuscript. All design and experimental decisions were the authors' own, and
+every reported result was produced by the tools named in the text and checked by
+the authors, who take full responsibility for this paper.
+\ifanon\else
+%----- Camera-ready only: funding and personal acknowledgments go here.
+\fi
 
 %==============================================================================
 \begin{thebibliography}{99}
