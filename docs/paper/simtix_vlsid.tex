@@ -103,67 +103,60 @@ the SIMT mechanism set---which structure actually bounds frequency, and why---is
 largely unreported.
 
 This paper presents SIMTiX, a deliberately compact SIMT accelerator for RISC-V
-whose entire path, from RTL through bitstream and post-route gate-level
-sign-off, is carried out on a single workstation with free or widely available
-tools. Compactness here is a method rather than a goal. A design small enough to
-re-place and re-route in full, in hours, is one whose frequency limit can be
-attributed to a named structure and then \emph{tested} by changing only that
-structure and re-running the flow---a controlled experiment that is impractical
-on a large core and unavailable in a simulator. SIMTiX implements the complete
-SIMT mechanism set, and every lane is extended with a pipelined floating-point
-unit. Its headline result is a \emph{placed} timing-closure study showing that,
-once the lanes carry floating point, the design becomes interconnect-bound
-rather than logic-bound, and that 100~MHz is reached by attacking the per-lane
-fused multiply-add (FMA) microarchitecture, a lever identified through a
-measured diagnose--confirm--localize sequence.
+whose entire path, from RTL through bitstream and post-route gate-level sign-off,
+runs on a single workstation with free or widely available tools. Compactness here
+is a method rather than a goal: a design small enough to re-place and re-route in
+full, in hours, is one whose frequency limit can be attributed to a named
+structure and then \emph{tested} by changing only that structure and re-running
+the flow---a controlled experiment impractical on a large core and unavailable in
+a simulator. SIMTiX implements the complete SIMT mechanism set with a pipelined
+floating-point unit per lane. Its headline result is a \emph{placed}
+timing-closure study showing that, once the lanes carry floating point, the design
+becomes interconnect- rather than logic-bound, and that 100~MHz is reached by
+attacking the per-lane fused multiply-add (FMA) microarchitecture.
 
-\noindent\textbf{Contributions.}
-\begin{itemize}
-\item A SIMT accelerator (eight lanes, four resident warps) that implements the
-complete mechanism set---warp scheduling, coalescing, a reconvergence stack, and
-a scratchpad---in a design compact enough to carry through the entire
-RTL-to-bitstream flow, integrated with a five-stage RISC-V host as a
-self-contained system-on-chip (Sections~\ref{sec:arch}--\ref{sec:impl}).
-\item An implementation result showing that moving the vector register file and
-the scratchpad into distributed RAM reduces LUT usage by $5.7\times$ and closes
-100~MHz timing, with an analysis of why the register-file read multiplexer, not
-the ALUs, dominates a naive SIMT datapath (Section~\ref{sec:impl}).
-\item A per-lane floating-point extension covering FP32 and FP16, in which half
-precision is obtained from the single-precision path via NaN-boxed
-widen--compute--narrow and shown to be correctly single-rounded, verified
-bit-exact over $116{,}089$ vectors (Section~\ref{sec:fp}).
-\item A placed FPGA timing-closure study that diagnoses the floating-point design
-as interconnect-bound, confirms the diagnosis by de-congestion, localizes the
-limit to a single lane's FMA cone, closes 100~MHz with a three-stage FMA, and
-carries the closure to the complete system-on-chip at 103.7~MHz with full pin
-constraints and a warning-free design-rule check (Section~\ref{sec:fppa}).
-\end{itemize}
+\noindent\textbf{Contributions.} We present (i)~a SIMT accelerator of eight lanes
+and four resident warps implementing the complete mechanism set---warp scheduling,
+coalescing, a reconvergence stack, and a scratchpad---integrated with a five-stage
+RISC-V host as a self-contained system-on-chip
+(Sections~\ref{sec:arch}--\ref{sec:impl}); (ii)~an implementation result showing
+that moving the vector register file and scratchpad into distributed RAM cuts LUT
+usage by $5.7\times$, with an analysis of why the register-file read multiplexer,
+not the ALUs, dominates a naive SIMT datapath (Section~\ref{sec:impl});
+(iii)~a per-lane FP32/FP16 extension in which half precision is obtained from the
+single-precision path by NaN-boxed widen--compute--narrow, shown to be correctly
+single-rounded and verified bit-exact over $116{,}089$ vectors, evaluated on
+kernels up to a complete INT8 MNIST inference that runs on the chip
+(Section~\ref{sec:fp}); and (iv)~a placed timing-closure study organized around an
+explicit delay model that diagnoses the FP design as interconnect-bound, confirms
+this by de-congestion, localizes the limit to one lane's FMA cone through a
+control experiment the model predicts will fail, and closes 100~MHz with a
+three-stage FMA, carrying the result to a system-on-chip signed off at 103.7~MHz
+with full pin constraints and a clean design-rule check (Section~\ref{sec:fppa}).
 
 %==============================================================================
 \section{Architecture and Platform}\label{sec:arch}
 %==============================================================================
 A SIMT machine groups scalar \emph{threads} into \emph{warps} that share one
-instruction stream and execute on a vector of \emph{lanes}. SIMTiX uses a warp
-size equal to its lane count ($\mathrm{WARP\_SIZE}=\mathrm{NUM\_LANES}=8$) with
-$\mathrm{NUM\_WARPS}=4$ warps resident, time-sharing a single
-fetch/decode/execute datapath; when one warp stalls on memory, the scheduler
-issues another and hides the latency. Unlike a packed-SIMD vector unit such as
-the RISC-V ``V'' extension~\cite{riscvvector}, where one instruction operates on
-a register-resident vector, SIMTiX keeps a scalar thread per lane with an
-independent program-counter abstraction managed by the reconvergence stack, so
-data-dependent control flow is handled in hardware rather than by masking in
-software.
+instruction stream and execute on a vector of \emph{lanes}. SIMTiX sets warp size
+equal to lane count ($\mathrm{WARP\_SIZE}=\mathrm{NUM\_LANES}=8$) with
+$\mathrm{NUM\_WARPS}=4$ resident warps time-sharing one fetch/decode/execute
+datapath, so a warp stalled on memory is replaced by another. Unlike a packed-SIMD
+vector unit such as the RISC-V ``V'' extension~\cite{riscvvector}, SIMTiX keeps a
+scalar thread per lane with an independent program-counter abstraction managed by
+the reconvergence stack, handling data-dependent control flow in hardware rather
+than by software masking.
 
 \textbf{Offload model.} The host programs a command block over a memory-mapped
-(MMIO) interface---kernel PC, base pointers, and thread count $N$---writes a
-\texttt{GO} bit, and polls \texttt{DONE}. On \texttt{GO} the accelerator launches
-$\lceil N/8\rceil$ warps, seeding each thread's identifier and arguments through
-registers at spawn. Four mechanisms make up the platform.
+interface---kernel PC, base pointers, and thread count $N$---writes a \texttt{GO}
+bit, and polls \texttt{DONE}. On \texttt{GO} the accelerator launches
+$\lceil N/8\rceil$ warps, seeding each thread's identifier and arguments at spawn.
+Four mechanisms make up the platform.
 
 \textbf{Warp pool and scheduler.} Four resident slots, each with its own PC,
 active mask, register-file partition, and reconvergence stack, share one datapath
-and one data port. A round-robin scheduler issues one runnable warp per cycle, and
-a background memory engine services a memory access while other warps' compute
+and one data port. A round-robin scheduler issues one runnable warp per cycle
+while a background memory engine services accesses, so other warps' compute
 instructions keep the datapath busy.
 
 \textbf{Coalescing.} The data port is one cache line wide
@@ -172,22 +165,20 @@ addresses by line and spends one transaction per distinct line, so a contiguous
 warp access collapses to a single transaction and a fully scattered one costs up
 to eight.
 
-\textbf{Reconvergence stack.} Each warp owns a SIMT stack whose top-of-stack frame
-defines the live PC and active mask. A branch on which active lanes disagree
-pushes a frame so the two lane groups run in turn and reconverge at a join PC,
-supporting compiler-free single-sided \texttt{if} statements and divergent loops.
+\textbf{Reconvergence stack.} Each warp owns a SIMT stack whose top frame defines
+the live PC and active mask. A branch on which active lanes disagree pushes a
+frame so the two lane groups run in turn and reconverge at a join PC, supporting
+compiler-free single-sided \texttt{if} statements and divergent loops.
 
-\textbf{Scratchpad.} A per-warp 64-word aperture serviced from on-chip RAM lets
-data reused across a warp's lanes be staged once, cutting global traffic.
+\textbf{Scratchpad.} A per-warp 64-word aperture serviced from on-chip RAM stages
+data reused across a warp's lanes, cutting global traffic.
 
 The active mask additionally drives a per-lane clock enable, so masked-off lanes
-are not clocked; the unused-lane fraction is dynamic energy that a
-divergence-aware design saves. From lane utilization measured in our own RTL
-counters, under a first-order equal-energy-per-lane-instruction model in the
-spirit of activity-based GPU power models~\cite{gpuwattch}, that saving reaches
-22.5\% of lane-datapath dynamic energy on a heavily divergent kernel. Every mechanism is instrumented with hardware counters
-and is therefore measured directly in RTL rather than estimated in a software
-model~\cite{gpgpusim}.
+are not clocked; under a first-order activity model~\cite{gpuwattch} the
+unused-lane fraction, 22.5\% of lane-datapath dynamic energy on a heavily
+divergent kernel, is energy a divergence-aware design saves. Every mechanism is
+instrumented with hardware counters and is therefore measured directly in RTL
+rather than estimated in a software model~\cite{gpgpusim}.
 
 %==============================================================================
 \section{Implementation}\label{sec:impl}
@@ -276,34 +267,33 @@ significand multiply is fully pipelined onto DSP blocks.}
 Zynq UltraScale+ (\texttt{xczu7ev}) consumed $170{,}868$ LUTs, 74\% of the device,
 at only 10\% of its flip-flops. The cause is structural: a flip-flop vector
 register file (VRF) of $4\times8\times32$ 32-bit words is $32{,}768$ registers
-read as \texttt{vrf[warp][lane][reg]} with \emph{both} the warp and the register
-index variable, that is, a 128-to-1 multiplexer per lane per read port. That
-multiplexer fabric, not the ALUs, dominates area and sets the critical path.
-Re-expressing the VRF as one distributed-RAM bank per lane, and likewise the
-scratchpad, removes essentially all of those registers: LUTs fall $5.7\times$ to
-$30{,}088$ (13\%), flip-flops to $4{,}590$ (1.0\%), and the design closes 100~MHz
-timing with positive slack at 0.81~W. The complete chip, taken through
-opt/place/phys-opt/route to a bitstream, meets all timing at 100~MHz and uses
-$34{,}850$ LUTs (15.1\%), $6{,}130$ flip-flops, 24 DSP blocks, and zero block RAM
-at 1.09~W; the accelerator accounts for roughly 87\% of the logic.
+read as \texttt{vrf[warp][lane][reg]} with \emph{both} indices variable---a
+128-to-1 multiplexer per lane per read port. That multiplexer fabric, not the
+ALUs, dominates area and sets the critical path. Re-expressing the VRF as one
+distributed-RAM bank per lane, and likewise the scratchpad, removes essentially
+all those registers: LUTs fall $5.7\times$ to $30{,}088$ (13\%), flip-flops to
+$4{,}590$ (1.0\%), closing 100~MHz with positive slack at 0.81~W. The complete
+chip, taken through opt/place/phys-opt/route to a bitstream, meets timing at
+100~MHz using $34{,}850$ LUTs (15.1\%), $6{,}130$ flip-flops, 24 DSPs, and zero
+block RAM at 1.09~W, the accelerator being roughly 87\% of the logic.
 
 \textbf{Verification ladder.} Correctness is established at four levels:
 cycle-accurate RTL simulation with self-checking testbenches
-(Verilator~\cite{verilator}); behavioral simulation in the vendor GUI; full
-place-and-route with post-route timing sign-off; and post-implementation
-gate-level functional simulation of the routed netlist (UNISIM primitives). The
-benchmark suite below adds a fifth, breadth-oriented level.
+(Verilator~\cite{verilator}); vendor behavioral simulation; place-and-route with
+post-route timing sign-off; and post-implementation gate-level functional
+simulation of the routed netlist. The benchmark suite adds a fifth,
+breadth-oriented level.
 
 %==============================================================================
 \section{Platform Evaluation}\label{sec:results}
 %==============================================================================
-The integer platform is characterized with six kernels chosen to stress distinct
+The integer platform is characterized with six kernels stressing distinct
 mechanisms: \texttt{vadd} ($C_i=A_i+B_i$, streaming), \texttt{saxpy}
 ($3A_i+B_i$, coalescing), \texttt{fir} ($A_i+2A_{i+1}+A_{i+2}$, stencil),
 \texttt{relu} (light divergence), \texttt{collatz} (heavy data-dependent
 divergence), and \texttt{reduce} (scratchpad reduction). Each is assembled from
 RISC-V source with a stock toolchain, run at $N\in\{8,64,256,1024\}$ threads, and
-checked bit-exact against a golden model. For an apples-to-apples speedup, every
+checked bit-exact against a golden model; for an apples-to-apples speedup every
 kernel is also written as a scalar loop and run on the same five-stage host in
 RTL.
 
@@ -315,13 +305,11 @@ kernels reach $7$--$10\times$ over the scalar host; \texttt{fir} is lower
 achieves $2.76\times$ as heavy divergence erodes, but does not eliminate, the SIMT
 advantage; and \texttt{reduce} falls below break-even at $0.72\times$, since a
 single-lane collapse on a single-ported scratchpad is slower than the scalar core
-and calls for a dedicated cross-lane reduction primitive. SIMTiX is parameterized
-in its lane and warp counts: a sweep over
-$\mathrm{NUM\_LANES}\in\{4,8,16,32\}$ and $\mathrm{NUM\_WARPS}\in\{2,4,8\}$, in
-which all twelve configurations elaborate and verify bit-exact, shows throughput
+and calls for a dedicated cross-lane reduction primitive. A sweep over
+$\mathrm{NUM\_LANES}\in\{4,8,16,32\}$ and $\mathrm{NUM\_WARPS}\in\{2,4,8\}$, all
+twelve configurations elaborating and verifying bit-exact, shows throughput
 scaling near-linearly with lanes ($\sim\!1.97\times$ per doubling), while
-occupancy beyond two warps pays off only under realistic multi-cycle memory, not
-under the single-cycle behavioral model used here.
+occupancy beyond two warps pays off only under realistic multi-cycle memory.
 
 \begin{table}[t]
 \caption{Measured cycles and speedup over the five-stage RV32I host running
@@ -347,53 +335,47 @@ Kernel & $N$ & Accel. & CPU & Speedup & Lane util.\\
 %==============================================================================
 \section{Floating-Point Extension}\label{sec:fp}
 %==============================================================================
-The base engine is integer-only. It is extended with floating point in both
-single (FP32) and half (FP16) precision while keeping the same SIMT structure:
-the extension is a per-lane execute unit and a second per-lane register file, not
-a new pipeline. Each lane gains a compact fixed-latency FP unit beside its
-integer ALU, and a second per-lane register file holds the 32 floating-point
-registers in distributed RAM, addressed by \{warp, register\} exactly like the
-integer VRF, with an independent write port so that an FP result and an integer
-load can retire together. The unit implements add, subtract, multiply, the fused
-multiply-add in all four sign variants, sign-injection, min/max, the ordered
-compares, integer$\leftrightarrow$float and FP32$\leftrightarrow$FP16 conversion,
-the bit-moves, and classify, in both precisions. Rounding is round-to-nearest-even
-per IEEE~754~\cite{ieee754} and subnormals are flushed to zero, a
-throughput-oriented choice that keeps each lane small.
+The base engine is integer-only. It is extended with FP32 and FP16 while keeping
+the same SIMT structure: the extension is a per-lane execute unit and a second
+per-lane register file, not a new pipeline. Each lane gains a compact
+fixed-latency FP unit beside its integer ALU, and a second register file holds the
+32 floating-point registers in distributed RAM, addressed by \{warp, register\}
+exactly like the integer VRF, with an independent write port so an FP result and
+an integer load can retire together. The unit implements add, subtract, multiply,
+the fused multiply-add in all four sign variants, sign-injection, min/max, the
+ordered compares, integer$\leftrightarrow$float and FP32$\leftrightarrow$FP16
+conversion, the bit-moves, and classify, in both precisions. Rounding is
+round-to-nearest-even per IEEE~754~\cite{ieee754} and subnormals flush to zero,
+keeping each lane small.
 
 \textbf{Half precision via widen--compute--narrow.} A 16-bit half lives in a
-32-bit register NaN-boxed, with the upper 16 bits all ones; a mis-boxed value
-reads as a canonical NaN per the RISC-V convention~\cite{riscv}. For an FP16
-operation the unit widens the operand exactly to FP32, runs the single-precision
-datapath, and rounds back to FP16. This is correct rather than approximate:
-because the FP32 intermediate carries a 24-bit significand and $24\ge 2\cdot11+2$,
-rounding first to FP32 and then to FP16 equals rounding directly to
-FP16~\cite{figueroa}, so FP16 add, subtract, multiply, the fused multiply-add, and
-the conversions are correctly single-rounded. Half precision therefore reuses the
-verified single-precision logic almost entirely, adding only the widen, narrow,
-and box steps, and no extra cycles.
+32-bit register NaN-boxed, the upper 16 bits all ones; a mis-boxed value reads as
+a canonical NaN per the RISC-V convention~\cite{riscv}. For an FP16 operation the
+unit widens the operand exactly to FP32, runs the single-precision datapath, and
+rounds back. This is correct rather than approximate: because the FP32
+intermediate carries a 24-bit significand and $24\ge 2\cdot11+2$, rounding to FP32
+then to FP16 equals rounding directly to FP16~\cite{figueroa}, so FP16 add,
+subtract, multiply, FMA, and the conversions are correctly single-rounded. Half
+precision thus reuses the verified single-precision logic almost entirely, adding
+only widen, narrow, and box steps, and no extra cycles.
 
 \textbf{Fused multiply-add.} The FMA computes $\pm(a\cdot b)\pm c$ with a single
 rounding~\cite{muller}, so it cannot be built by chaining the multiplier and the
 adder. The unit forms the exact 48-bit product, anchors it in a wide fixed-point
 accumulator, aligns the addend while capturing a sticky bit, and normalizes and
-rounds once. When the addend out-ranges the product beyond the rounding window,
-the product is provably below half a unit in the last place, which yields the
-addend exactly and bounds the alignment shifter. The FMA has fixed latency and
-commits through the ordinary writeback path; Section~\ref{sec:fppa} describes how
+rounds once. When the addend out-ranges the product beyond the rounding window the
+product is provably below half a unit in the last place, which yields the addend
+exactly and bounds the alignment shifter. Section~\ref{sec:fppa} describes how
 this combinational chain is pipelined for timing closure.
 
 \textbf{Multi-cycle divide and square root.} Division and square root produce one
 quotient or root bit per cycle by a digit recurrence~\cite{ercegovac} and are the
 engine's only multi-cycle operations. Because such a core is comparatively large,
-the engine has a single shared instance: when a warp issues a divide or a square
-root, the engine captures all of its lanes' operands and parks the warp on a stall
-scoreboard, then sequences the active lanes through the shared core one at a time.
-This is the same park-and-resume mechanism the memory engine uses, so the
-scheduler keeps issuing other warps onto the idle datapath meanwhile. At most one
-warp's divide or square root is in flight, trading latency ($k$ active lanes take
-about $k$ times as long, hidden across warps) for the area saving quantified in
-Section~\ref{sec:fppa}.
+the engine has a single shared instance: a warp issuing a divide or square root
+has its lanes' operands captured and is parked on a stall scoreboard---the same
+park-and-resume mechanism the memory engine uses---while the active lanes are
+sequenced through the shared core one at a time and the scheduler issues other
+warps onto the idle datapath. Section~\ref{sec:fppa} quantifies that trade.
 
 \textbf{Verification.} Each unit is verified standalone against a DPI-C IEEE-754
 reference: FP32 against the host's correctly-rounded \texttt{float} operations
@@ -402,33 +384,8 @@ reference cross-checked with \texttt{\_Float16}. Over random vectors spanning th
 product-dominant, balanced (cancellation), and addend-dominant regimes, plus
 directed infinity, NaN, zero, flush, overflow, divide-by-zero,
 square-root-of-negative, mis-boxed-operand, and conversion corners, the pipelined
-unit passes $96{,}066$ checks and the iterative divide/square-root unit a further
-$20{,}023$, all bit-exact (Table~\ref{tab:fpverif}). End-to-end FP kernels then
-exercise the full warp pool, bit-exact to 1024 threads.
-
-\begin{table}[t]
-\caption{Floating-point operation coverage; every operation is implemented and
-checked in both precisions.}
-\label{tab:fpverif}
-\centering
-\footnotesize
-\begin{tabular}{ll}
-\toprule
-Category & Operations (each in FP32 \emph{and} FP16)\\
-\midrule
-Arithmetic      & \texttt{fadd}, \texttt{fsub}, \texttt{fmul}\\
-Fused           & \texttt{fmadd}, \texttt{fmsub}, \texttt{fnmsub}, \texttt{fnmadd}\\
-Divide / root   & \texttt{fdiv}, \texttt{fsqrt} (iterative, multi-cycle)\\
-Sign / select   & \texttt{fsgnj\{,n,x\}}, \texttt{fmin}, \texttt{fmax}\\
-Compare         & \texttt{feq}, \texttt{flt}, \texttt{fle}\\
-Convert         & float$\leftrightarrow$int (signed/unsigned), FP32$\leftrightarrow$FP16\\
-Move / classify & \texttt{fmv.x.\_}, \texttt{fmv.\_.x}, \texttt{fclass}\\
-\midrule
-\multicolumn{2}{l}{Bit-exact checks vs.\ IEEE-754 reference:
-\textbf{116{,}089} (0 mismatches)}\\
-\bottomrule
-\end{tabular}
-\end{table}
+unit passes $96{,}066$ checks and the iterative unit a further $20{,}023$:
+$116{,}089$ bit-exact comparisons, zero mismatches.
 
 \textbf{Throughput and application kernels.} The FP unit is pipelined
 (Section~\ref{sec:fppa}); an FP instruction commits a fixed number of cycles after
@@ -438,28 +395,45 @@ add and multiply-add in both precisions, the latency-hiding ramp matches the
 integer suite and saturates near 7 work-items per cycle at 100\% lane utilization,
 with the FP16 points falling exactly on the FP32 curves because half precision
 shares the pipelined datapath.
-Table~\ref{tab:fpkernels} runs four toolchain-assembled FP kernels through the
-engine. Two effects stand out. The iterative divide/square-root unit is visible:
+Table~\ref{tab:fpkernels} runs toolchain-assembled kernels through the engine.
+Three effects stand out. The iterative divide/square-root unit is visible:
 \texttt{fnorm} $=A/\sqrt{B}$ takes about $6\times$ the cycles of streaming
 \texttt{fsaxpy}, the cost of correctly-rounded iterative operations. Divergence
-also interacts with the now-larger lane datapath: \texttt{fdot}'s reduction leaves
-one of eight lanes active during the collapse, at 45\% utilization, so the
-absolute energy a mask-gated design saves grows with the FP-enlarged lane.
+interacts with the now-larger lane datapath: \texttt{fdot}'s reduction leaves one
+of eight lanes active during the collapse, at 45\% utilization, so the absolute
+energy a mask-gated design saves grows with the FP-enlarged lane.
+
+Third, the coalescer admits a closed-form prediction and meets it exactly. A
+four-way packed dot-product instruction extends the engine to quantized integer
+work: \texttt{qgemm} computes an $8\times8$ INT8 matrix product with $K{=}16$,
+$1{,}024$ multiply-accumulates, in 538 cycles. Grouping active lanes by cache line
+predicts $8\times(2K/4+1) = 72$ global transactions against $64\times(2K/4+1) =
+576$ for a per-lane engine, an $8\times$ reduction; the measured count is 72,
+matching the model exactly. Composing these kernels gives a complete application:
+a $784{\rightarrow}128{\rightarrow}10$ INT8 multilayer perceptron for MNIST, built
+from \texttt{qgemv} and a fused requantize-and-ReLU pass, runs end-to-end on the
+integrated chip with the host streaming weight tiles into the scratchpad. It
+reproduces the reference inference $64/64$ bit-exact at 98.4\% classification
+accuracy, the quantization itself costing 0.29\% against the FP32 model (96.53\%
+versus 96.82\%) --- real inference, not a synthetic kernel.
 
 \begin{table}[t]
-\caption{FP application kernels at $N{=}256$ (FP32 unless noted), all verified
-bit-exact.}
+\caption{Application kernels, all verified bit-exact against a golden model.
+FP rows at $N{=}256$, FP32 unless noted.}
 \label{tab:fpkernels}
 \centering
 \footnotesize
 \begin{tabular}{llrrr}
 \toprule
-Kernel & Computation & Cycles & Gmem & Lane util.\\
+Kernel & Computation & Cycles & Gmem & Util.\\
 \midrule
-\texttt{fsaxpy}   & $\alpha A_i + B_i$ (\texttt{fmadd}) & 419     & 96 & 100\%\\
-\texttt{fsaxpy16} & $\alpha A_i + B_i$ (FP16)           & 451     & 96 & 100\%\\
-\texttt{fnorm}    & $A_i/\sqrt{B_i}$ (div\,+\,sqrt)     & 2{,}396 & 96 & 100\%\\
-\texttt{fdot}     & $\sum_l A_{8w+l}B_{8w+l}$           & 1{,}991 & 96 & 45\%\\
+\texttt{fsaxpy}   & $\alpha A_i + B_i$ (\texttt{fmadd}) & 419     & \phantom{0}96 & 100\%\\
+\texttt{fsaxpy16} & $\alpha A_i + B_i$ (FP16)           & 451     & \phantom{0}96 & 100\%\\
+\texttt{fnorm}    & $A_i/\sqrt{B_i}$ (div\,+\,sqrt)     & 2{,}396 & \phantom{0}96 & 100\%\\
+\texttt{fdot}     & $\sum_l A_{8w+l}B_{8w+l}$           & 1{,}991 & \phantom{0}96 & \phantom{0}45\%\\
+\midrule
+\texttt{qgemm}    & INT8 $8\times8$ GEMM, $K{=}16$      & 538     & \phantom{0}72 & ---\\
+MNIST MLP         & $784{\to}128{\to}10$ INT8           & \multicolumn{3}{l}{$64/64$ exact, 98.4\% acc.}\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -525,33 +499,29 @@ DSE point, and the final deployable system-on-chip.}
 \begin{minipage}{0.90\textwidth}
 \footnotesize
 Target \texttt{xczu7ev} ($230{,}400$ LUTs, $460{,}800$ FFs, $1{,}728$ DSPs) at a
-100~MHz constraint; every build uses zero block RAM. LUT\% is of the device LUT
-count; LUTRAM is the distributed-RAM subset of the LUT column and, in the SoC row,
-includes the eight-bank shared memory. Placed critical path by row: the FMA cone
-in rows~1, 2 and at the DSE point; the VRF LUTRAM read multiplexer in row~3; the
-FP control broadcast in the SoC row. The last column is a normalized area-time
-product, LUT divided by peak lane throughput (lanes $\times$ \Fmax); lower is
-better, and unlike LUT or \Fmax\ alone it prices area and speed against the work
-the configuration can actually retire.
+100~MHz constraint; every build uses zero block RAM. LUTRAM is the distributed-RAM
+subset of the LUT column, including the shared memory in the SoC row. Placed
+critical path by row: the FMA cone in rows~1, 2 and the DSE point; the VRF LUTRAM
+read multiplexer in row~3; the FP control broadcast in the SoC row. The last
+column is a normalized area-time product, LUT divided by peak lane throughput
+(lanes $\times$ \Fmax), lower being better.
 \end{minipage}
 \end{table*}
 
 \textbf{Step 1: two-stage FMA, 78~MHz.} Two stages is the minimum depth the
-conventional sizing argument admits, so it is where the closure starts. The split
-point is chosen by balance rather than convenience: the FMA accumulator
-(\texttt{mag}) boundary is the one cut that leaves the product and alignment
-network on one side and normalization and rounding on the other with comparable
-delay, and an unbalanced cut is worth nothing because the deeper stage sets the
-period. The warp pool absorbs the extra cycle with a single-slot scoreboard
-(\texttt{W\_FPC}), the same park-and-resume mechanism used for memory and the SFU,
-so no new structural hazard arises and SIMT interleaving hides the latency.
-Timing-driven synthesis with retiming cuts the FP logic depth to 5.3~ns, yet
-place-and-route closes at 12.8~ns (78~MHz). The placed critical path is still the
-first FMA stage but is now routing-dominated, with 7.4 of 12.8~ns (58\%) in wire
-delay. The sizing argument was not wrong about the logic---5.3~ns is well inside
-the budget---it was incomplete: in the FP-enlarged fabric ($2.5\times$ the integer
-LUTs across eight wide FP lanes) the routing term exceeds the logic term, and no
-amount of splitting reduces it.
+conventional sizing argument admits, so the closure starts there. The split point
+is chosen by balance: the FMA accumulator (\texttt{mag}) boundary is the one cut
+leaving product and alignment on one side, normalization and rounding on the
+other, with comparable delay---an unbalanced cut is worth nothing because the
+deeper stage sets the period. The warp pool absorbs the extra cycle with a
+single-slot scoreboard (\texttt{W\_FPC}), the park-and-resume mechanism used for
+memory and the SFU, so no new structural hazard arises. Timing-driven synthesis
+with retiming cuts the FP logic depth to 5.3~ns, yet place-and-route closes at
+12.8~ns (78~MHz), the critical path still the first FMA stage but now
+routing-dominated at 7.4 of 12.8~ns (58\%) in wire delay. The sizing argument was
+not wrong about the logic---5.3~ns is well inside the budget---it was incomplete:
+in the FP-enlarged fabric ($2.5\times$ the integer LUTs across eight wide lanes)
+the routing term exceeds the logic term, and no splitting reduces it.
 
 \textbf{Step 2: confirming the diagnosis, 84~MHz.} The model says that removing
 logic from inside the congested lane should raise \Fmax\ with the arithmetic
@@ -561,50 +531,48 @@ entirely, so folding the eight of them into a single shared serial unit fed lane
 by lane changes $A_{\text{local}}$ and nothing else. Sharing also carries its own
 break-even. Serialization stretches a divide or square root by at most the lane
 count, so if $r$ is the fraction of runtime a workload spends in these operations
-with private units, sharing costs a factor $1+(L-1)r$ in cycles and returns
-$1.078$ in frequency: a net win whenever $r < 0.078/7 \approx 1.1\%$. The bound is
-pessimistic, assuming none of the serialization is hidden when in practice the
-parked warp lets the scheduler issue three others. Against the measured mix the
-decision is not close---the streaming kernels of Table~\ref{tab:fpkernels} issue
-no divides or square roots at all, and only \texttt{fnorm} pays, which is where
-its $6\times$ cost appears. The predicted frequency effect follows: sharing
-removes about $3.7$k LUTs and $1.2$k flip-flops, drops power from 1.53 to 1.22~W,
-leaves the FMA path structurally unchanged yet cuts its routing delay from 7.4 to
-6.5~ns, raising the placed maximum to 84~MHz and near-critical endpoints from
-$8.7$k to $3.2$k. Same logic, less congestion, higher frequency, and the area-time
-product improves from 116 to 102.
+with private units, sharing costs $1+(L-1)r$ in cycles and returns $1.078$ in
+frequency: a net win whenever $r < 0.078/7 \approx 1.1\%$. The bound is
+pessimistic, assuming none of the serialization is hidden when the parked warp
+lets the scheduler issue three others. Against the measured mix the decision is
+not close---the streaming kernels of Table~\ref{tab:fpkernels} issue no divides or
+square roots at all, and only \texttt{fnorm} pays, which is where its $6\times$
+cost appears. The predicted frequency effect follows: sharing removes about
+$3.7$k LUTs and $1.2$k flip-flops, drops power from 1.53 to 1.22~W, leaves the FMA
+path structurally unchanged yet cuts its routing delay from 7.4 to 6.5~ns, raising
+the placed maximum to 84~MHz and near-critical endpoints from $8.7$k to $3.2$k.
+Same logic, less congestion, higher frequency; the area-time product improves from
+116 to 102.
 
 \textbf{Localizing the limit: the control experiment.} Step~2 alone cannot
 separate the two readings of its own result---that congestion is local to the
 lane, or merely that a smaller design routes better. The model distinguishes them,
 predicting that cutting total area without cutting density around the FMA cone
 buys nothing. The four-lane point (Table~\ref{tab:fpclose}, DSE row) does exactly
-that: it halves the area, $36{,}785$ versus $68{,}914$ LUTs and 20 versus 40 DSP
-blocks, yet reaches only 79.7~MHz, marginally \emph{below} the eight-lane
-84.1~MHz, with the router still reporting CLB congestion. The critical path is a
-single lane's FMA cone, whose logic depth and locally dense 128-bit datapath are
-independent of the lane count; halving the lanes replicates that cone fewer times
-but packs the smaller design into a denser region that gives the lone FMA no
-relief. The negative result is the informative one: it rules out total area as the
-lever, and the area-time product prices the trade without ambiguity, 115.4 at four
-lanes against 102.4 at eight, so the eight-lane configuration Pareto-dominates at
-equal frequency and twice the throughput. What remains is the FMA
-microarchitecture itself.
+that: it halves the area, $36{,}785$ versus $68{,}914$ LUTs and 20 versus 40 DSPs,
+yet reaches only 79.7~MHz, marginally \emph{below} the eight-lane 84.1~MHz, with
+the router still reporting CLB congestion. The critical path is a single lane's
+FMA cone, whose logic depth and locally dense 128-bit datapath are independent of
+lane count; halving the lanes replicates that cone fewer times but packs the
+smaller design into a denser region, giving the lone FMA no relief. The negative
+result is the informative one: it rules out total area as the lever, and the
+area-time product prices the trade without ambiguity, 115.4 at four lanes against
+102.4 at eight, so eight lanes Pareto-dominates at equal frequency and twice the
+throughput. What remains is the FMA microarchitecture itself.
 
 \textbf{Step 3: closing 100~MHz with a three-stage FMA.} Acting on that finding,
 the FMA is split across three stages---product, 128-bit align-and-add, and
 normalize-and-round---so that no single stage carries the whole cone. The warp
-pool absorbs the extra cycle with the same single-slot scoreboard, now a two-cycle
-writeback latency that SIMT interleaving continues to hide on streaming work. The
-added registers raise flip-flops to $14{,}954$ while leaving LUTs ($69{,}987$),
-DSP blocks, power (1.22~W), and the bit-exact results unchanged. Place-and-route
-now meets timing at 100~MHz with a worst setup slack of $+0.071$~ns, tracing
-$78\rightarrow84\rightarrow100.7$~MHz across the three steps and the area-time
-product from 116.3 to 86.9, and the critical path moves off the FMA onto the
-vector-register-file LUTRAM read multiplexer, the same structure that bounds the
-integer design (Section~\ref{sec:impl}). The floating-point datapath is no longer
-the frequency limiter, which confirms that FMA logic depth---the lever the
-design-space exploration identified---was the true constraint.
+pool absorbs the extra cycle with the same single-slot scoreboard, a two-cycle
+writeback latency SIMT interleaving continues to hide. The added registers raise
+flip-flops to $14{,}954$ while leaving LUTs ($69{,}987$), DSPs, power (1.22~W),
+and the bit-exact results unchanged. Place-and-route now meets timing at 100~MHz
+with $+0.071$~ns worst slack, tracing $78\rightarrow84\rightarrow100.7$~MHz and
+the area-time product from 116.3 to 86.9, and the critical path moves off the FMA
+onto the vector-register-file LUTRAM read multiplexer, the same structure bounding
+the integer design (Section~\ref{sec:impl}). The FP datapath is no longer the
+limiter, confirming that FMA logic depth---the lever the exploration
+identified---was the true constraint.
 
 That observation is also the stopping criterion. A fourth stage would subdivide a
 cone that is no longer the longest path, so it cannot lower $T_{\text{placed}}$ at
@@ -621,20 +589,18 @@ LUTRAM, decode, register-file read, execute, and writeback all complete in one
 combinational cycle, with 82\% of the placed path routing on its two
 highest-fanout broadcast nets. Registering FP operands at issue, replicating those
 nets, and fully pipelining the DSP multiplies recover part of the gap (96.4~MHz).
-The last of these also deepens the FP unit: \texttt{fmul} and the FMA need the
-same 48-bit significand product, so it is computed once on a \emph{shared}
-$24\times24$ DSP cascade, placing the product four cycles after the operands and
-making the deployed unit five stages deep rather than three, with the stage-0
-payload on a matching delay line, the arithmetic untouched, and \texttt{W\_FPC}
-counting out the longer latency. Splitting the cloud itself with a fetch/execute
-pipeline register---a per-warp in-flight bit preserves the scheduler's re-issue
-semantics exactly---applies the SIMT latency-hiding argument at instruction grain:
-with two or more runnable warps the pipeline stays full, at a measured cycle cost
-of at most 0.3\% on 1024-element kernels. The full chip then places at 107.3~MHz
-unconstrained and, with every port pin-constrained for the ZCU104 and a
-warning-free design-rule check with no waivers, signs off at $+0.360$~ns worst
-setup slack (103.7~MHz), $71{,}567$ LUTs (31\%), 40 DSP blocks, zero block RAM,
-and 1.20~W (Table~\ref{tab:fpclose}, final row), yielding a deployable bitstream.
+The last also deepens the FP unit: \texttt{fmul} and the FMA need the same 48-bit
+significand product, so it is computed once on a \emph{shared} $24\times24$ DSP
+cascade, placing the product four cycles after the operands and making the
+deployed unit five stages deep rather than three, the arithmetic untouched and
+\texttt{W\_FPC} counting out the longer latency. Splitting the cloud itself with a
+fetch/execute pipeline register---a per-warp in-flight bit preserves re-issue
+semantics exactly---applies the latency-hiding argument at instruction grain: with
+two or more runnable warps the pipeline stays full, at a measured cycle cost of at
+most 0.3\%. The full chip then places at 107.3~MHz unconstrained and, with every
+port pin-constrained for the ZCU104 and a warning-free design-rule check with no
+waivers, signs off at $+0.360$~ns worst setup slack (103.7~MHz), $71{,}567$ LUTs
+(31\%), 40 DSPs, zero block RAM, and 1.20~W, yielding a deployable bitstream.
 
 %==============================================================================
 \section{Related Work}\label{sec:related}
@@ -650,6 +616,7 @@ Design & W$\times$L & FP & LUT & FF & BRAM & MHz\\
 \midrule
 Vortex~\cite{vortex}   & 4$\times$4 & FP32     & 21.5k & 32.7k & 131 & 233$^{\dagger}$\\
 Vortex~\cite{vortex}   & 4$\times$8 & FP32     & 37.9k & 57.6k & 247 & 224$^{\dagger}$\\
+Ventus~\cite{ventus25} & 1 SM       & FP32     & 329k\phantom{0} & 80.4k & 108 & ---$^{\S}$\\
 SIMTiX, integer        & 4$\times$8 & ---      & 34.9k & \phantom{0}6.1k & 0 & 100$^{\ddagger}$\\
 SIMTiX, FP             & 4$\times$8 & FP32/16  & 71.6k & 17.8k & 0 & 103.7$^{\ddagger}$\\
 \bottomrule
@@ -659,35 +626,50 @@ SIMTiX, FP             & 4$\times$8 & FP32/16  & 71.6k & 17.8k & 0 & 103.7$^{\dd
 \begin{minipage}{\columnwidth}
 \footnotesize
 W$\times$L denotes resident warps $\times$ lanes.
-$^{\dagger}$ Synthesis estimate on an Intel fabric, from~\cite{vortex}, Table~3;
-each Vortex core includes its L1 caches and shared memory (BRAM column). The
-demonstrated Vortex system in~\cite{vortex} runs at 200~MHz.
-$^{\ddagger}$ Post-route on UltraScale+, for the complete SoC including the host
-CPU, driver ROM, and shared memory, against a 100~MHz target met with positive
-slack.
+$^{\dagger}$ Synthesis estimate on an Intel fabric~\cite{vortex}, Table~3; each
+core includes its L1 caches and shared memory. The demonstrated system runs at
+200~MHz. $^{\S}$ One streaming multiprocessor without tensor core, Xilinx
+VCU128~\cite{ventus25}; no FPGA frequency reported. $^{\ddagger}$ Post-route on
+UltraScale+, complete SoC including host CPU, driver ROM, and shared memory,
+against a 100~MHz target met with positive slack.
 \end{minipage}
 \end{table}
 Open RISC-V GPGPU cores include Vortex~\cite{vortex}, a full OpenCL-capable
-multi-core design, and Ventus~\cite{ventus}, a PTX/Vortex-style GPGPU; both target
-performance and scale and are correspondingly large. Simty~\cite{simty}
-demonstrates generalized SIMT execution of the RISC-V ISA, integer-only and
-reporting synthesis area in logic elements on an Intel Cyclone~IV, and
-Nyuzi (published as Nyami)~\cite{nyuzi} is a synthesizable vector GPGPU for
-graphics research.
+multi-core design, and Ventus~\cite{ventus,ventus25}, which maps GPGPU threads
+onto the RISC-V vector extension and adds a tensor core; both target performance
+and scale and are correspondingly large. MIAOW~\cite{miaow} implements the AMD
+Southern Islands ISA as an FPGA soft GPGPU, but its memory subsystem---L2 cache,
+on-chip network, and memory controller---is modeled behaviorally in C/C++ rather
+than RTL, so it does not carry a complete design through an implementation flow.
+Simty~\cite{simty} demonstrates generalized SIMT execution of the RISC-V ISA,
+integer-only and reporting synthesis area in logic elements on an Intel
+Cyclone~IV, and Nyuzi (published as Nyami)~\cite{nyuzi} is a synthesizable vector
+GPGPU for graphics research.
 
-Table~\ref{tab:related} places SIMTiX next to the per-core FPGA numbers published
-for Vortex, the closest comparable design: the complete SIMTiX SoC, host CPU,
-driver ROM, and eight-bank shared memory included, fits in the logic budget of
-roughly one Vortex core of equal warp and lane geometry. The frequency columns are
-not directly comparable and we do not read the gap as a speed deficit. The Vortex
-entries are pre-placement synthesis estimates on an Intel fabric, and the system
-actually demonstrated in~\cite{vortex} runs at 200~MHz; the SIMTiX entries are
-post-route on UltraScale+ and bounded by the 100~MHz target we constrain to rather
-than a swept maximum, a signed-off operating point rather than a ceiling. The
-wider point is that a pre-placement number says little about the placed one:
-Section~\ref{sec:fppa} reports our FP design synthesizing to a 5.3~ns logic depth
-yet closing at 12.8~ns placed, and that placed closure study is not reported for
-the larger cores. Open floating-point units such as FPnew~\cite{fpnew} offer
+Table~\ref{tab:related} places SIMTiX next to the published FPGA numbers for these
+designs: the complete SIMTiX SoC, host CPU, driver ROM, and shared memory
+included, fits in the logic budget of roughly one Vortex core of equal warp and
+lane geometry, and in under a quarter of one Ventus streaming multiprocessor. The
+frequency columns are not directly comparable and we do not read the gap as a
+speed deficit: the Vortex entries are pre-placement synthesis estimates on an
+Intel fabric and the system demonstrated in~\cite{vortex} runs at 200~MHz, whereas
+the SIMTiX entries are post-route and bounded by the 100~MHz target we constrain
+to rather than a swept maximum. A pre-placement number says little about the
+placed one---Section~\ref{sec:fppa} reports our FP design synthesizing to a 5.3~ns
+logic depth yet closing at 12.8~ns placed---and that placed closure study is not
+reported for the larger cores.
+
+Two observations from that literature corroborate ours. Ventus reports the vector
+register file as the largest block of its streaming multiprocessor, 54.4\% of
+area~\cite{ventus25}; SIMTiX reaches the same structure from the timing side,
+its read multiplexer bounding both the integer design and, once the FMA is
+pipelined, the FP one. On performance, Ventus measures 0.47, 0.40, and 0.32
+instructions per cycle at 4, 8, and 16 threads, counting one warp-wide operation
+as one instruction; SIMTiX averages 0.78 by that convention across
+Table~\ref{tab:speedup} (0.68--0.87). These are not like-for-like---ours is taken
+under a single-cycle behavioral memory model and so excludes the memory-hierarchy
+stalls that dominate Ventus's---and it therefore bounds what the scheduler
+achieves, not what a cached system would. Open floating-point units such as FPnew~\cite{fpnew} offer
 multiformat arithmetic as standalone IP; SIMTiX instead integrates a per-lane FP
 datapath into the SIMT pipeline and studies its placed timing. Control-divergence
 handling via reconvergence stacks is long studied~\cite{fung,tesla}; SIMTiX uses
@@ -697,21 +679,20 @@ the standard stack mechanism and reuses its mask for lane clock-gating.
 \section{Conclusion}
 %==============================================================================
 SIMTiX shows that the full SIMT mechanism set fits in a compact RISC-V
-accelerator that runs end-to-end through a real implementation flow, with a
-distributed-RAM register file the key to making it small and fast on FPGA, and a
-per-lane unit adding FP32 and FP16 arithmetic verified bit-exact over
-$116{,}089$ vectors. The central result is a placed timing-closure study driven by
-a single delay model: the FP-enlarged fabric is interconnect-bound, a limit
-diagnosed, confirmed by de-congestion, and localized by a control experiment that
-the model correctly predicts will fail, then closed at 100~MHz with a three-stage
-FMA that moves the critical path onto the same register-file read multiplexer that
-bounds the integer design, improving the area-time product by 25\% along the way.
-A fetch/execute pipeline carries that closure to the complete SoC, which signs off
-at 103.7~MHz with full ZCU104 pin constraints and a warning-free design-rule
-check, at a measured cycle cost under 0.3\%. The broader lesson is that on a
-design small enough to re-place in full, a frequency limit can be named, tested
-against a prediction that could have failed, and removed---a loop that a
-synthesis-only estimate cannot close.
+accelerator running end-to-end through a real implementation flow, with a
+distributed-RAM register file the key to making it small and fast on FPGA and a
+per-lane unit adding FP32 and FP16 verified bit-exact over $116{,}089$ vectors,
+up to a complete INT8 MNIST inference on the chip. The central result is a placed
+timing-closure study driven by one delay model: the FP-enlarged fabric is
+interconnect-bound, a limit diagnosed, confirmed by de-congestion, localized by a
+control experiment the model predicts will fail, then closed at 100~MHz with a
+three-stage FMA that moves the critical path onto the register-file read
+multiplexer bounding the integer design, improving the area-time product by 25\%.
+A fetch/execute pipeline carries the closure to the SoC, signed off at 103.7~MHz
+with full pin constraints and a clean design-rule check at under 0.3\% cycle cost.
+The broader lesson: on a design small enough to re-place in full, a frequency
+limit can be named, tested against a prediction that could have failed, and
+removed---a loop a synthesis-only estimate cannot close.
 
 %==============================================================================
 %----- REQUIRED BY THE VLSID CFP: "You must explicitly declare the use of AI in
@@ -722,11 +703,11 @@ synthesis-only estimate cannot close.
 \section*{Acknowledgment}
 %==============================================================================
 Per the conference policy on artificial intelligence, the authors declare that a
-large language model (Anthropic Claude) assisted with the preparation of this
-manuscript and with supporting build and analysis scripting. The RTL and
-testbench code, and all design and experimental decisions, were the authors' own;
-every reported result was produced by the tools named in the text and checked by
-the authors, who take full responsibility for this paper.
+large language model (Anthropic Claude) assisted with preparing this manuscript
+and with supporting build and analysis scripting. The RTL and testbench code, and
+all design and experimental decisions, were the authors' own; every reported
+result was produced by the tools named in the text and checked by the authors, who
+take full responsibility for this paper.
 \ifanon\else
 %----- Camera-ready only: funding and personal acknowledgments go here.
 \fi
@@ -738,6 +719,12 @@ the authors, who take full responsibility for this paper.
 \emph{Proc. IEEE/ACM MICRO}, 2021.
 \bibitem{ventus} F.~Zhang \emph{et al.}, ``Ventus: a RISC-V based GPGPU,''
 open-source project, 2022.
+\bibitem{ventus25} J.~Li, F.~Yu, M.~Ma, W.~Liu, Y.~Wang, H.~Wu, and H.~He,
+``RISC-V-Based GPGPU With Vector Capabilities for High-Performance Computing,''
+\emph{IEEE Trans. VLSI Syst.}, vol.~33, no.~8, pp.~2239--2252, Aug. 2025.
+\bibitem{miaow} R.~Balasubramanian \emph{et al.}, ``Enabling GPGPU Low-Level
+Hardware Explorations with MIAOW: An Open-Source RTL Implementation of a GPGPU,''
+\emph{ACM Trans. Archit. Code Optim.}, vol.~12, no.~2, 2015.
 \bibitem{simty} S.~Collange, ``Simty: Generalized SIMT execution on RISC-V,''
 in \emph{Workshop on Computer Architecture Research with RISC-V (CARRV)}, 2017.
 \bibitem{nyuzi} J.~Bush, P.~Dexter, T.~N.~Miller, and A.~Carpenter,
