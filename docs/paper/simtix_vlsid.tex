@@ -418,8 +418,8 @@ accuracy, the quantization itself costing 0.29\% against the FP32 model (96.53\%
 versus 96.82\%) --- real inference, not a synthetic kernel.
 
 \begin{table}[t]
-\caption{Application kernels, all verified bit-exact against a golden model.
-FP rows at $N{=}256$, FP32 unless noted.}
+\caption{FP application kernels at $N{=}256$ (FP32 unless noted), all verified
+bit-exact.}
 \label{tab:fpkernels}
 \centering
 \footnotesize
@@ -431,9 +431,6 @@ Kernel & Computation & Cycles & Gmem & Util.\\
 \texttt{fsaxpy16} & $\alpha A_i + B_i$ (FP16)           & 451     & \phantom{0}96 & 100\%\\
 \texttt{fnorm}    & $A_i/\sqrt{B_i}$ (div\,+\,sqrt)     & 2{,}396 & \phantom{0}96 & 100\%\\
 \texttt{fdot}     & $\sum_l A_{8w+l}B_{8w+l}$           & 1{,}991 & \phantom{0}96 & \phantom{0}45\%\\
-\midrule
-\texttt{qgemm}    & INT8 $8\times8$ GEMM, $K{=}16$      & 538     & \phantom{0}72 & ---\\
-MNIST MLP         & $784{\to}128{\to}10$ INT8           & \multicolumn{3}{l}{$64/64$ exact, 98.4\% acc.}\\
 \bottomrule
 \end{tabular}
 \end{table}
