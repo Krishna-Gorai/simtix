@@ -1,0 +1,146 @@
+% Page 2 of simtix_datapath.pdf: meaning of every block and signal name used in
+% the datapath figure (page 1). Structure follows rtl/accel/warp_pool.sv.
+\newpage
+\thispagestyle{empty}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.04}
+\newcommand{\grp}[1]{\multicolumn{2}{@{}l@{}}{\rule{0pt}{2.6ex}\textbf{\color{black!75}#1}}\\[1pt]\hline}
+\newcommand{\nm}[1]{\textbf{#1}}
+\newcolumntype{N}{>{\raggedright\arraybackslash}p{27mm}}
+\newcolumntype{D}{>{\raggedright\arraybackslash}X}
+
+{\fontsize{13}{15}\selectfont\textbf{SIMTiX warp\_pool datapath: blocks and signals}}\\[1.5mm]
+{\fontsize{8.5}{10}\selectfont 8 lanes (SIMT threads), 4 resident warps, RV32IMF + Zfh + custom \texttt{pdot8}.
+``Lane'' = one of the 8 threads executed in lockstep; ``$\times$8'' marks per-lane replicated hardware;
+a thick line carries one 32-bit value per lane.}\\[2mm]
+
+\fontsize{7.3}{8.7}\selectfont
+\noindent
+\begin{minipage}[t]{0.245\linewidth}
+\begin{tabularx}{\linewidth}[t]{@{}ND@{}}
+\grp{Blocks: fetch}
+\nm{Warp state} & Per warp slot: \texttt{wstate} (EMPTY, RUN, MEM, SFU, FPC, MUL, DOT, DONE) and \texttt{inflight} (warp has an instruction in the X stage). \\
+\nm{rr\_ptr} & Round-robin pointer: the warp slot where the next fetch search starts. \\
+\nm{+1} & Increments the fetched warp id to form the next \texttt{rr\_ptr}. \\
+\nm{Round-robin warp select} & Priority encoder: the first warp from \texttt{rr\_ptr} that is in W\_RUN and not in flight. \\
+\nm{SIMT stack} & Per-warp reconvergence stack, 8 frames of \{npc, rpc, mask\} plus stack pointer \texttt{sp}. The top frame gives the warp's PC and active mask. \\
+\nm{Shared memory instr.\ port} & Read port of the on-chip shared memory that returns the kernel instruction at \texttt{fetch\_pc} (outside warp\_pool). \\
+\nm{F/X} & Pipeline register between fetch and execute: \texttt{instr}, \texttt{issue\_w} and the top-of-stack context. \\
+\grp{Blocks: issue / execute}
+\nm{Decode \& imm gen} & Decodes the instruction, forms register-file read addresses and the immediate. \\
+\nm{VRF} & Integer vector register file: one LUTRAM bank per lane, 4 warps $\times$ 32 registers, 2 read and 1 write port. \\
+\nm{FRF} & Floating-point register file, same organisation, 3 read ports (FMA). FP16 values are NaN-boxed. \\
+\nm{Seed} & Launch values: a0 = thread id, a1--a4 = kernel arguments, others 0. \\
+\nm{Seed mux (wr)} & Reads the RAM if the register was written in this grid, else its seed value. \\
+\nm{Operand A mux (asel)} & rv1, \texttt{pc} (auipc) or 0 (lui). \\
+\nm{Operand B mux (bsel)} & rv2 or the immediate. \\
+\nm{ALU $\times$8} & One 32-bit ALU per lane. Its result is also the load/store address. \\
+\nm{Write-back value mux (wsel)} & ALU result, pc+4 (jal/jalr link) or tid (csrr). \\
+\nm{$\neq$0 (OR)} & OR-reduction: \texttt{cur\_sp} is non-zero (inside a pushed frame). \\
+\nm{= (pop check)} & \texttt{cur\_pc} equals \texttt{cur\_rpc} (reached the join point). \\
+\nm{+} & Branch / jal target: \texttt{cur\_pc} + imm. \\
+\nm{+4} & Fall-through PC. \\
+\nm{Next-PC mux (psel)} & Fall-through, jalr target or branch / jal target. \\
+\nm{cmp $\times$8} & Per-lane branch comparator (beq, bne, blt, bge, bltu, bgeu). \\
+\nm{Stack update} & Uniform branch: retarget the top frame. Divergent: push a frame so the two lane groups run in turn. \texttt{pc = rpc}: pop and reconverge. \\
+\end{tabularx}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.245\linewidth}
+\begin{tabularx}{\linewidth}[t]{@{}ND@{}}
+\grp{Blocks: floating point (beside the FRF)}
+\nm{FPU (5-stage)} & Per-lane pipelined FP32/FP16 unit: add, sub, mul, FMA, convert, compare, sign-inject, min/max, move, classify. Result 5 cycles after issue. \\
+\nm{lane seq.} & Lane sequencer: steps through the active lanes one at a time for the shared div/sqrt. \\
+\nm{Lane mux (0\,\ldots\,7)} & 8:1 mux that feeds the selected lane's captured operands to div/sqrt. \\
+\nm{div / sqrt} & One shared iterative divide / square-root core, about 26 (div) or 37 (sqrt) cycles per lane. \\
+\grp{Blocks: park-and-resume engines}
+\nm{q (capture register)} & Operands latched when the instruction issues and held while its warp is parked. \\
+\nm{mul, dot, fpc, hold} & Result hold registers: keep a finished result until its write port is granted. \\
+\nm{Integer MUL} & RV32M \texttt{mul} (low 32 bits) from three 16$\times$16 DSP products, 7 cycles. \\
+\nm{pdot8 INT8 dot} & Custom-0 instruction: 4-way INT8 dot product, four DSP products and an adder tree. \\
+\grp{Blocks: coalescing memory engine}
+\nm{addr, data, pend} & Latched per-lane address, per-lane store data and pending-lane mask of the one memory instruction in flight. \\
+\nm{Pending mux (issue)} & Loads \texttt{cur\_mask} at issue, afterwards pending AND NOT grp. \\
+\nm{lowest pending} & Priority encoder: the lowest-numbered pending lane (the lead lane). \\
+\nm{Lead-lane mux (0\,\ldots\,7)} & 8:1 mux that selects the lead lane's address. Its line tag is the line fetched this cycle. \\
+\nm{= $\times$8 (tag compare)} & Per-lane comparator: does this lane's 32-byte line tag equal the lead tag? \\
+\nm{AND $\to$ grp} & Lanes both pending and on the lead line: served together in one transaction. \\
+\nm{AND (inverted input)} & Next pending mask = pending AND NOT grp. \\
+\nm{Store-data mux (fsw)} & rv2 for sw/sh/sb, frv2 for fsw. \\
+\nm{Line port} & Merges the grp lanes' store data into one 256-bit line with byte enables. Extracts and sign-extends each lane's load. \\
+\nm{Shared memory data port} & 256-bit line port of the 8-bank shared memory (outside warp\_pool). \\
+\nm{Scratchpad} & Per-warp on-chip LUTRAM, 64 words per warp at 0x4000\_0000, served one lane per cycle. \\
+\nm{Result mux (scratch)} & Load data from the line port or from the scratchpad. \\
+\grp{Blocks: writeback}
+\nm{VRF write arbiter} & Priority mux onto the single VRF write port: mem, fpc (integer destination), mul, dot, ALU. A losing ALU write is squashed and the instruction re-issues. \\
+\nm{FRF write arbiter} & Priority mux onto the FRF write port: mem (flw), sfu, fpc. \\
+\nm{WB arbiter} & Computes the arbiter selects and grants the port to one engine. \\
+\nm{Resume} & A granted engine's warp returns to W\_RUN with its resume PC written to the stack. \\
+\end{tabularx}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.245\linewidth}
+\begin{tabularx}{\linewidth}[t]{@{}ND@{}}
+\grp{Signals: fetch and control}
+\nm{runnable} & Warps in W\_RUN that are not in flight. \\
+\nm{fetch\_w} & Warp chosen for fetch this cycle. \\
+\nm{sp, rpc, mask} & Top-of-stack pointer, reconvergence PC and active-lane mask of the fetched warp. \\
+\nm{fetch\_pc} & Top-of-stack next PC: the instruction address. \\
+\nm{instr} & Fetched 32-bit instruction. \\
+\nm{issue\_w} & Warp executing in the X stage. \\
+\nm{cur\_pc, cur\_rpc, cur\_sp, cur\_mask} & The X-stage copies of pc, rpc, sp and mask. \\
+\nm{do\_pop} & Top frame has reached its join: pop it. \\
+\nm{t} & Per-lane branch condition from the comparators. \\
+\nm{taken} & Active lanes whose branch is taken (t AND cur\_mask). \\
+\nm{ntaken} & Active lanes that fall through (cur\_mask AND NOT t). \\
+\nm{funct3} & Instruction field that selects the comparison. \\
+\nm{fall-through} & pc + 4. \\
+\nm{branch / jal target} & pc + immediate. \\
+\nm{jalr} & jalr target: rv1 of the lead lane + imm, bit 0 cleared. \\
+\nm{npc} & Next PC chosen by the next-PC mux. \\
+\nm{psel} & Next-PC select, from decode and the branch outcome. \\
+\nm{stack write} & Update of the SIMT stack: new npc, push or pop, sp $\pm$ 1. \\
+\nm{resume} & \{warp, resume PC\} of a warp whose engine result was written back. Sets W\_RUN. \\
+\grp{Signals: operands and results}
+\nm{\{w,rs\}, \{w,fs\}} & Register-file read address: warp id and register number. \\
+\nm{imm} & Sign-extended immediate from decode. \\
+\nm{wr} & Register-written bit: selects RAM value over seed value. \\
+\nm{rv1, rv2} & Integer source operands, one 32-bit value per lane. \\
+\nm{frv1--3, fs1--3} & FP source operands (fs3 is the FMA addend). \\
+\nm{pc, 0} & Constant inputs of operand A for auipc and lui. \\
+\nm{asel, bsel, wsel} & Operand and write-back mux selects, from decode. \\
+\nm{pc+4, tid} & Link value for jal/jalr, thread id for csrr. \\
+\nm{wb\_val} & ALU / link / tid result for the VRF. \\
+\nm{addr} & Per-lane effective address (ALU result) of a load or store. \\
+\nm{rv1 (FPU)} & Integer source for fcvt.s.w and fmv.w.x. \\
+\end{tabularx}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.245\linewidth}
+\begin{tabularx}{\linewidth}[t]{@{}ND@{}}
+\grp{Signals: engines and memory}
+\nm{mul, dot} & Integer multiply and INT8 dot-product results. \\
+\nm{fpc} & FPU result (to the FRF, or the VRF for compares, fcvt.w and fmv.x.w). \\
+\nm{sfu, hold} & div / sqrt results, collected lane by lane. \\
+\nm{lane} & Lane currently in the shared div/sqrt core. \\
+\nm{mask, issue} & cur\_mask loaded into the pending register when a memory instruction issues. \\
+\nm{pend} & Lanes of the in-flight memory instruction not yet served. \\
+\nm{lead} & Lowest pending lane: its line is served this cycle. \\
+\nm{tag} & Lead lane's line address (address bits 31:5). \\
+\nm{grp} & Lanes on the lead line: one coalesced transaction. \\
+\nm{fsw, frv2} & Store-data select and FP store data. \\
+\nm{256-bit line} & Line address, write data and byte enables to, and read line from, shared memory. \\
+\nm{lead lane} & Scratchpad address and data from the lead pending lane. \\
+\nm{scratch} & The access is in the scratchpad aperture (address bits 31:30 = 01). \\
+\nm{mem} & Load result, per lane. \\
+\grp{Signals: writeback}
+\nm{mul, alu, dot, mem, fpc} & VRF write arbiter inputs, highest priority first: mem, fpc, mul, dot, alu. \\
+\nm{mem, fpc, sfu} & FRF write arbiter inputs, highest priority first: mem, sfu, fpc. \\
+\nm{prio} & Write-port priority select. \\
+\nm{grant (wb fire)} & An engine's result took the write port this cycle. \\
+\nm{VRF / FRF write port} & \{warp, destination register\}, per-lane data and per-lane write enables (masked-off lanes never write). \\
+\grp{Warp states (wstate)}
+\nm{W\_RUN} & Runnable. \\
+\nm{W\_MEM} & Parked on the memory engine. \\
+\nm{W\_FPC, W\_SFU} & Parked on the FPU or div/sqrt. \\
+\nm{W\_MUL, W\_DOT} & Parked on the multiplier or dot engine. \\
+\nm{W\_EMPTY, W\_DONE} & Free slot, or retired by \texttt{ecall} (slot can be refilled). \\
+\end{tabularx}
+\end{minipage}

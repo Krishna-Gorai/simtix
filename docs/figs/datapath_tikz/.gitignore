@@ -1,0 +1,8 @@
+# build outputs of gen_datapath_tikz.py (regenerated on every run)
+simtix_datapath.tex
+simtix_datapath.pdf
+simtix_datapath_fig.tex
+simtix_datapath_fig.pdf
+*.aux
+*.log
+__pycache__/

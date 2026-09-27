@@ -1,0 +1,218 @@
+% Pages after the figure: a step-by-step walk through the datapath of page 1.
+% Every statement follows rtl/accel/warp_pool.sv (and simt_fpu.sv, fp_divsqrt.sv).
+\newpage
+\thispagestyle{empty}
+\newcommand{\sg}[1]{\textsf{\bfseries\color{black!80}#1}}     % a signal name from the figure
+\newcommand{\bk}[1]{\textbf{#1}}                              % a block name from the figure
+\newcommand{\step}[2]{\par\vspace{1.6mm}{\fontsize{9}{11}\selectfont\bfseries\color{black!85}#1\enspace #2}\par\vspace{0.6mm}}
+\setlength{\columnsep}{7mm}
+\setlength{\columnseprule}{0.3pt}
+\setlist{nosep,leftmargin=3.2mm,itemsep=0.5pt,topsep=1pt}
+
+{\fontsize{13}{15}\selectfont\textbf{How the datapath operates, step by step}}\\[1mm]
+{\fontsize{8.5}{10}\selectfont Block names are in \textbf{bold}, signal names as \sg{signal}, both exactly as labelled in the figure. The steps follow one instruction from fetch to write-back, then the side engines, memory and write-back.}
+
+\vspace{2mm}
+\fontsize{8.5}{10.4}\selectfont
+\begin{multicols*}{3}
+
+\step{0}{The big picture}
+SIMTiX runs a \emph{grid} of $N$ threads. Threads are grouped into \emph{warps} of 8; the 8 threads of a warp are the 8 \emph{lanes} and execute the same instruction in lockstep, each on its own data. Four warps are resident at once (4 \emph{warp slots}). All four share one fetch/decode path, one ALU row ($\times$8 lanes) and one memory port, and take turns cycle by cycle.
+
+The datapath has four regions, left to right:
+\begin{itemize}
+\item \bk{Fetch} picks a warp and reads its next instruction.
+\item \bk{Issue / execute} decodes it, reads registers, runs the ALU and resolves branches in one cycle.
+\item \bk{Park-and-resume engines} hold long operations (multiply, dot product, floating point, divide, memory). The warp waits there (\emph{parks}) while the other warps keep issuing: this is how SIMTiX hides latency.
+\item \bk{Write-back} decides which result writes the register files each cycle and wakes (\emph{resumes}) the warp.
+\end{itemize}
+Each warp slot is in one state (\sg{wstate}): W\_EMPTY, W\_RUN, parked in W\_MEM / W\_FPC / W\_SFU / W\_MUL / W\_DOT, or W\_DONE.
+
+\step{1}{Launch: filling the warp slots}
+The host CPU writes the kernel PC, three base pointers and $N$ through memory-mapped registers and sets GO. The pool latches these values and computes the number of warps, $\lceil N/8\rceil$.
+Every cycle in which a slot is free (W\_EMPTY or W\_DONE) and warps remain, the next warp is placed in that slot:
+\begin{itemize}
+\item its base thread id is warp\,$\times$\,8 (used by \bk{Seed} for a0 = tid);
+\item the base frame of its \bk{SIMT stack} gets npc = kernel PC, rpc = FFFF\_FFFF (never reached, so the base frame is never popped) and a mask of the lanes with tid $<N$ (the last warp may be partial);
+\item all its ``written'' bits are cleared, so every register reads its seed value;
+\item its state becomes W\_RUN.
+\end{itemize}
+A slot is recycled as soon as its warp retires, so grids larger than 4 warps run without host help.
+
+\step{2}{Fetch: choosing a warp}
+\bk{Warp state} holds \sg{wstate} and an \sg{inflight} bit per slot. A warp is \sg{runnable} when it is in W\_RUN and has no instruction in the X stage.
+\bk{Round-robin warp select} is a priority encoder that starts its search at slot \sg{rr\_ptr} and returns the first runnable warp as \sg{fetch\_w}. Starting after the last-fetched warp makes the choice fair: no warp can starve the others.
+\bk{+1} computes \sg{fetch\_w}+1, which becomes the new \bk{rr\_ptr} on the clock edge.
+
+\step{3}{Fetch: reading the stack and the instruction}
+\sg{fetch\_w} addresses the \bk{SIMT stack}. The warp's top frame (index \sg{sp}) supplies:
+\begin{itemize}
+\item \sg{fetch\_pc}: the PC of this warp's next instruction;
+\item \sg{mask}: which of the 8 lanes are active on this path;
+\item \sg{rpc}: the join (reconvergence) PC of the current frame;
+\item \sg{sp}: the frame index itself.
+\end{itemize}
+\sg{fetch\_pc} goes to the \bk{shared memory instruction port}, which returns \sg{instr} in the same cycle (asynchronous LUTRAM read).
+
+\step{4}{The F/X pipeline register}
+On the clock edge \bk{F/X} captures \sg{instr}, \sg{fetch\_w} (renamed \sg{issue\_w}) and the top-frame values (renamed \sg{cur\_pc}, \sg{cur\_mask}, \sg{cur\_rpc}, \sg{cur\_sp}). The warp's \sg{inflight} bit is set.
+Splitting fetch from execute halves the longest combinational path; the price is that one warp can issue at most every other cycle. With two or more runnable warps, F and X work on different warps and one instruction still issues every cycle.
+X always \emph{resolves} its instruction in one cycle. It either commits it, parks the warp on an engine, or does nothing (engine busy, or write port lost) so the warp simply fetches the same instruction again. Nothing is committed on a retry, so re-execution is harmless. \sg{inflight} is cleared in every case.
+
+\step{5}{Decode and register read}
+\bk{Decode \& imm gen} splits \sg{instr} into opcode, rd, rs1, rs2, rs3, funct3 and funct7 and builds the sign-extended immediate \sg{imm} (I, S, B, U or J format). It also produces the mux selects (\sg{asel}, \sg{bsel}, \sg{wsel}, \sg{psel}) and the instruction class (ALU, branch, jump, memory, MUL, DOT, FP, div/sqrt, ecall).
+
+The read addresses are \sg{\{w,rs\}} and \sg{\{w,fs\}}: warp number (\sg{issue\_w}) concatenated with the register number. Each lane has its own LUTRAM bank, so the \bk{VRF} (2 read ports) and \bk{FRF} (3 read ports) deliver the value for all 8 lanes in parallel. FP16 values live NaN-boxed in the low half of FP registers.
+
+\step{6}{Seed muxes: registers without a reset}
+A LUTRAM cannot clear 32 registers in one cycle, so registers are \emph{not} cleared at launch. A per-register \sg{wr} (written) bit is kept instead. Each of the two \bk{seed muxes}, one per read port (rs1 and rs2), passes:
+\begin{itemize}
+\item the VRF value if \sg{wr} = 1 (written since launch);
+\item otherwise the register's \bk{Seed}: a0 = thread id (base id + lane), a1--a4 = kernel arguments, anything else 0.
+\end{itemize}
+x0 always reads 0. The outputs are the operands \sg{rv1} and \sg{rv2}, 8 lanes wide. The FRF has no seeds: an unwritten FP register reads 0.
+
+\step{7}{Operand select and the ALU}
+\bk{Operand A mux} (\sg{asel}): \sg{rv1}, \sg{pc} (auipc) or \sg{0} (lui).
+\bk{Operand B mux} (\sg{bsel}): \sg{rv2} or \sg{imm}.
+\bk{ALU $\times$8} computes add, sub, and, or, xor, shifts and set-less-than in every lane. For loads and stores it computes the effective address, so its result also goes to the memory engine as \sg{addr}.
+
+\step{8}{Write-back value}
+\bk{Write-back value mux} (\sg{wsel}) chooses what a single-cycle instruction writes:
+\begin{itemize}
+\item the ALU result;
+\item \sg{pc+4}, the link address of jal / jalr;
+\item \sg{tid}, for \texttt{csrr rd, tid}.
+\end{itemize}
+The result \sg{wb\_val} goes to the \bk{VRF write arbiter}. Lanes that are masked off, and writes to x0, never write.
+
+\step{9}{Branch resolution per lane}
+\bk{cmp $\times$8} evaluates the branch condition selected by \sg{funct3} (beq, bne, blt, bge, bltu, bgeu) on \sg{rv1}, \sg{rv2} in every lane, giving the 8-bit vector \sg{t}.
+\begin{itemize}
+\item \bk{AND} gives \sg{taken} = \sg{t} AND \sg{cur\_mask}: active lanes that take the branch.
+\item \bk{AND with inverted input} gives \sg{ntaken} = \sg{cur\_mask} AND NOT \sg{t}: active lanes that fall through.
+\end{itemize}
+Inactive lanes are in neither set; they are waiting on another path.
+
+\step{10}{Next-PC candidates}
+\begin{itemize}
+\item \bk{+4}: \sg{fall-through} = \sg{cur\_pc}+4.
+\item \bk{+}: \sg{branch / jal target} = \sg{cur\_pc}+\sg{imm}.
+\item \sg{jalr}: rv1 of the lowest active lane + imm, bit 0 cleared (jumps through a register are assumed uniform).
+\end{itemize}
+\bk{Next-PC mux} (\sg{psel}) forms \sg{npc} for uniform control flow. It chooses fall-through for ordinary instructions and not-taken branches, the target for taken branches and jal, and the jalr target for jalr.
+
+\step{11}{Pop check: reaching the join point}
+A pushed frame ends when its lanes reach the frame's join PC.
+\begin{itemize}
+\item \bk{$\neq$0 (OR)}: OR of the 3 bits of \sg{cur\_sp}, true when the warp is inside a pushed frame (sp $\neq$ 0).
+\item \bk{=}: compares \sg{cur\_pc} with \sg{cur\_rpc}.
+\item \bk{AND}: both true gives \sg{do\_pop}.
+\end{itemize}
+When \sg{do\_pop} is set the instruction is \emph{not} executed. The frame is popped (sp$-$1), and the frame below, whose PC is already the join PC and whose mask is the union of both paths, becomes the top. The warp continues there with all its lanes.
+
+\step{12}{Stack update}
+\bk{Stack update} receives \sg{taken}, \sg{ntaken}, \sg{npc} and \sg{do\_pop} and writes the stack (\sg{stack write}). The top frame of warp \sg{issue\_w} changes as follows:
+\begin{itemize}
+\item \emph{Ordinary instruction, jump, or uniform branch} (\sg{taken} equals \sg{cur\_mask}, or is 0): top npc $\gets$ \sg{npc}.
+\item \emph{Divergent forward branch} (an \texttt{if}, target $>$ pc): top npc $\gets$ target (the join) with the full mask. A frame is pushed with npc = fall-through, mask = \sg{ntaken}, rpc = target. The fall-through lanes run the \texttt{if} body first, then pop at the join.
+\item \emph{Divergent backward branch} (a loop): top npc $\gets$ fall-through (the loop exit). A frame is pushed with npc = target, mask = \sg{taken}, rpc = fall-through. The looping lanes run until each exits.
+\item \emph{Pop}: sp $\gets$ sp$-$1.
+\end{itemize}
+Nesting is allowed up to 8 frames.
+
+\step{13}{Example: \texttt{if (tid \& 1) x += 1000}}
+The compiler computes \texttt{t0 = tid \& 1} and emits \texttt{beqz t0, skip} around the body, so the branch is taken by the even lanes. Writing lane masks as lane 7\,\ldots\,lane 0, for a full warp \sg{t} = 01010101, so \sg{taken} = 01010101 and \sg{ntaken} = 10101010: the branch diverges. The top frame becomes \{skip, full mask\}, and a frame \{body, 10101010, rpc = skip\} is pushed. The odd lanes execute the body with the even lanes masked off (their writes are suppressed). At \texttt{skip}, pc = rpc, so the pop check fires and the warp continues from \texttt{skip} with all 8 lanes.
+
+\step{14}{Parking on an engine}
+Long operations are not executed in X. If the needed engine is idle, X:
+\begin{itemize}
+\item copies the operands into that engine's capture register \bk{q};
+\item records the destination register, the lane write enables (\sg{cur\_mask} and rd $\neq$ x0) and the resume PC (pc+4);
+\item sets the warp's state to the engine's W\_ state.
+\end{itemize}
+The scheduler then fetches from the other warps. Capture is needed because \sg{rv1}, \sg{rv2} and \sg{frv} follow whichever warp is in X, and change next cycle. If the engine is busy, the warp stays W\_RUN and retries. Each engine holds one operation at a time.
+
+\step{15}{Integer multiply and pdot8}
+\bk{Integer MUL} (RV32M \texttt{mul}): the low 32 bits of \sg{rv1}$\times$\sg{rv2} per lane. It is built from three 16$\times$16 DSP products, aL$\cdot$bL + ((aL$\cdot$bH + aH$\cdot$bL) $\ll$ 16), because the high product aH$\cdot$bH does not affect the low 32 bits. The pipeline is fully registered and the result arrives 7 cycles after issue.
+\bk{pdot8 INT8 dot} (custom-0 \texttt{pdot8}): each 32-bit operand holds four INT8 values. It computes the sum of the four byte products per lane (signed$\times$signed, unsigned$\times$unsigned, or signed$\times$unsigned, selected by funct3) with four DSP multipliers and an adder tree, also in 7 cycles.
+Both results wait in their hold registers (\sg{mul}, \sg{dot}) for the VRF write port.
+
+\step{16}{The FPU}
+The FRF operands \sg{frv3}, \sg{frv2}, \sg{frv1} (and \sg{rv1} for int-to-float and fmv.w.x) are captured. The \bk{FPU (5-stage)} computes FP32 or FP16:
+\begin{itemize}
+\item add, sub, mul, fused multiply-add (one rounding);
+\item convert, compare, sign-inject, min/max, move, classify.
+\end{itemize}
+The result \sg{fpc} is ready 5 cycles later. FP16 is widened to FP32, computed, and rounded back, which gives exactly the FP16 result. \sg{fpc} goes to the FRF, or to the VRF for compares, fcvt.w and fmv.x.w.
+
+\step{17}{div / sqrt: one shared core}
+Divide and square root are rare and large, so there is a single core instead of eight.
+\begin{itemize}
+\item The capture register holds \sg{frv1}, \sg{frv2} of all lanes.
+\item The \bk{lane seq.} (lane sequencer) steps \sg{lane} through the active lanes.
+\item The \bk{lane mux (0\,\ldots\,7)} feeds that lane's operands to \bk{div / sqrt}. The core produces one quotient bit per cycle (26 iterations) or one root bit per cycle (37 iterations).
+\item Each lane's result is stored in its slot of the \bk{hold} register (\sg{sfu}).
+\end{itemize}
+The latency is roughly (number of active lanes) $\times$ (26 or 37) cycles. This is acceptable because other warps keep running, and it saves 7 cores' area and routing.
+
+\step{18}{Memory engine: accepting a load or store}
+One memory instruction can be in flight. At issue the engine captures:
+\begin{itemize}
+\item \sg{addr} of all 8 lanes into \bk{addr};
+\item store data into \bk{data}, via the \bk{store-data mux} (\sg{fsw}: \sg{rv2} for sw/sh/sb, \sg{frv2} for fsw);
+\item \sg{cur\_mask} into \bk{pend}, through the \bk{pending mux} (\sg{issue}): the lanes still to serve;
+\item size (funct3), destination register, and whether the access is to the scratchpad (\sg{scratch}: address bits 31:30 = 01).
+\end{itemize}
+
+\step{19}{Memory engine: coalescing}
+The memory port moves one whole 32-byte (256-bit) line per cycle. Each cycle:
+\begin{itemize}
+\item \bk{Lowest pending} picks the lowest-numbered pending lane, \sg{lead}.
+\item The \bk{lead-lane mux (0\,\ldots\,7)} selects that lane's address; its line tag (bits 31:5) is \sg{tag}.
+\item \bk{= $\times$8} compares every lane's line tag with \sg{tag}, and \bk{AND} with \sg{pend} gives \sg{grp}: all pending lanes on the same line.
+\item All \sg{grp} lanes are served in this single transaction.
+\item \bk{AND (inverted input)} computes \sg{pend} AND NOT \sg{grp}. It returns through the pending mux as the next \sg{pend}.
+\end{itemize}
+The engine finishes when \sg{pend} becomes 0. A contiguous access (A[tid], 8 words) costs 1 transaction; a fully scattered one costs up to 8.
+
+\step{20}{Memory engine: line port, shared memory, scratchpad}
+\bk{Line port}, for a store: places each \sg{grp} lane's data at its word and byte position in a 256-bit line and sets matching byte enables for sb, sh or sw. For a load: extracts each \sg{grp} lane's word (address bits 4:2), selects byte or halfword (bits 1:0) and sign- or zero-extends it.
+\bk{Shared memory data port}: the \sg{256-bit line} interface to the 8-bank shared memory, one bank per word of the line, so a whole line is accessed in one cycle.
+\bk{Scratchpad}: per-warp on-chip RAM (64 words per warp). It is single-ported, so it serves one lane (\sg{lead lane}) per cycle and never touches the shared memory; reused data staged here saves line transactions.
+\bk{Result mux} (\sg{scratch}) delivers \sg{mem}, the load result, to write-back. When the last lane is served, the warp is resumed at pc+4.
+
+\step{21}{Write-back arbitration}
+Each register file has a single write port per lane, but several producers can finish in the same cycle.
+\bk{VRF write arbiter}, priority highest first:
+\begin{enumerate}[leftmargin=4mm]
+\item \sg{mem}: loads, which cannot wait because the line is only present for one cycle;
+\item \sg{fpc}: FP results with an integer destination;
+\item \sg{mul};
+\item \sg{dot};
+\item \sg{alu} (\sg{wb\_val}).
+\end{enumerate}
+\bk{FRF write arbiter}: \sg{mem} (flw), then \sg{sfu}, then \sg{fpc}.
+\bk{WB arbiter} computes these selects (\sg{prio}). An engine that loses keeps its result in its hold register and tries again next cycle. A losing single-cycle ALU instruction is \emph{squashed}: nothing is written and the warp re-issues it next cycle, which gives the same result.
+The winner drives the \sg{VRF write port} or \sg{FRF write port}: \{warp, register\}, 8 lane values and 8 lane enables (only lanes active at issue write). The register's \sg{wr} bit is set, so from now on it reads the VRF instead of its seed.
+
+\step{22}{Resume}
+When an engine's result is granted the port (\sg{grant (wb fire)}), \bk{Resume} writes the warp's resume PC (pc+4 of the parked instruction) into the top frame of its \bk{SIMT stack} and sets its state back to W\_RUN (\sg{resume}). The warp is runnable again from the next cycle. The memory engine resumes its warp in the same way when its last lane has been served.
+
+\step{23}{Retire and completion}
+\texttt{ecall} moves the warp to W\_DONE and frees its slot for the next warp of the grid. When no warps remain to spawn and no slot is running or parked, the pool pulses \emph{done}. The accelerator then records the kernel's cycle count and sets STATUS.DONE for the host to read.
+
+\step{24}{Latency summary}
+\begin{tabular}{@{}l@{\quad}l@{}}
+ALU, branch, jump & 1 cycle in X\\
+integer mul, pdot8 & 7 cycles\\
+FPU & 5 cycles after capture\\
+div / sqrt & $\approx$26 / 37 per active lane\\
+load / store & 1 cycle per distinct line\\
+scratchpad & 1 cycle per active lane\\
+\end{tabular}
+
+\smallskip
+While one warp waits on any of these, the other resident warps keep the fetch and ALU path busy. This overlap of one warp's wait with other warps' work is the core idea of a SIMT machine.
+
+\end{multicols*}

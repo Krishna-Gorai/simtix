@@ -1,0 +1,90 @@
+% Connection reference: for every block in the figure, where each input comes
+% from, where each output goes, and why. Follows page 1 and rtl/accel/warp_pool.sv.
+\newpage
+\thispagestyle{empty}
+{\fontsize{13}{15}\selectfont\textbf{Connection reference: every block, its inputs, its outputs}}\\[1mm]
+{\fontsize{8.5}{10}\selectfont Read a row as ``this block receives these signals from these blocks, and sends these signals to these blocks''. \textit{Italic} names are blocks; bold names are signals, as labelled in the figure.}
+
+\vspace{2mm}
+\fontsize{8}{9.6}\selectfont
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\newcommand{\cgrp}[1]{\multicolumn{4}{@{}l}{\rule{0pt}{3ex}\fontsize{9}{11}\selectfont\bfseries\color{black!80}#1}\\\hline}
+\newcommand{\cs}[1]{\textbf{#1}}
+\newcommand{\cb}[1]{\textit{#1}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{40mm}>{\raggedright\arraybackslash}p{92mm}>{\raggedright\arraybackslash}p{92mm}>{\raggedright\arraybackslash}p{130mm}@{}}
+\textbf{Block} & \textbf{Inputs $\leftarrow$ from} & \textbf{Outputs $\rightarrow$ to} & \textbf{Role in the datapath}\\ \hline
+\endhead
+
+\cgrp{Fetch (F)}
+\cb{Warp state} & \cs{resume} $\leftarrow$ \cb{Resume}; spawn, park and retire updates from the launch logic and the X stage & \cs{runnable} $\rightarrow$ \cb{Round-robin warp select} & Remembers what every warp slot is doing, so only warps that can make progress are fetched. \\
+\cb{rr\_ptr} & \cs{fetch\_w}+1 $\leftarrow$ \cb{+1} & \cs{rr\_ptr} $\rightarrow$ \cb{Round-robin warp select} & Rotates the search start so every warp gets its turn. \\
+\cb{+1} & \cs{fetch\_w} $\leftarrow$ \cb{Round-robin warp select} & $\rightarrow$ \cb{rr\_ptr} & Makes the warp after the one just fetched the first candidate next cycle. \\
+\cb{Round-robin warp select} & \cs{runnable} $\leftarrow$ \cb{Warp state}; \cs{rr\_ptr} $\leftarrow$ \cb{rr\_ptr} & \cs{fetch\_w} $\rightarrow$ \cb{SIMT stack} (read address), \cb{F/X} (becomes \cs{issue\_w}), \cb{+1} & Chooses the one warp that uses the shared fetch/decode/ALU path in the next cycle. \\
+\cb{SIMT stack} & \cs{fetch\_w} (read) $\leftarrow$ \cb{Round-robin warp select}; \cs{stack write} $\leftarrow$ \cb{Stack update}; \cs{resume} $\leftarrow$ \cb{Resume} & \cs{sp}, \cs{rpc}, \cs{mask}, \cs{fetch\_pc} $\rightarrow$ \cb{F/X}; \cs{fetch\_pc} $\rightarrow$ \cb{Shared memory instr.\ port} & Holds each warp's control flow: the PC and active-lane mask of every open path, so divergent lanes can run in turn and rejoin. \\
+\cb{Shared memory instr.\ port} & \cs{fetch\_pc} $\leftarrow$ \cb{SIMT stack} & \cs{instr} $\rightarrow$ \cb{F/X} & Supplies the kernel instruction for the selected warp. \\
+\cb{F/X} & \cs{instr}, \cs{fetch\_w}, \cs{sp}, \cs{rpc}, \cs{mask}, \cs{fetch\_pc} from the fetch stage & \cs{instr}, \cs{issue\_w} $\rightarrow$ \cb{Decode}; \cs{cur\_sp} $\rightarrow$ \cb{$\neq$0}; \cs{cur\_rpc} $\rightarrow$ \cb{=}; \cs{cur\_pc} $\rightarrow$ \cb{=}, \cb{+}, \cb{+4}; \cs{cur\_mask} $\rightarrow$ \cb{AND}, \cb{AND (inverted input)}, lane write enables & Pipeline boundary: everything the X stage needs about the fetched warp, frozen for one cycle. \\
+
+\cgrp{Issue / execute (X): decode, registers, ALU}
+\cb{Decode \& imm gen} & \cs{instr}, \cs{issue\_w} $\leftarrow$ \cb{F/X} & \cs{\{w,rs\}} $\rightarrow$ \cb{VRF}; \cs{\{w,fs\}} $\rightarrow$ \cb{FRF}; \cs{imm} $\rightarrow$ \cb{+}, \cb{Operand B mux}; \cs{asel}, \cs{bsel}, \cs{wsel}, \cs{psel}, \cs{funct3} $\rightarrow$ muxes and \cb{cmp $\times$8} & Turns the instruction bits into register addresses, an immediate, and the control settings of every mux. \\
+\cb{VRF} & \cs{\{w,rs\}} $\leftarrow$ \cb{Decode}; \cs{VRF write port} $\leftarrow$ \cb{VRF write arbiter} & two read values (all 8 lanes) $\rightarrow$ \cb{Seed muxes} & Integer registers of all threads, one LUTRAM bank per lane. \\
+\cb{Seed} & warp base id, lane number, kernel arguments (latched at launch) & seed of rs1, seed of rs2 $\rightarrow$ \cb{Seed muxes} & Supplies the launch value of a register not yet written. \\
+\cb{Seed muxes} (two, one per read port) & VRF data $\leftarrow$ \cb{VRF}; seed $\leftarrow$ \cb{Seed}; \cs{wr} (written bit) & \cs{rv1}, \cs{rv2} $\rightarrow$ \cb{Operand A/B muxes}, \cb{cmp $\times$8}, \cb{MUL} and \cb{pdot8} captures; \cs{rv2} $\rightarrow$ \cb{Store-data mux}; \cs{rv1} $\rightarrow$ \cb{FPU} capture & Produce the true register value without ever clearing the VRF. \\
+\cb{Operand A mux} & \cs{rv1}, \cs{pc}, \cs{0}; \cs{asel} $\leftarrow$ \cb{Decode} & $\rightarrow$ \cb{ALU} input a & Selects rs1, the PC (auipc) or zero (lui). \\
+\cb{Operand B mux} & \cs{rv2}, \cs{imm}; \cs{bsel} $\leftarrow$ \cb{Decode} & $\rightarrow$ \cb{ALU} input b & Selects rs2 or the immediate. \\
+\cb{ALU $\times$8} & operands $\leftarrow$ \cb{Operand A/B muxes} & result $\rightarrow$ \cb{Write-back value mux}; \cs{addr} $\rightarrow$ memory \cb{addr} register & Integer arithmetic for all lanes; also the load/store address generator. \\
+\cb{Write-back value mux} & ALU result, \cs{pc+4}, \cs{tid}; \cs{wsel} $\leftarrow$ \cb{Decode} & \cs{wb\_val} $\rightarrow$ \cb{VRF write arbiter} (input alu) & Result of any single-cycle instruction. \\
+
+\cgrp{Issue / execute (X): control flow}
+\cb{$\neq$0 (OR)} & \cs{cur\_sp} (3 bits) $\leftarrow$ \cb{F/X} & $\rightarrow$ \cb{AND} (pop) & True when the warp is inside a pushed (divergent) frame. \\
+\cb{= (pop compare)} & \cs{cur\_pc}, \cs{cur\_rpc} $\leftarrow$ \cb{F/X} & $\rightarrow$ \cb{AND} (pop) & True when the path has reached its join PC. \\
+\cb{AND (pop)} & outputs of \cb{$\neq$0} and \cb{=} & \cs{do\_pop} $\rightarrow$ \cb{Stack update} & Decides to pop the frame instead of executing. \\
+\cb{+} & \cs{cur\_pc} $\leftarrow$ \cb{F/X}; \cs{imm} $\leftarrow$ \cb{Decode} & \cs{branch / jal target} $\rightarrow$ \cb{Next-PC mux} & PC-relative target. \\
+\cb{+4} & \cs{cur\_pc} $\leftarrow$ \cb{F/X} & \cs{fall-through} $\rightarrow$ \cb{Next-PC mux} & Next sequential PC (also the link value \cs{pc+4}). \\
+\cb{Next-PC mux} & \cs{fall-through}, \cs{jalr}, \cs{branch / jal target}; \cs{psel} & \cs{npc} $\rightarrow$ \cb{Stack update} & The next PC for uniform control flow. \\
+\cb{cmp $\times$8} & \cs{rv1}, \cs{rv2} $\leftarrow$ \cb{Seed muxes}; \cs{funct3} $\leftarrow$ \cb{Decode} & \cs{t} $\rightarrow$ \cb{AND}, \cb{AND (inverted input)} & Evaluates the branch condition separately in every lane. \\
+\cb{AND (taken)} & \cs{t}; \cs{cur\_mask} $\leftarrow$ \cb{F/X} & \cs{taken} $\rightarrow$ \cb{Stack update} & Active lanes that take the branch. \\
+\cb{AND (inverted input)} & \cs{cur\_mask}; \cs{t} (inverted) & \cs{ntaken} $\rightarrow$ \cb{Stack update} & Active lanes that fall through. \\
+\cb{Stack update} & \cs{taken}, \cs{ntaken}, \cs{npc}, \cs{do\_pop} & \cs{stack write} $\rightarrow$ \cb{SIMT stack} (top channel) & Retargets, pushes (on divergence) or pops (at the join) the warp's stack. \\
+
+\cgrp{Floating point (beside the FRF)}
+\cb{FRF} & \cs{\{w,fs\}} $\leftarrow$ \cb{Decode}; \cs{FRF write port} $\leftarrow$ \cb{FRF write arbiter} & \cs{frv3}, \cs{frv2}, \cs{frv1} $\rightarrow$ FPU capture; \cs{frv1}, \cs{frv2} $\rightarrow$ div/sqrt capture; \cs{frv2} $\rightarrow$ \cb{Store-data mux} & Floating-point registers (FP32, FP16 NaN-boxed), 3 read ports for FMA. \\
+\cb{FPU capture q} & \cs{fs3, fs2, fs1} $\leftarrow$ \cb{FRF}; \cs{rv1} $\leftarrow$ \cb{Seed mux} & $\rightarrow$ \cb{FPU} & Freezes the operands of the parked warp. \\
+\cb{FPU (5-stage)} & captured operands & $\rightarrow$ \cb{fpc} hold & All FP arithmetic except div/sqrt. \\
+\cb{fpc hold} & \cb{FPU} result & \cs{fpc} $\rightarrow$ \cb{FRF write arbiter}, \cb{VRF write arbiter} & Keeps the result until a write port is granted. \\
+\cb{div/sqrt capture q} & \cs{fs1, fs2} $\leftarrow$ \cb{FRF} & lanes 0\,\ldots\,7 $\rightarrow$ \cb{Lane mux} & Freezes all lanes' operands for the sequential core. \\
+\cb{lane seq.} & active mask of the parked warp & \cs{lane} $\rightarrow$ \cb{Lane mux} select, hold register slot & Walks the active lanes one by one. \\
+\cb{Lane mux (0\,\ldots\,7)} & captured lanes; \cs{lane} & $\rightarrow$ \cb{div / sqrt} & Feeds one lane at a time into the single core. \\
+\cb{div / sqrt} & one lane's operands & $\rightarrow$ \cb{hold} & Iterative divide (26 steps) or square root (37 steps). \\
+\cb{hold} & \cb{div / sqrt} result, slot \cs{lane} & \cs{sfu} $\rightarrow$ \cb{FRF write arbiter} & Collects all lanes before one write-back. \\
+
+\cgrp{Park-and-resume engines}
+\cb{MUL capture q} & \cs{rv1}, \cs{rv2} (rails) & $\rightarrow$ \cb{Integer MUL} & Freezes the multiply operands. \\
+\cb{Integer MUL} & captured operands & $\rightarrow$ \cb{mul} hold & 32$\times$32 multiply, low word, 7 cycles. \\
+\cb{mul hold} & product & \cs{mul} $\rightarrow$ \cb{VRF write arbiter} & Waits for the VRF port. \\
+\cb{pdot8 capture q} & \cs{rv1}, \cs{rv2} (rails) & $\rightarrow$ \cb{pdot8 INT8 dot} & Freezes the packed INT8 operands. \\
+\cb{pdot8 INT8 dot} & captured operands & $\rightarrow$ \cb{dot} hold & Sum of four INT8 products, 7 cycles. \\
+\cb{dot hold} & dot product & \cs{dot} $\rightarrow$ \cb{VRF write arbiter} & Waits for the VRF port. \\
+
+\cgrp{Coalescing memory engine}
+\cb{addr} register & \cs{addr} $\leftarrow$ \cb{ALU} & lanes 0\,\ldots\,7 $\rightarrow$ \cb{Lead-lane mux}; all lanes $\rightarrow$ \cb{= $\times$8} & Per-lane addresses of the in-flight access. \\
+\cb{Pending mux} & \cs{mask} (cur\_mask) at \cs{issue}; next pending $\leftarrow$ \cb{AND (inverted input)} & $\rightarrow$ \cb{pend} & Starts with the active lanes, then removes served lanes. \\
+\cb{pend} register & $\leftarrow$ \cb{Pending mux} & \cs{pend} $\rightarrow$ \cb{Lowest pending}, \cb{AND $\to$ grp}, \cb{AND (inverted input)} & Lanes still to be served. \\
+\cb{Lowest pending} & \cs{pend} & \cs{lead} $\rightarrow$ \cb{Lead-lane mux} select & Picks the lane whose line is served this cycle. \\
+\cb{Lead-lane mux (0\,\ldots\,7)} & lane addresses; \cs{lead} & \cs{tag} $\rightarrow$ \cb{= $\times$8}, \cb{Line port} & The line address of this cycle's transaction. \\
+\cb{= $\times$8} & all lane addresses; \cs{tag} & $\rightarrow$ \cb{AND $\to$ grp} & Finds every lane on the same 32-byte line. \\
+\cb{AND $\to$ grp} & compare results; \cs{pend} & \cs{grp} $\rightarrow$ \cb{Line port}, \cb{AND (inverted input)} & Lanes coalesced into this transaction. \\
+\cb{AND (inverted input)} & \cs{grp} (inverted); \cs{pend} & $\rightarrow$ \cb{Pending mux} & Removes the served lanes. \\
+\cb{Store-data mux} & \cs{rv2}, \cs{frv2}; \cs{fsw} & $\rightarrow$ \cb{data} register & Integer or FP store data. \\
+\cb{data} register & store data & $\rightarrow$ \cb{Line port} & Per-lane store data of the in-flight access. \\
+\cb{Line port} & data; \cs{tag}; \cs{grp}; read line $\leftarrow$ \cb{Shared memory} & \cs{256-bit line} (address, data, byte enables) $\rightarrow$ \cb{Shared memory}; load data $\rightarrow$ \cb{Result mux} & Merges stores into one line; extracts and sign-extends loads. \\
+\cb{Shared memory data port} & line address, write data, byte enables $\leftarrow$ \cb{Line port} & read line $\rightarrow$ \cb{Line port} & The 8-bank shared memory, one 256-bit line per cycle (outside warp\_pool). \\
+\cb{Scratchpad} & \cs{lead lane} address and data & read data $\rightarrow$ \cb{Result mux} & Per-warp on-chip RAM, one lane per cycle. \\
+\cb{Result mux} & line-port load data, scratchpad data; \cs{scratch} & \cs{mem} $\rightarrow$ \cb{VRF write arbiter}, \cb{FRF write arbiter} & Load result of the access. \\
+
+\cgrp{Write-back}
+\cb{VRF write arbiter} & \cs{mul}, \cs{alu} (\cs{wb\_val}), \cs{dot}, \cs{mem}, \cs{fpc}; select $\leftarrow$ \cb{WB arbiter} & \cs{VRF write port} $\rightarrow$ \cb{VRF} (bottom channel) & One integer result per cycle; priority mem, fpc, mul, dot, alu. \\
+\cb{FRF write arbiter} & \cs{mem}, \cs{fpc}, \cs{sfu}; \cs{prio} & \cs{FRF write port} $\rightarrow$ \cb{FRF} (bottom channel) & One FP result per cycle; priority mem, sfu, fpc. \\
+\cb{WB arbiter} & results waiting in the hold registers & select $\rightarrow$ \cb{VRF write arbiter}; \cs{grant (wb fire)} $\rightarrow$ \cb{Resume} & Grants the port; the loser waits (engine) or re-issues (ALU). \\
+\cb{Resume} & \cs{grant (wb fire)} $\leftarrow$ \cb{WB arbiter} & \cs{resume} $\rightarrow$ \cb{SIMT stack}, \cb{Warp state} (top channel) & Returns the parked warp to W\_RUN at its resume PC. \\
+\end{longtable}
