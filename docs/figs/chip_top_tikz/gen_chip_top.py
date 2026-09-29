@@ -31,8 +31,7 @@ f.group(60, 8, 286, 40, r'Shared memory: 16 KB, 8 distributed-RAM banks (bank b 
         'sw', pt=6.5, fill='groupfill')
 
 # ============================================================================ host CPU
-ROM = f.box('rom', 9, 148, 69, 18, t('Driver instruction ROM', r'vadd demo: cpu\_driver\_rom', r'MNIST demo: driver\_rom (1 K words)'),
-            'mem', pt=7)
+ROM = f.box('rom', 9, 148, 69, 18, 'Driver instruction ROM', 'mem', pt=8)
 STG = []
 for i, nm in enumerate(['IF', 'ID', 'EX', 'MEM', 'WB']):
     x = 13 + i * 13
@@ -49,11 +48,11 @@ f.stub('memready', MEMS.T(56.5), 'up', 4.5, r'mem\_ready (stall)', pt=6)
 # ============================================================================ address decode, result, weight store, read mux
 X_BUS = 146                     # vertical leg of the host data bus up to the MMIO page
 Y_TRUNK = 78
-MMIO = f.box('mmio', 158, 144, 42, 24, t('MMIO registers', r'KERNEL\_PC, BASE\_A/B/C, N', r'CTRL.GO, STATUS, CYCLES'), 'mem', pt=7)
-DISP = f.box('disp', 214, 144, 60, 24, t('Dispatcher FSM', r'IDLE $\to$ LAUNCH $\to$ RUN $\to$ DONE', 'cycle counter'), 'ctl', pt=7)
-DEC = f.box('dec', 98, 146, 38, 22, t('Address decode', 'addr[31:28]', r'0x8 MMIO $\cdot$ 0x9 result', r'0xA weights $\cdot$ else shared'), 'ctl', pt=6.5)
+MMIO = f.box('mmio', 158, 144, 42, 24, 'MMIO registers', 'mem', pt=8)
+DISP = f.box('disp', 214, 144, 60, 24, 'Dispatcher FSM', 'ctl', pt=8)
+DEC = f.box('dec', 98, 146, 38, 22, 'Address decode', 'ctl', pt=8)
 RES = f.reg('res', 106, 115, 26, 11, 'Result register', pt=6.5)
-WROM = f.box('wrom', 100, 82, 40, 16, t('Weight store (BRAM)', '256 KB, MNIST demo', r'sync read $\to$ 1-cycle stall'), 'mem', pt=6.5)
+WROM = f.box('wrom', 100, 82, 40, 16, 'Weight store (BRAM)', 'mem', pt=7.5)
 RMUX = f.mux('rmux', 82, [106, 92, 86], sel='top', ins=['', '', ''], w=6, flip=True)
 f.stub('rmux_s', RMUX.selpt, 'up', 3.2, 'sel', pt=6)
 
@@ -127,22 +126,6 @@ f.label('instr', 201.5, 55, 'west', pt=6)
 W_('line_w', [MEME.B(270), PLN.T(270)], style='wide')
 W_('line_r', [PLN.T(277), MEME.B(277)], style='wide')
 f.label('256-bit line', 269.5, 55, 'east', pt=6)
-
-# ============================================================================ notation key
-f.frames.append((12, 10, 56, 76))
-f.label('Notation', 14, 74.6, 'north west', pt=7, bold=True)
-row = 66.5
-for kind, txt in (('mem', 'storage'), ('ctl', 'control'), ('alu', 'arithmetic'), ('mux', 'memory port')):
-    f.box('key_' + kind, 15, row - 2.2, 9, 4.4, '', kind)
-    f.label(txt, 27, row, 'west', pt=6.5)
-    row -= 6.4
-f.reg('key_reg', 15, row - 2.2, 9, 4.4, '')
-f.label('register', 27, row, 'west', pt=6.5)
-row -= 6.4
-for st, txt in (('sig', 'signal'), ('bus', 'bus / 8 lanes'), ('wide', '256-bit line'), ('ctl', 'stub / control')):
-    W_('key_' + st, [(15, row), (24, row)], style=st)
-    f.label(txt, 27, row, 'west', pt=6.5)
-    row -= 6.4
 
 # ============================================================================ build
 if __name__ == '__main__':
