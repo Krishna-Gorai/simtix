@@ -147,6 +147,7 @@ class Fig:
         self.labels = []
         self.bands = []      # (x0, y0, x1, y1, title) background panels, drawn first
         self.frames = []     # (x0, y0, x1, y1) white framed panels, drawn after bands
+        self.groups = []     # (x0, y0, x1, y1, fill) dashed containers, drawn after frames
         self.rules = []      # extra free-standing TikZ with «» points: (ops, pts)
         self.warn = []
 
@@ -192,24 +193,42 @@ class Fig:
             s.ops.append(rf"\node[{r}align=center,inner sep=0,font={fsz(pt, 1.1)}] at {s.tok((x + w / 2, y + h / 2 + 0.6))} {{{text}}};")
         return self._add(s)
 
-    def mux(self, name, x, ys, w=5.0, pad=2.6, sel='bot', ins=None, pt=5):
-        """Trapezoid multiplexer pointing right. ys = input y's (top->bottom)."""
+    def mux(self, name, x, ys, w=5.0, pad=2.6, sel='bot', ins=None, pt=5, flip=False):
+        """Trapezoid multiplexer. ys = input y's (top->bottom). Points right
+        (inputs on the left edge at x); flip=True points left (inputs on the
+        right edge at x + w, output on the left)."""
         ys = list(ys)
         y1, y0 = max(ys) + pad, min(ys) - pad
         d = min(2.0, (y1 - y0) * 0.2)
-        poly = [(x, y0), (x + w, y0 + d), (x + w, y1 - d), (x, y1)]
+        if flip:
+            poly = [(x, y0 + d), (x + w, y0), (x + w, y1), (x, y1 - d)]
+        else:
+            poly = [(x, y0), (x + w, y0 + d), (x + w, y1 - d), (x, y1)]
         s = Shape(name, 'mux')
         s.set_poly(poly)
         s.ops.append(r"\draw[blk,fill=muxfill] " + ' -- '.join(s.tok(p) for p in poly) + " -- cycle;")
-        s.inp = [(x, yy) for yy in ys]
-        s.out = (x + w, (y0 + y1) / 2)
+        xin, xout = (x + w, x) if flip else (x, x + w)
+        s.inp = [(xin, yy) for yy in ys]
+        s.out = (xout, (y0 + y1) / 2)
         s.selpt = (x + w / 2, y0 + d / 2) if sel == 'bot' else (x + w / 2, y1 - d / 2)
         if ins is None:
             ins = [str(i) for i in range(len(ys))]
         for yy, tx in zip(ys, ins):
             if tx:
-                s.ops.append(rf"\node[anchor=west,inner sep=0.4pt,font={fsz(pt, 1)}] at {s.tok((x + 0.1, yy))} {{{tx}}};")
+                if flip:
+                    s.ops.append(rf"\node[anchor=east,inner sep=0.4pt,font={fsz(pt, 1)}] at {s.tok((x + w - 0.1, yy))} {{{tx}}};")
+                else:
+                    s.ops.append(rf"\node[anchor=west,inner sep=0.4pt,font={fsz(pt, 1)}] at {s.tok((x + 0.1, yy))} {{{tx}}};")
         return self._add(s)
+
+    def group(self, x0, y0, x1, y1, title, title_at='nw', pt=6.5, fill='groupfill'):
+        """Dashed, rounded container drawn behind the blocks. It is not an
+        obstacle: wires may cross it. Its title is a verified label."""
+        self.groups.append((x0, y0, x1, y1, fill))
+        tx = x0 + 1.6 if 'w' in title_at else x1 - 1.6
+        ty = y1 - 1.2 if 'n' in title_at else y0 + 1.2
+        anchor = ('north' if 'n' in title_at else 'south') + (' west' if 'w' in title_at else ' east')
+        self.label(title, tx, ty, anchor, pt=pt, bold=True, color='black!75')
 
     def alu(self, name, x, ya, yb, w, text, pt=7, kind='alu', rep=False, fa=0.84):
         """Classic notched ALU placed by its two input y's. Ports: .a, .b, .out."""
@@ -492,6 +511,8 @@ class Fig:
         for L in self.labels:
             L['x'], L['y'] = fx(L['x']), fy(L['y'])
         self.bands = [(fx(a), fy(b), fx(c), fy(d), tt) for a, b, c, d, tt in self.bands]
+        self.groups = [(fx(a), fy(b), fx(c), fy(d), fl) for a, b, c, d, fl in self.groups]
+        self.frames = [(fx(a), fy(b), fx(c), fy(d)) for a, b, c, d in self.frames]
 
     def shift(self, v_from, dv, axis='x'):
         """Move every coordinate >= v_from by dv along axis (a cut at v_from).
@@ -518,6 +539,9 @@ class Fig:
             perp = abs(a[0] - b[0]) < 1e-6 if axis == 'x' else abs(a[1] - b[1]) < 1e-6
             if perp:
                 v = a[0] if axis == 'x' else a[1]
+                iv.append((v - 0.01, v + 0.01))
+        for (x0, y0, x1, y1, fl) in self.groups:
+            for v in ((x0, x1) if axis == 'x' else (y0, y1)):
                 iv.append((v - 0.01, v + 0.01))
         iv.sort()
         merged = []
@@ -590,7 +614,7 @@ class Fig:
              r"\definecolor{ctlfill}{HTML}{E4EFD6}", r"\definecolor{regfill}{HTML}{CFCFCF}",
              r"\definecolor{extfill}{HTML}{ECE6F4}", r"\definecolor{muxfill}{HTML}{F3F3F3}",
              r"\definecolor{ctlwire}{HTML}{4A4A4A}", r"\definecolor{bandfill}{HTML}{F7F7F7}",
-             r"\definecolor{bandline}{HTML}{B0B0B0}",
+             r"\definecolor{bandline}{HTML}{B0B0B0}", r"\definecolor{groupfill}{HTML}{F8F9FB}", r"\definecolor{groupfill2}{HTML}{EEF3F9}",
              r"\begin{document}\sansmath",
              r"\begin{tikzpicture}[x=1mm,y=1mm,line cap=butt,line join=miter,",
              r"  blk/.style={line width=0.55pt,draw=black},",
@@ -606,6 +630,8 @@ class Fig:
             o.append(rf"\draw[bandline,line width=0.4pt,dash pattern=on 2pt off 1.5pt] {P((x0, y0))} rectangle {P((x1, y1))};")
             if tt:
                 o.append(rf"\node[anchor=north west,inner sep=1.2pt,font={fsz(6.5, 1)}\bfseries,text=black!70] at {P((x0 + 0.6, y1 - 0.5))} {{{tt}}};")
+        for (x0, y0, x1, y1, fl) in self.groups:
+            o.append(rf"\draw[line width=0.6pt,draw=black!55,dash pattern=on 3pt off 1.8pt,fill={fl},rounded corners=2.5mm] {P((x0, y0))} rectangle {P((x1, y1))};")
         for (x0, y0, x1, y1) in self.frames:
             o.append(rf"\draw[line width=0.5pt,draw=black!60,fill=white] {P((x0, y0))} rectangle {P((x1, y1))};")
         for s in self.shapes.values():

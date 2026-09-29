@@ -1,0 +1,7 @@
+*.aux
+*.log
+preview.png
+key.png
+__pycache__/
+simtix_chip_top.tex
+simtix_chip_top.pdf
