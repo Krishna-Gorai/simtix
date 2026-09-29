@@ -16,6 +16,7 @@
 \onehalfspacing
 \usepackage{graphicx}
 \graphicspath{{../figs/}{../../ml/data/}}
+\usepackage{rotating}                      % sidewaysfigure for the chip_top diagram
 \usepackage{amsmath}
 \let\Bbbk\relax                            % avoid newtxmath/amssymb \Bbbk clash
 \usepackage{amssymb}
@@ -399,16 +400,22 @@ warps; each thread receives its identity and arguments through a register-seedin
 convention at spawn (\code{a0}$=$thread id, \code{a1..a3}$=$base pointers,
 \code{a4}$=N$).
 
-\begin{figure}[t]
+\begin{sidewaysfigure}
 \centering
-\includegraphics[width=0.95\textwidth]{simtix_arch_detailed.png}
-\caption{The SIMTiX accelerator datapath: the round-robin warp scheduler drives a
-shared fetch/decode over the top-of-stack view of the issuing warp; eight lanes
-execute in lockstep against a per-lane distributed-RAM register file; and a
-background memory engine services one coalesced line transaction per cycle while
-the scheduler issues other warps.}
+\includegraphics[width=\textwidth,height=0.88\textheight,keepaspectratio]{simtix_chip_top.pdf}
+\caption{The complete SIMTiX system-on-chip, \code{chip\_top}, drawn from the RTL.
+The five-stage RV32I host drives one data bus; an address decode on the top four
+address bits selects the accelerator's MMIO registers, the chip result register,
+the block-RAM weight store, or the shared memory, and a read-data multiplexer
+returns the addressed word. Inside \code{simt\_accel}, \code{GO} starts the
+dispatcher, which launches \code{warp\_pool} and counts cycles until the grid
+retires. \code{warp\_pool} fetches kernel code through the shared memory's
+instruction port and moves data one 256-bit line at a time through its line port.
+The configuration shown is the one used for MNIST (Chapter~\ref{ch:mnist}): a
+16~KB shared memory and the weight store with its one-cycle CPU stall; the
+baseline chip of Chapter~\ref{ch:impl} has a 4~KB shared memory.}
 \label{fig:arch}
-\end{figure}
+\end{sidewaysfigure}
 
 \section{The warp pool}
 Four warp slots are resident at once (Figure~\ref{fig:arch}). Each owns private
