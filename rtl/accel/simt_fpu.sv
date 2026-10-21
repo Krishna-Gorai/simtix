@@ -35,8 +35,11 @@
 // HALF PRECISION via WIDEN-COMPUTE-NARROW: FP16 operands are NaN-box-checked,
 // widened to FP32 (exact), run through the FP32 datapath, then the FP-result is
 // rounded back to FP16 (RNE) and NaN-boxed. Bit-exact single-rounding because the
-// FP32 intermediate carries 24 significand bits and 24 >= 2*11+2 (Figueroa). Sign-
-// inject / min-max / fmv / fclass are done natively at 16-bit.
+// FP32 intermediate carries 24 significand bits and 24 >= 2*11+2 (Figueroa). That
+// argument covers add/sub/mul/div/sqrt but NOT FMA: an FP16 FMA rounds its FP32
+// intermediate to ODD instead (Boldo-Melquiond, needs 24 >= 11+2), so the RNE
+// narrow is again the only rounding. Sign-inject / min-max / fmv / fclass are done
+// natively at 16-bit.
 //
 // Rounding RNE for arithmetic and int->float; float->int truncates (RTZ).
 // Subnormals are FLUSHED TO ZERO (FTZ), both formats. NaN/inf/signed-zero per
@@ -637,7 +640,7 @@ module simt_fpu
     end
 
     // FMA normalize + round (or the registered special result).
-    logic [31:0] fma_res;
+    logic [31:0] fma_res, fma_res_h;   // fma_res_h: round-to-odd, for an FP16 dest
     always_comb begin
         logic [127:0] mag, acc_norm;
         logic [7:0]   m;
@@ -652,6 +655,9 @@ module simt_fpu
         s = (|acc_norm[101:0]) | r2_fma_fs;
         biased = $signed({3'd0, r2_fma_eab}) + $signed({4'd0, m}) - 12'sd201;
         fma_res = r2_fma_spec ? r2_fma_specval : pack_round(r2_fma_rsign, biased, sigr, g, r, s);
+        fma_res_h = r2_fma_spec ? r2_fma_specval
+                  : pack_round(r2_fma_rsign, biased, {sigr[23:1], sigr[0] | g | r | s},
+                               1'b0, 1'b0, 1'b0);
     end
 
     // ── Final result mux (stage 3) ─────────────────────────────────────────────────
@@ -659,7 +665,7 @@ module simt_fpu
         int_dest = 1'b0;
         res      = 32'd0;
         if (r2_is_fma) begin
-            res = r2_dst_is_h ? boxH(narrow_h(fma_res)) : fma_res;
+            res = r2_dst_is_h ? boxH(narrow_h(fma_res_h)) : fma_res;
         end else
         unique case (r2_funct5)
             FP_ADD, FP_SUB: res = r2_dst_is_h ? boxH(narrow_h(add_res))     : add_res;

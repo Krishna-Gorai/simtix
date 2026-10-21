@@ -310,6 +310,12 @@ module tb_fpu
         a = boxh(16'h4000); b = boxh(16'h4000); c = boxh(16'hc400); ck(boxh(16'(ref_hfma(32'h4000,32'h4000,32'hc400,0,0))), "h2*2-4=0");
         a = boxh(16'h7c00); b = boxh(16'h3c00); c = boxh(16'hfc00); ck(boxh(16'h7e00), "hinf-inf=nan");
         a = boxh(16'h0000); b = boxh(16'h7c00); c = boxh(16'h3c00); ck(boxh(16'h7e00), "h0*inf=nan");
+        // Double-rounding trap: the exact result -1426.50006 rounds to the FP32 tie
+        // -1426.5 under RNE, which then narrows to -1426 (e592). Correct is -1427.
+        a = boxh(16'h3620); b = boxh(16'h4b2f); c = boxh(16'he598); ck(boxh(16'he593), "hfma-dblrnd");
+        fma_np = 1'b1;
+        a = boxh(16'h3620); b = boxh(16'h4b2f); c = boxh(16'h6598); ck(boxh(16'h6593), "hfma-dblrnd-n");
+        fma_np = 1'b0;
         is_fma = 1'b0; fma_np = 1'b0; fma_nc = 1'b0;
         $display("  %0d checks, %0d errors so far", checks, errors);
 
