@@ -265,6 +265,25 @@ module warp_pool
         end
     end
 
+    // Per-slot spawn decision for the block going into fill_g: slot k takes warp
+    // next_wid + (k mod 2^blk_lg); slots past the end of the grid stay free (a partial
+    // last block). Computed here so the sequential spawn step is a set of
+    // single-statement loops (see the BLKLOOPINIT note at reset).
+    logic [NW-1:0] spawn_en;
+    logic [31:0]   spawn_base [0:NW-1];
+    logic [NL-1:0] spawn_mask [0:NW-1];
+    always_comb begin
+        for (int k = 0; k < NW; k++) begin
+            logic [31:0] wid;
+            wid           = next_wid + (k & ((1 << blk_lg) - 1));
+            spawn_base[k] = wid * WSZ;
+            spawn_en[k]   = (next_wid < total_warps) && fill_valid
+                         && ((k >> blk_lg) == int'(fill_g)) && (wid < total_warps);
+            for (int l = 0; l < NL; l++)
+                spawn_mask[k][l] = ((spawn_base[k] + l[31:0]) < arg_n);   // tail mask
+        end
+    end
+
     // ── Block barrier release (combinational) ───────────────────────────────────────
     // A waiting warp is released once no warp of its group is still running or
     // parked on an engine: every slot of the group is at the barrier, has exited,
@@ -1374,38 +1393,29 @@ module warp_pool
                 busy           <= 1'b1;
                 for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
             end else if (running) begin
-                // 1) Spawn step: drop the next block into the free group fill_g. Slot k
-                //    of the group takes warp next_wid + (k mod 2^blk_lg); slots past the
-                //    end of the grid stay free (a partial last block).
-                if ((next_wid < total_warps) && fill_valid) begin
-                    for (int k = 0; k < NW; k++) begin
-                        logic [31:0]   wid, sbase;
-                        logic [NL-1:0] tmask;
-                        wid   = next_wid + (k & ((1 << blk_lg) - 1));
-                        sbase = wid * WSZ;
-                        tmask = '0;
-                        if (((k >> blk_lg) == int'(fill_g)) && (wid < total_warps)) begin
-                            // No VRF clear here (that 1-cycle 32-register write blocked
-                            // RAM inference). Instead mark every register unwritten so
-                            // reads return their spawn seed (a0=tid, a1..a4=args, else 0).
-                            for (int l = 0; l < NL; l++) begin
-                                // Separate single-statement r-loops (see BLKLOOPINIT note).
-                                for (int r = 0; r < 32; r++) reg_written[k][l][r]  <= 1'b0;
-                                for (int r = 0; r < 32; r++) freg_written[k][l][r] <= 1'b0;
-                                tmask[l] = ((sbase + l[31:0]) < arg_n);   // tail mask
-                            end
-                            warp_base[k]        <= sbase;
-                            // Seed the SIMT stack: base frame = whole warp at kernel_pc.
-                            sp[k]               <= '0;
-                            stk_npc[k][0]       <= arg_pc;
-                            stk_rpc[k][0]       <= RPC_BOTTOM;
-                            stk_mask[k][0]      <= tmask;
-                            wstate[k]           <= W_RUN;
-                        end
-                    end
+                // 1) Spawn step: drop the next block into the free group fill_g (slots
+                //    chosen by spawn_en). No VRF clear here (that 1-cycle 32-register
+                //    write blocked RAM inference). Instead mark every register unwritten
+                //    so reads return their spawn seed (a0=tid, a1..a4=args, else 0).
+                //    One single-statement loop per array (see BLKLOOPINIT note).
+                for (int k = 0; k < NW; k++)
+                    for (int l = 0; l < NL; l++)
+                        for (int r = 0; r < 32; r++)
+                            if (spawn_en[k]) reg_written[k][l][r] <= 1'b0;
+                for (int k = 0; k < NW; k++)
+                    for (int l = 0; l < NL; l++)
+                        for (int r = 0; r < 32; r++)
+                            if (spawn_en[k]) freg_written[k][l][r] <= 1'b0;
+                for (int k = 0; k < NW; k++) if (spawn_en[k]) warp_base[k] <= spawn_base[k];
+                // Seed the SIMT stack: base frame = whole warp at kernel_pc.
+                for (int k = 0; k < NW; k++) if (spawn_en[k]) sp[k] <= '0;
+                for (int k = 0; k < NW; k++) if (spawn_en[k]) stk_npc[k][0] <= arg_pc;
+                for (int k = 0; k < NW; k++) if (spawn_en[k]) stk_rpc[k][0] <= RPC_BOTTOM;
+                for (int k = 0; k < NW; k++) if (spawn_en[k]) stk_mask[k][0] <= spawn_mask[k];
+                for (int k = 0; k < NW; k++) if (spawn_en[k]) wstate[k] <= W_RUN;
+                if ((next_wid < total_warps) && fill_valid)
                     next_wid <= ((total_warps - next_wid) < (32'd1 << blk_lg))
                               ? total_warps : next_wid + (32'd1 << blk_lg);
-                end
 
                 // 1a) Barrier release: the whole group has arrived (or exited).
                 for (int k = 0; k < NW; k++)
