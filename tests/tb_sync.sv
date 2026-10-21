@@ -222,7 +222,11 @@ module tb_sync
     task automatic test_hist(input string tag, input int k, input int n, input int blk);
         int unsigned hcount [16];
         for (int j = 0; j < 16; j++) hcount[j] = 0;
-        for (int i = 0; i < n; i++) hcount[aval(i) & 15]++;
+        for (int i = 0; i < n; i++) begin
+            logic [3:0] b;           // temporary: no function call inside the index
+            b = 4'(aval(i));
+            hcount[b]++;
+        end
         clear_c();
         run(tag, k, n, blk, B_BASE);
         for (int j = 0; j < 16; j++) chk(tag, j, hcount[j]);

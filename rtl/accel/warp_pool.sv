@@ -1397,16 +1397,16 @@ module warp_pool
                 //    chosen by spawn_en). No VRF clear here (that 1-cycle 32-register
                 //    write blocked RAM inference). Instead mark every register unwritten
                 //    so reads return their spawn seed (a0=tid, a1..a4=args, else 0).
-                //    One single-statement loop per array (see BLKLOOPINIT note); the
-                //    nested clears must be a bare assignment, not an if, for 5.020.
+                //    One single-statement loop per array (see BLKLOOPINIT note); 5.020
+                //    accepts the nested clears only with the if outside the l/r loops.
                 for (int k = 0; k < NW; k++)
-                    for (int l = 0; l < NL; l++)
-                        for (int r = 0; r < 32; r++)
-                            reg_written[k][l][r] <= spawn_en[k] ? 1'b0 : reg_written[k][l][r];
+                    if (spawn_en[k])
+                        for (int l = 0; l < NL; l++)
+                            for (int r = 0; r < 32; r++) reg_written[k][l][r] <= 1'b0;
                 for (int k = 0; k < NW; k++)
-                    for (int l = 0; l < NL; l++)
-                        for (int r = 0; r < 32; r++)
-                            freg_written[k][l][r] <= spawn_en[k] ? 1'b0 : freg_written[k][l][r];
+                    if (spawn_en[k])
+                        for (int l = 0; l < NL; l++)
+                            for (int r = 0; r < 32; r++) freg_written[k][l][r] <= 1'b0;
                 for (int k = 0; k < NW; k++) if (spawn_en[k]) warp_base[k] <= spawn_base[k];
                 // Seed the SIMT stack: base frame = whole warp at kernel_pc.
                 for (int k = 0; k < NW; k++) if (spawn_en[k]) sp[k] <= '0;
