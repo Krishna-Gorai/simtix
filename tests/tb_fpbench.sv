@@ -171,13 +171,13 @@ module tb_fpbench
     endfunction
 
     task automatic preload32(input int n);
-        for (int i = 0; i < n; i++) mem[widx(A_BASE)+i] = fa(i);
-        for (int i = 0; i < n; i++) mem[widx(B_BASE)+i] = fb(i);
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = fa(i); mem[widx(A_BASE)+i] = v; end
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = fb(i); mem[widx(B_BASE)+i] = v; end
         for (int i = 0; i < n; i++) mem[widx(C_BASE)+i] = 32'hdead_beef;
     endtask
     task automatic preload16(input int n);
-        for (int i = 0; i < n; i++) mem[widx(A_BASE)+i] = boxh(ha(i));
-        for (int i = 0; i < n; i++) mem[widx(B_BASE)+i] = boxh(hb(i));
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = boxh(ha(i)); mem[widx(A_BASE)+i] = v; end
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = boxh(hb(i)); mem[widx(B_BASE)+i] = v; end
         for (int i = 0; i < n; i++) mem[widx(C_BASE)+i] = 32'hdead_beef;
     endtask
 

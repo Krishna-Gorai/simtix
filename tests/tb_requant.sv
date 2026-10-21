@@ -114,7 +114,7 @@ module tb_requant
 
     task automatic preload();
         for (int i = 0; i < NUM_LANES; i++)
-            mem[widx(A_BASE) + i] = acc_in(i);           // int32 accumulators
+            begin logic [31:0] v; v = acc_in(i); mem[widx(A_BASE)+i] = v; end           // int32 accumulators
         mem[widx(B_BASE) + 0] = SCALE_F;
         mem[widx(B_BASE) + 1] = ZP_F;
     endtask

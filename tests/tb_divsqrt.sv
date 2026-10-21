@@ -53,11 +53,13 @@ module tb_divsqrt
                       input logic [31:0] av, input logic [31:0] bv, input logic [31:0] exp,
                       input string tag);
         int unsigned guard;
-        @(posedge clk);
+        // Drive and sample 1 ns after the edge, so done/res are read after the DUT's
+        // nonblocking updates under any simulator's scheduling (xsim and Verilator).
+        @(posedge clk); #1;
         is_sqrt = sq; fmt = f; a = av; b = bv; start = 1'b1;
-        @(posedge clk); start = 1'b0;
+        @(posedge clk); #1; start = 1'b0;
         guard = 0;
-        while (!done && guard < 200) begin @(posedge clk); guard++; end
+        while (!done && guard < 200) begin @(posedge clk); #1; guard++; end
         checks++;
         if (!done) begin
             if (errors < 12) $display("  [FAIL] %-9s a=%08h b=%08h: TIMED OUT", tag, av, bv);

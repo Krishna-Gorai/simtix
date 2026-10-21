@@ -222,13 +222,13 @@ module tb_fpkernels
     endfunction
 
     task automatic preload32(input int n);
-        for (int i = 0; i < n; i++) mem[widx(A_BASE)+i] = fa(i);
-        for (int i = 0; i < n; i++) mem[widx(B_BASE)+i] = fbpos(i);
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = fa(i); mem[widx(A_BASE)+i] = v; end
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = fbpos(i); mem[widx(B_BASE)+i] = v; end
         for (int i = 0; i < n; i++) mem[widx(C_BASE)+i] = 32'hdead_beef;
     endtask
     task automatic preload16(input int n);
-        for (int i = 0; i < n; i++) mem[widx(A_BASE)+i] = boxh(ha(i));
-        for (int i = 0; i < n; i++) mem[widx(B_BASE)+i] = boxh(hb(i));
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = boxh(ha(i)); mem[widx(A_BASE)+i] = v; end
+        for (int i = 0; i < n; i++) begin logic [31:0] v; v = boxh(hb(i)); mem[widx(B_BASE)+i] = v; end
         for (int i = 0; i < n; i++) mem[widx(C_BASE)+i] = 32'hdead_beef;
     endtask
 
@@ -237,8 +237,8 @@ module tb_fpkernels
         fgemm_b = fbpos(((j*3)+1) & 7);
     endfunction
     task automatic preload_fgemm();
-        for (int k = 0; k < 8;  k++) mem[widx(A_BASE)+k] = fa(k);       // A_row (8)
-        for (int j = 0; j < 64; j++) mem[widx(B_BASE)+j] = fgemm_b(j);  // B (8x8)
+        for (int k = 0; k < 8;  k++) begin logic [31:0] v; v = fa(k); mem[widx(A_BASE)+k] = v; end       // A_row (8)
+        for (int j = 0; j < 64; j++) begin logic [31:0] v; v = fgemm_b(j); mem[widx(B_BASE)+j] = v; end  // B (8x8)
         for (int c = 0; c < 8;  c++) mem[widx(C_BASE)+c] = 32'hdead_beef;
     endtask
 
