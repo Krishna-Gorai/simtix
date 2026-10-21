@@ -43,6 +43,7 @@ module simt_accel
 
     // ── Command / status registers ──────────────────────────────────────────────
     logic [31:0] kernel_pc, base_a, base_b, base_c, n_threads;
+    logic [2:0]  block_log2;
     logic        go_pulse;
     logic        busy, done;
     logic [31:0] cycles;
@@ -60,6 +61,7 @@ module simt_accel
         .base_b   (base_b),
         .base_c   (base_c),
         .n_threads(n_threads),
+        .block_log2(block_log2),
         .go_pulse (go_pulse),
         .busy     (busy),
         .done     (done),
@@ -85,6 +87,7 @@ module simt_accel
         .base_c     (base_c),
         .n_threads  (n_threads),
         .kernel_pc  (kernel_pc),
+        .block_log2 (block_log2),
         .imem_addr  (imem_addr),
         .imem_data  (imem_data),
         .dmem_addr  (dmem_addr),

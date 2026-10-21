@@ -38,7 +38,7 @@ module tb_fparith
         .clk(clk), .rst(rst),
         .start(start),
         .base_a(base_a), .base_b(base_b), .base_c(base_c),
-        .n_threads(n_threads), .kernel_pc(kernel_pc),
+        .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(3'd0),
         .imem_addr(imem_addr), .imem_data(imem_data),
         .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata),
         .dmem_we(dmem_we), .dmem_be(dmem_be), .dmem_rdata(dmem_rdata),

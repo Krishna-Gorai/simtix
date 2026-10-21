@@ -27,6 +27,7 @@ module mmio_regs
     output logic [31:0] base_b,
     output logic [31:0] base_c,
     output logic [31:0] n_threads,
+    output logic [2:0]  block_log2,  // log2(warps per thread block)
     output logic        go_pulse,    // 1-cycle launch strobe
 
     // Status from the engine.
@@ -43,6 +44,7 @@ module mmio_regs
             base_b    <= '0;
             base_c    <= '0;
             n_threads <= '0;
+            block_log2 <= '0;
             go_pulse  <= 1'b0;
         end else begin
             go_pulse <= 1'b0;                 // default: deassert (1-cycle pulse)
@@ -53,6 +55,7 @@ module mmio_regs
                     REG_BASE_B   : base_b    <= wdata;
                     REG_BASE_C   : base_c    <= wdata;
                     REG_N        : n_threads <= wdata;
+                    REG_BLOCK    : block_log2 <= wdata[2:0];
                     REG_CTRL     : go_pulse  <= wdata[CTRL_GO_BIT];
                     default      : /* no-op */ ;
                 endcase
@@ -75,6 +78,7 @@ module mmio_regs
             REG_BASE_B   : rdata = base_b;
             REG_BASE_C   : rdata = base_c;
             REG_N        : rdata = n_threads;
+            REG_BLOCK    : rdata = {29'd0, block_log2};
             REG_STATUS   : rdata = status_word;
             REG_CYCLES   : rdata = cycles;
             default      : rdata = '0;

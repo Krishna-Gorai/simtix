@@ -46,6 +46,15 @@
 // warps; if there are more warps than slots, a slot is recycled as soon as the
 // warp occupying it retires. NUM_WARPS must be a power of two (the round-robin
 // pointer wraps in its width).
+//
+// v2 — thread blocks and synchronisation: block_log2 = b groups the grid into
+// thread blocks of 2^b warps. The slots are partitioned into groups of 2^b, and a
+// block is spawned into a free group all at once, so the warps of a block are
+// always co-resident. `bar` parks a warp (W_BAR) until every live warp of its
+// group has arrived; the SHARED_BASE scratch aperture addresses the group's
+// scratch storage, shared by the block. b = 0 reproduces the earlier one-warp-
+// at-a-time spawning exactly. Warp shuffles run on a cross-lane engine (W_SHF)
+// and RV32A atomics run in the memory engine, one lane per cycle.
 // =============================================================================
 `timescale 1ns/1ps
 
@@ -62,6 +71,7 @@ module warp_pool
     input  logic [31:0] base_c,
     input  logic [31:0] n_threads,
     input  logic [31:0] kernel_pc,
+    input  logic [2:0]  block_log2,    // log2(warps per thread block), sampled at start
 
     // Shared kernel instruction fetch (async-read ROM).
     output logic [31:0] imem_addr,
@@ -92,6 +102,7 @@ module warp_pool
     localparam int WSZ    = WARP_SIZE;
     localparam int WIDXW  = (NW > 1) ? $clog2(NW) : 1;
     localparam int LIDXW  = $clog2(NL);
+    localparam int LOGNW  = $clog2(NW);        // largest legal block_log2
     localparam int SDEPTH = 8;                 // SIMT stack depth (nesting limit)
     localparam int SPW    = $clog2(SDEPTH);
     // VRF address = {warp, reg5}. NW is a power of two, so depth = NW*32.
@@ -109,7 +120,9 @@ module warp_pool
     // pipelined FP-compute unit (M15). W_MUL: parked on the pipelined integer-multiply
     // unit (B1) — all mirror W_MEM's "park on a side engine while the scheduler keeps
     // issuing other warps" pattern.
-    typedef enum logic [3:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_MUL, W_DOT, W_DONE } wstate_e;
+    // W_BAR: waiting at a block barrier. W_SHF: parked on the cross-lane shuffle engine.
+    typedef enum logic [3:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_MUL, W_DOT, W_DONE,
+                               W_BAR, W_SHF } wstate_e;
     wstate_e        wstate    [0:NW-1];
 
     // Vector register file — one independent distributed-RAM (LUTRAM) bank per lane,
@@ -169,6 +182,7 @@ module warp_pool
     logic [31:0]    next_wid;        // next warp index to spawn into a free slot
     logic           running;
     logic [WIDXW-1:0] rr_ptr;        // round-robin issue pointer
+    logic [2:0]       blk_lg;        // log2(warps per block) of this grid, <= LOGNW
 
     // ── Background memory engine (one in-flight, coalesced memory instruction) ──────
     logic             mem_busy;
@@ -177,6 +191,9 @@ module warp_pool
     logic             mem_is_store;
     logic             mem_is_scratch;            // latched: scratchpad vs global op
     logic             mem_is_fp;                 // latched: FP load/store (M14.0)
+    logic             mem_is_amo;                // latched: RV32A atomic (v2)
+    logic             mem_is_shared;             // latched: block-shared scratch view (v2)
+    logic [4:0]       mem_amo_op;                // latched: AMO funct5
     logic [2:0]       mem_funct3;
     logic [4:0]       mem_rd;
     logic [31:0]      mem_next_pc;
@@ -226,17 +243,42 @@ module warp_pool
     (* max_fanout = 80 *)
     logic [WIDXW-1:0] issue_w;
 
-    // ── Free-slot selection for spawning the next warp (combinational) ──────────────
+    // ── Free-group selection for spawning the next block (combinational) ────────────
+    // Slot k belongs to group k >> blk_lg. A block spawns only into a group whose
+    // slots are all free, and the lowest free group wins. With blk_lg = 0 a group is
+    // a single slot, which is the earlier lowest-free-slot policy.
     logic             fill_valid;
-    logic [WIDXW-1:0] fill_w;
+    logic [WIDXW-1:0] fill_g;
     always_comb begin
         fill_valid = 1'b0;
-        fill_w     = '0;
-        for (int k = 0; k < NW; k++) begin
-            if (!fill_valid && ((wstate[k] == W_EMPTY) || (wstate[k] == W_DONE))) begin
+        fill_g     = '0;
+        for (int g = NW-1; g >= 0; g--) begin       // descending: lowest free group wins
+            logic gfree;
+            gfree = (g < (NW >> blk_lg));
+            for (int k = 0; k < NW; k++)
+                if ((k >> blk_lg) == g)
+                    gfree = gfree && ((wstate[k] == W_EMPTY) || (wstate[k] == W_DONE));
+            if (gfree) begin
                 fill_valid = 1'b1;
-                fill_w     = k[WIDXW-1:0];
+                fill_g     = g[WIDXW-1:0];
             end
+        end
+    end
+
+    // ── Block barrier release (combinational) ───────────────────────────────────────
+    // A waiting warp is released once no warp of its group is still running or
+    // parked on an engine: every slot of the group is at the barrier, has exited,
+    // or is empty (the tail of a partial last block).
+    logic [NW-1:0] bar_release;
+    always_comb begin
+        for (int k = 0; k < NW; k++) begin
+            logic all_in;
+            all_in = 1'b1;
+            for (int j = 0; j < NW; j++)
+                if ((j >> blk_lg) == (k >> blk_lg))
+                    all_in = all_in && ((wstate[j] == W_BAR) || (wstate[j] == W_DONE) ||
+                                        (wstate[j] == W_EMPTY));
+            bar_release[k] = (wstate[k] == W_BAR) && all_in;
         end
     end
 
@@ -329,10 +371,15 @@ module warp_pool
     assign b_imm = {{19{instr[31]}}, instr[31], instr[7], instr[30:25], instr[11:8], 1'b0};
     assign j_imm = {{11{instr[31]}}, instr[31], instr[19:12], instr[20], instr[30:21], 1'b0};
 
-    logic is_load, is_store, is_mem, is_ecall, is_csr, is_mul;
+    logic is_load, is_store, is_mem, is_ecall, is_csr, is_mul, is_amo;
+    logic [4:0] amo_op;
     assign is_load  = (opcode == OP_LOAD)  | (opcode == OP_LOADFP);
     assign is_store = (opcode == OP_STORE) | (opcode == OP_STOREFP);
-    assign is_mem   = is_load | is_store;
+    // v2: RV32A word AMOs (lr.w / sc.w excluded; they fall through as no-ops).
+    assign amo_op   = instr[31:27];
+    assign is_amo   = (opcode == OP_AMO) && (funct3 == 3'b010) &&
+                      (amo_op != AMO_LR) && (amo_op != AMO_SC);
+    assign is_mem   = is_load | is_store | is_amo;
     assign is_ecall = (opcode == OP_SYSTEM) && (funct3 == 3'b000);
     assign is_csr   = (opcode == OP_SYSTEM) && (funct3 != 3'b000);
     // B1: RV32M `mul` (low 32) — the only RV32M op this engine supports (funct3==000,
@@ -345,8 +392,13 @@ module warp_pool
     // dot engine (W_DOT). funct3 carries the signedness variant (DOT8_SS/UU/SU).
     logic       is_dot;
     logic [2:0] dot_mode;
-    assign is_dot   = (opcode == OP_CUSTOM0) && (instr[31:25] == 7'd0);
+    assign is_dot   = (opcode == OP_CUSTOM0) && (instr[31:25] == F7_DOT);
     assign dot_mode = funct3;
+
+    // v2: warp shuffle and block barrier share custom-0, told apart by funct7.
+    logic is_shfl, is_bar;
+    assign is_shfl  = (opcode == OP_CUSTOM0) && (instr[31:25] == F7_SHFL);
+    assign is_bar   = (opcode == OP_CUSTOM0) && (instr[31:25] == F7_BAR);
 
     // ── M14.0: floating-point decode ────────────────────────────────────────────
     // FP loads/stores reuse the integer memory engine (the address register is an
@@ -632,6 +684,7 @@ module warp_pool
     // Lane sequencer priority encoders (descending loop -> lowest matching index wins):
     // sfu_first_lane = lowest active lane of the issuing warp; sfu_next_lane/sfu_more =
     // the lowest active lane strictly above the one in flight, and whether one remains.
+    logic [NL-1:0]    sfu_mask;           // active mask of the warp parked on the SFU
     logic [LIDXW-1:0] sfu_first_lane, sfu_next_lane;
     logic             sfu_more;
     always_comb begin
@@ -653,7 +706,6 @@ module warp_pool
     typedef enum logic [1:0] { SFU_IDLE, SFU_RUN, SFU_WB } sfu_st_e;
     sfu_st_e          sfu_state;
     logic [WIDXW-1:0] sfu_w;
-    logic [NL-1:0]    sfu_mask;
     logic [4:0]       sfu_rd;
     logic [31:0]      sfu_resume_pc;
     logic [31:0]      sfu_hold [0:NL-1];
@@ -722,6 +774,59 @@ module warp_pool
     // drain (1) = 7 cycles issue→result. dot_cnt counts 6..0 like MUL_CNT_INIT.
     localparam logic [3:0] DOT_CNT_INIT = 4'd6;
 
+    // ── v2: cross-lane shuffle engine (W_SHF) ───────────────────────────────────────
+    // Same park-and-resume shape as W_MUL. At issue each lane's source index is
+    // computed from its rs2 and captured with every lane's rs1, so the 8:1 lane
+    // crossbar reads registers and stays off the VRF-read critical path. RUN drives
+    // the crossbar into shf_data; WB writes the integer VRF when the port is free.
+    typedef enum logic [1:0] { SHF_IDLE, SHF_RUN, SHF_WB } shf_st_e;
+    shf_st_e          shf_state;
+    logic [WIDXW-1:0] shf_w;
+    logic [4:0]       shf_rd;
+    logic [NL-1:0]    shf_we;         // per-lane writeback enable (mask + x0 guard)
+    logic [31:0]      shf_resume_pc;
+    logic [31:0]      q_shf_val [0:NL-1];   // captured rs1 of every lane
+    logic [LIDXW-1:0] q_shf_src [0:NL-1];   // captured source lane per lane
+    logic [NL-1:0]    q_shf_ok;             // source in range (else keep own value)
+    logic [31:0]      shf_data  [0:NL-1];
+    logic             shf_wb_fire;
+    logic             do_shf;         // issue is a warp shuffle (parks on W_SHF)
+    logic             do_bar;         // issue is a block barrier (parks on W_BAR)
+
+    logic [LIDXW-1:0] shf_src [0:NL-1];
+    logic [NL-1:0]    shf_ok;
+    always_comb begin
+        for (int l = 0; l < NL; l++) begin
+            logic [31:0] s;
+            unique case (funct3)
+                SHFL_IDX:  s = rv2[l] & (NL - 1);
+                SHFL_UP:   s = l - rv2[l];
+                SHFL_DOWN: s = l + rv2[l];
+                default:   s = l ^ rv2[l];          // SHFL_XOR
+            endcase
+            shf_ok[l]  = (s < NL);                  // UP below 0 wraps to a large value
+            shf_src[l] = s[LIDXW-1:0];
+        end
+    end
+
+    // RV32A read-modify-write: new memory word from the old word m and rs2 value v.
+    function automatic logic [31:0] amo_alu(input logic [4:0]  op,
+                                            input logic [31:0] m,
+                                            input logic [31:0] v);
+        unique case (op)
+            AMO_ADD:  amo_alu = m + v;
+            AMO_SWAP: amo_alu = v;
+            AMO_XOR:  amo_alu = m ^ v;
+            AMO_OR:   amo_alu = m | v;
+            AMO_AND:  amo_alu = m & v;
+            AMO_MIN:  amo_alu = ($signed(m) < $signed(v)) ? m : v;
+            AMO_MAX:  amo_alu = ($signed(m) < $signed(v)) ? v : m;
+            AMO_MINU: amo_alu = (m < v) ? m : v;
+            AMO_MAXU: amo_alu = (m < v) ? v : m;
+            default:  amo_alu = m;
+        endcase
+    endfunction
+
     always_comb begin
         for (int l = 0; l < NL; l++) begin
             logic [31:0] a, b, y;
@@ -743,6 +848,7 @@ module warp_pool
                 OP_LOADFP: begin a = rv1[l]; b = i_imm;  end
                 OP_STORE,
                 OP_STOREFP:begin a = rv1[l]; b = s_imm;  end
+                OP_AMO:    begin a = rv1[l]; b = 32'd0;  end   // AMO address = rs1
                 OP_LUI:    begin a = 32'd0;  b = u_imm;  end
                 OP_AUIPC:  begin a = cur_pc; b = u_imm;  end
                 default:   begin a = rv1[l]; b = rv2[l]; end
@@ -833,8 +939,9 @@ module warp_pool
     // A memory op targets the scratchpad if the leader lane's effective address
     // is in the SCRATCH_BASE aperture (bits[31:30]==2'b01). A given instruction
     // is assumed uniformly scratch-or-global across its active lanes.
-    logic issue_is_scratch;
+    logic issue_is_scratch, issue_is_shared;
     assign issue_is_scratch = (addr[first_l][31:30] == 2'b01);
+    assign issue_is_shared  = issue_is_scratch && addr[first_l][29];   // SHARED_BASE
 
     // ── Coalescing memory engine (uses the LATCHED replay context) ──────────────────
     // Pick the line of the lowest still-pending lane, then gather EVERY pending
@@ -881,15 +988,26 @@ module warp_pool
         end
     end
 
-    // Drive the line port: line-aligned address, plus a merged store line.
+    // Drive the line port: line-aligned address, plus a merged store line. The
+    // address is driven on its own so the AMO write data (which depends on the read
+    // data of that address) does not form a combinational loop through the memory.
+    assign dmem_addr = (mem_busy && !mem_is_scratch)
+                     ? {mem_addr_lane[lead][31:LINE_OFF], {LINE_OFF{1'b0}}} : 32'd0;
+
     always_comb begin
-        dmem_addr  = 32'd0;
         dmem_wdata = '0;
         dmem_we    = 1'b0;
         dmem_be    = '0;
         if (mem_busy && !mem_is_scratch) begin
-            dmem_addr = {mem_addr_lane[lead][31:LINE_OFF], {LINE_OFF{1'b0}}};
-            if (mem_is_store) begin
+            if (mem_is_amo) begin
+                // v2 AMO: the lead lane's word is read and rewritten in one cycle.
+                logic [LINE_WOFFW-1:0] awoff;
+                awoff = mem_addr_lane[lead][LINE_OFF-1:2];
+                dmem_we                    = 1'b1;
+                dmem_wdata[awoff*32 +: 32] = amo_alu(mem_amo_op, ld_data[lead],
+                                                     mem_sdata_lane[lead]);
+                dmem_be[awoff*4 +: 4]      = 4'b1111;
+            end else if (mem_is_store) begin
                 dmem_we = 1'b1;
                 for (int l = 0; l < NL; l++) begin
                     if (grp[l]) begin
@@ -931,7 +1049,8 @@ module warp_pool
         for (int k = 0; k < NW; k++)
             if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM) ||
                 (wstate[k] == W_SFU) || (wstate[k] == W_FPC) ||
-                (wstate[k] == W_MUL) || (wstate[k] == W_DOT)) any_busy = 1'b1;
+                (wstate[k] == W_MUL) || (wstate[k] == W_DOT) ||
+                (wstate[k] == W_BAR) || (wstate[k] == W_SHF)) any_busy = 1'b1;
     end
 
     // ── VRF write arbiter (one write port per lane bank) ────────────────────────────
@@ -975,7 +1094,10 @@ module warp_pool
                 if (mem_is_scratch && mem_pending[lead] && (l[LIDXW-1:0] == lead)) begin
                     mem_wb_lane[l] = 1'b1;
                     mem_wb_data[l] = sc_rd;
-                end else if (!mem_is_scratch && grp[l]) begin
+                end else if (!mem_is_scratch &&
+                             (mem_is_amo ? (mem_pending[lead] && (l[LIDXW-1:0] == lead))
+                                         : grp[l])) begin
+                    // An AMO returns the old word of the lead lane only.
                     mem_wb_lane[l] = 1'b1;
                     mem_wb_data[l] = ld_data[l];
                 end
@@ -995,8 +1117,14 @@ module warp_pool
                             !is_sfu_op && is_dot;
     // A single-cycle INTEGER compute: not a pop/ecall/memory/divide-sqrt/FP-compute/
     // mul/dot.
+    // v2: a warp shuffle (W_SHF) and a block barrier (W_BAR).
+    assign do_shf         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+                            !is_sfu_op && is_shfl;
+    assign do_bar         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+                            !is_sfu_op && is_bar;
     assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem &&
-                            !is_sfu_op && !do_fp && !do_mul && !do_dot;
+                            !is_sfu_op && !do_fp && !do_mul && !do_dot &&
+                            !do_shf && !do_bar;
 
     // The held SFU result drives the f-file when the unit is in writeback and the
     // memory engine is not using the FP port this cycle (mem wins; SFU result waits).
@@ -1028,9 +1156,14 @@ module warp_pool
     // A single-cycle integer compute (always integer-VRF dest now) is squashed when
     // its port is taken this cycle by an integer memory load, the integer-dest FPC
     // writeback, or the integer-mul writeback. It re-issues next cycle (idempotent).
+    // v2: the shuffle result sits one tier below the dot result on the integer port.
+    assign shf_wb_fire    = (shf_state == SHF_WB) &&
+                         !((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
+                           mul_wb_fire || dot_wb_fire);
+
     assign squash_wb      = do_compute &&
                             ((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
-                             mul_wb_fire || dot_wb_fire);
+                             mul_wb_fire || dot_wb_fire || shf_wb_fire);
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -1094,6 +1227,12 @@ module warp_pool
                 v_wr[l] = dot_rd;
                 v_wa[l] = vaddr(dot_w, dot_rd);
                 v_wd[l] = dot_data[l];
+            end else if (shf_wb_fire && shf_we[l]) begin               // warp shuffle
+                v_we[l] = 1'b1;
+                v_ww[l] = shf_w;
+                v_wr[l] = shf_rd;
+                v_wa[l] = vaddr(shf_w, shf_rd);
+                v_wd[l] = shf_data[l];
             end else if (do_compute && !squash_wb && wb_en[l]) begin   // int compute writeback
                 v_we[l] = 1'b1;
                 v_ww[l] = issue_w;
@@ -1140,12 +1279,25 @@ module warp_pool
     // The memory engine drains scratch ops one lane per cycle. `lead` is the lowest
     // still-pending lane; that lane's word is the one read (load) or written (store)
     // this cycle. Stores commit lead's data; loads feed sc_rd to the VRF arbiter.
+    // v2: in the block-shared view the low blk_lg bits of the warp field come from
+    // the address instead of the warp index, so the block's warps index one region
+    // of 2^blk_lg * SCRATCH_WORDS words. An AMO reads and rewrites the lead lane's
+    // word in the same cycle (asynchronous read, synchronous write).
     logic [SCRATCH_AW-1:0] sc_sidx;
+    logic [WIDXW-1:0]      sc_wfield;
     assign sc_sidx = mem_addr_lane[lead][SCRATCH_AW+1:2];
-    assign sc_ra   = {mem_w, sc_sidx};
-    assign sc_wa   = {mem_w, sc_sidx};
-    assign sc_wd   = mem_sdata_lane[lead];
-    assign sc_we   = mem_busy && mem_is_scratch && mem_is_store && mem_pending[lead];
+    always_comb begin
+        sc_wfield = mem_w;
+        if (mem_is_shared)
+            for (int i = 0; i < LOGNW; i++)
+                if (i < int'(blk_lg)) sc_wfield[i] = mem_addr_lane[lead][SCRATCH_AW+2+i];
+    end
+    assign sc_ra   = {sc_wfield, sc_sidx};
+    assign sc_wa   = {sc_wfield, sc_sidx};
+    assign sc_wd   = mem_is_amo ? amo_alu(mem_amo_op, sc_rd, mem_sdata_lane[lead])
+                                : mem_sdata_lane[lead];
+    assign sc_we   = mem_busy && mem_is_scratch && (mem_is_store || mem_is_amo) &&
+                     mem_pending[lead];
 
     (* ram_style = "distributed" *)
     logic [31:0] scratch [0:SCDEPTH-1];
@@ -1170,6 +1322,8 @@ module warp_pool
             fpc_state      <= FPC_IDLE;
             mul_state      <= MUL_IDLE;
             dot_state      <= DOT_IDLE;
+            shf_state      <= SHF_IDLE;
+            blk_lg         <= '0;
             issue_valid    <= 1'b0;
             instr          <= 32'd0;
             for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
@@ -1207,6 +1361,8 @@ module warp_pool
                 sfu_core_start <= 1'b0;
                 fpc_state      <= FPC_IDLE;
                 mul_state      <= MUL_IDLE;
+                shf_state      <= SHF_IDLE;
+                blk_lg         <= (block_log2 > 3'(LOGNW)) ? 3'(LOGNW) : block_log2;
                 issue_valid    <= 1'b0;
                 for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
                 dbg_mem_txns   <= 32'd0;
@@ -1218,29 +1374,42 @@ module warp_pool
                 busy           <= 1'b1;
                 for (int k = 0; k < NW; k++) wstate[k] <= W_EMPTY;
             end else if (running) begin
-                // 1) Spawn step: drop the next warp into a free/retired slot.
+                // 1) Spawn step: drop the next block into the free group fill_g. Slot k
+                //    of the group takes warp next_wid + (k mod 2^blk_lg); slots past the
+                //    end of the grid stay free (a partial last block).
                 if ((next_wid < total_warps) && fill_valid) begin
-                    logic [31:0]   sbase;
-                    logic [NL-1:0] tmask;
-                    sbase = next_wid * WSZ;
-                    // No VRF clear here (that 1-cycle 32-register write blocked RAM
-                    // inference). Instead mark every register unwritten so reads
-                    // return their spawn seed (a0=tid, a1..a4=args, else 0).
-                    for (int l = 0; l < NL; l++) begin
-                        // Separate single-statement r-loops (see BLKLOOPINIT note above).
-                        for (int r = 0; r < 32; r++) reg_written[fill_w][l][r]  <= 1'b0;
-                        for (int r = 0; r < 32; r++) freg_written[fill_w][l][r] <= 1'b0;
-                        tmask[l] = ((sbase + l[31:0]) < arg_n);   // tail mask
+                    for (int k = 0; k < NW; k++) begin
+                        logic [31:0]   wid, sbase;
+                        logic [NL-1:0] tmask;
+                        wid   = next_wid + (k & ((1 << blk_lg) - 1));
+                        sbase = wid * WSZ;
+                        tmask = '0;
+                        if (((k >> blk_lg) == int'(fill_g)) && (wid < total_warps)) begin
+                            // No VRF clear here (that 1-cycle 32-register write blocked
+                            // RAM inference). Instead mark every register unwritten so
+                            // reads return their spawn seed (a0=tid, a1..a4=args, else 0).
+                            for (int l = 0; l < NL; l++) begin
+                                // Separate single-statement r-loops (see BLKLOOPINIT note).
+                                for (int r = 0; r < 32; r++) reg_written[k][l][r]  <= 1'b0;
+                                for (int r = 0; r < 32; r++) freg_written[k][l][r] <= 1'b0;
+                                tmask[l] = ((sbase + l[31:0]) < arg_n);   // tail mask
+                            end
+                            warp_base[k]        <= sbase;
+                            // Seed the SIMT stack: base frame = whole warp at kernel_pc.
+                            sp[k]               <= '0;
+                            stk_npc[k][0]       <= arg_pc;
+                            stk_rpc[k][0]       <= RPC_BOTTOM;
+                            stk_mask[k][0]      <= tmask;
+                            wstate[k]           <= W_RUN;
+                        end
                     end
-                    warp_base[fill_w]        <= sbase;
-                    // Seed the SIMT stack: base frame = whole warp at kernel_pc.
-                    sp[fill_w]               <= '0;
-                    stk_npc[fill_w][0]       <= arg_pc;
-                    stk_rpc[fill_w][0]       <= RPC_BOTTOM;
-                    stk_mask[fill_w][0]      <= tmask;
-                    wstate[fill_w]           <= W_RUN;
-                    next_wid                 <= next_wid + 32'd1;
+                    next_wid <= ((total_warps - next_wid) < (32'd1 << blk_lg))
+                              ? total_warps : next_wid + (32'd1 << blk_lg);
                 end
+
+                // 1a) Barrier release: the whole group has arrived (or exited).
+                for (int k = 0; k < NW; k++)
+                    if (bar_release[k]) wstate[k] <= W_RUN;
 
                 // 1b) Fetch step (F): capture the selected warp's instruction and
                 //     TOS context into the X-stage registers; it executes NEXT
@@ -1275,7 +1444,8 @@ module warp_pool
                         !(is_sfu_op && sfu_state != SFU_IDLE) &&
                         !(do_fp && fpc_state != FPC_IDLE) &&
                         !(do_mul && mul_state != MUL_IDLE) &&
-                        !(do_dot && dot_state != DOT_IDLE)) begin
+                        !(do_dot && dot_state != DOT_IDLE) &&
+                        !(do_shf && shf_state != SHF_IDLE)) begin
                         dbg_issued_insns <= dbg_issued_insns + 32'd1;
                         dbg_active_lanes <= dbg_active_lanes +
                                             {{(31-LIDXW){1'b0}}, n_active};
@@ -1359,6 +1529,27 @@ module warp_pool
                             end
                         end
                         // else: dot engine busy → warp waits.
+                    end else if (do_shf) begin
+                        // v2: warp shuffle — capture every lane's rs1 and source index,
+                        // park the warp on W_SHF. If the engine is busy, the warp waits.
+                        if (shf_state == SHF_IDLE) begin
+                            shf_w           <= issue_w;
+                            shf_rd          <= rd;
+                            shf_we          <= dwb_en;       // mask + rd != x0, as pdot8
+                            shf_resume_pc   <= fallthru;
+                            wstate[issue_w] <= W_SHF;
+                            shf_state       <= SHF_RUN;
+                            for (int l = 0; l < NL; l++) begin
+                                q_shf_val[l] <= rv1[l];
+                                q_shf_src[l] <= shf_src[l];
+                            end
+                            q_shf_ok        <= shf_ok;
+                        end
+                    end else if (do_bar) begin
+                        // v2: block barrier — advance past `bar` now and wait in W_BAR;
+                        // the release step returns the warp to W_RUN.
+                        stk_npc[issue_w][cur_sp] <= fallthru;
+                        wstate[issue_w]          <= W_BAR;
                     end else if (is_sfu_op) begin
                         // Divide / square-root: capture every lane's f-operands now (they
                         // are live this cycle but move on with the scheduler), park the
@@ -1392,6 +1583,9 @@ module warp_pool
                             mem_is_store <= is_store;
                             mem_is_scratch <= issue_is_scratch;
                             mem_is_fp    <= is_fp_mem;       // M14.0: flw/fsw
+                            mem_is_amo   <= is_amo;          // v2: atomic RMW
+                            mem_amo_op   <= amo_op;
+                            mem_is_shared <= issue_is_shared;
                             mem_funct3   <= funct3;
                             mem_rd       <= rd;
                             mem_next_pc  <= fallthru;        // mem is not control flow
@@ -1466,15 +1660,22 @@ module warp_pool
                         end
                     end else begin
                         // Global memory: one coalesced line transaction / cycle. The
-                        // load result is written to the VRF by the central arbiter.
+                        // load result is written to the VRF by the central arbiter. An
+                        // AMO retires only its lead lane per cycle (serialised RMW).
+                        logic [NL-1:0] done_m;
+                        done_m = grp;
+                        if (mem_is_amo) begin
+                            done_m       = '0;
+                            done_m[lead] = 1'b1;
+                        end
                         dbg_mem_txns <= dbg_mem_txns + 32'd1;
 
-                        if ((mem_pending & ~grp) == '0) begin
+                        if ((mem_pending & ~done_m) == '0) begin
                             mem_busy                  <= 1'b0;
                             stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;  // resume after mem
                             wstate[mem_w]             <= W_RUN;
                         end else begin
-                            mem_pending <= mem_pending & ~grp;
+                            mem_pending <= mem_pending & ~done_m;
                         end
                     end
                 end
@@ -1572,6 +1773,24 @@ module warp_pool
                         dot_state                 <= DOT_IDLE;
                     end
                     default: dot_state <= DOT_IDLE;
+                endcase
+
+                // 3g) SHF (warp shuffle) engine step. RUN: drive the lane crossbar from
+                //     the captured registers into shf_data. WB: write the integer VRF
+                //     when the port is free, then resume the parked warp.
+                unique case (shf_state)
+                    SHF_IDLE: ;   // armed in the issue step
+                    SHF_RUN: begin
+                        for (int l = 0; l < NL; l++)
+                            shf_data[l] <= q_shf_ok[l] ? q_shf_val[q_shf_src[l]] : q_shf_val[l];
+                        shf_state <= SHF_WB;
+                    end
+                    SHF_WB: if (shf_wb_fire) begin
+                        stk_npc[shf_w][sp[shf_w]] <= shf_resume_pc;
+                        wstate[shf_w]             <= W_RUN;
+                        shf_state                 <= SHF_IDLE;
+                    end
+                    default: shf_state <= SHF_IDLE;
                 endcase
 
                 // 3b) Mark written registers valid. The VRF data write itself happens

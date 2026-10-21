@@ -50,6 +50,13 @@ package simtix_pkg;
   parameter int          SCRATCH_WORDS = 64;              // 32-bit words per warp
   parameter int          SCRATCH_AW    = $clog2(SCRATCH_WORDS);
 
+  // Block-shared view of the same scratchpad (v2). An address with bits[31:29]
+  // == 3'b011 (SHARED_BASE) indexes the scratch storage of the whole thread
+  // block: a block of 2^b warps owns the 2^b * SCRATCH_WORDS words of its slot
+  // group, so every warp of the block sees the same words. The private view at
+  // SCRATCH_BASE aliases the warp's own SCRATCH_WORDS slice of that storage.
+  parameter logic [31:0] SHARED_BASE   = 32'h6000_0000;
+
   // ── Memory map ──────────────────────────────────────────────────────────────
   // The accelerator occupies one 4 KB page in the host physical address space.
   // soc_top.sv routes data-bus accesses with addr >= MMIO_BASE here (M1.3).
@@ -64,6 +71,7 @@ package simtix_pkg;
   parameter logic [7:0] REG_CTRL      = 8'h14;  // W: bit0 = GO
   parameter logic [7:0] REG_STATUS    = 8'h18;  // R: bit0 = DONE, bit1 = BUSY
   parameter logic [7:0] REG_CYCLES    = 8'h1C;  // R: cycles of last kernel
+  parameter logic [7:0] REG_BLOCK     = 8'h20;  // W: log2(warps per thread block)
 
   // CTRL bits
   parameter int CTRL_GO_BIT     = 0;
@@ -102,6 +110,47 @@ package simtix_pkg;
   parameter logic [2:0] DOT8_SS = 3'b000;
   parameter logic [2:0] DOT8_UU = 3'b001;
   parameter logic [2:0] DOT8_SU = 3'b010;
+
+  // custom-0 funct7 (instr[31:25]) selects the operation family.
+  parameter logic [6:0] F7_DOT  = 7'b0000000;   // pdot8 family (above)
+  parameter logic [6:0] F7_SHFL = 7'b0000001;   // warp shuffle (v2)
+  parameter logic [6:0] F7_BAR  = 7'b0000010;   // block barrier (v2)
+
+  // ── v2: warp shuffle  `shfl.<mode> rd, rs1, rs2` ────────────────────────────
+  // Lane l receives rs1 of a source lane chosen by funct3 from its own rs2:
+  //   IDX : src = rs2 mod NUM_LANES         UP  : src = l - rs2
+  //   DOWN: src = l + rs2                   XOR : src = l ^ rs2
+  // A source outside 0..NUM_LANES-1 (UP, DOWN, XOR) returns the lane's own rs1,
+  // as CUDA's __shfl_*_sync does. The value is read from the source lane's
+  // register even when that lane is masked off by divergence.
+  parameter logic [2:0] SHFL_IDX  = 3'b000;
+  parameter logic [2:0] SHFL_UP   = 3'b001;
+  parameter logic [2:0] SHFL_DOWN = 3'b010;
+  parameter logic [2:0] SHFL_XOR  = 3'b011;
+
+  // ── v2: block barrier  `bar` (R-type, all register fields zero) ─────────────
+  // A warp that executes `bar` waits until every live warp of its thread block
+  // has reached a `bar`; warps that have exited count as arrived. Memory
+  // operations issued before the barrier have completed when it releases.
+
+  // ── v2: RV32A atomic memory operations (standard AMO encoding) ──────────────
+  // amo<op>.w rd, rs2, (rs1): rd = M[rs1]; M[rs1] = op(M[rs1], rs2). Executed in
+  // the memory engine one lane per cycle, so lanes that hit the same word are
+  // serialised. Valid on global memory and on both scratchpad apertures. The
+  // aq/rl bits are accepted and ignored (the engine is already in order).
+  // lr.w / sc.w are not supported.
+  parameter logic [6:0] OP_AMO   = 7'b0101111;
+  parameter logic [4:0] AMO_ADD  = 5'b00000;
+  parameter logic [4:0] AMO_SWAP = 5'b00001;
+  parameter logic [4:0] AMO_LR   = 5'b00010;
+  parameter logic [4:0] AMO_SC   = 5'b00011;
+  parameter logic [4:0] AMO_XOR  = 5'b00100;
+  parameter logic [4:0] AMO_OR   = 5'b01000;
+  parameter logic [4:0] AMO_AND  = 5'b01100;
+  parameter logic [4:0] AMO_MIN  = 5'b10000;
+  parameter logic [4:0] AMO_MAX  = 5'b10100;
+  parameter logic [4:0] AMO_MINU = 5'b11000;
+  parameter logic [4:0] AMO_MAXU = 5'b11100;
 
   // ALU control encoding (mirrors the reused rtl/cpu/alu.v).
   parameter logic [3:0] ALU_ADD   = 4'b0000;
