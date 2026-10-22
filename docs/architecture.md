@@ -258,6 +258,32 @@ lanes do the same op, so there is no intra-instruction lane-to-lane forwarding t
 lose, and store/store collisions still resolve last-writer-wins (highest lane). The
 cost is that a scratch op touching *k* lanes now takes *k* cycles instead of 1.
 
+### 4.7.2 L1 data cache (`l1_dcache.sv`, v2)
+
+`l1_dcache` sits between the memory engine and memory; both of its sides use the
+tagged line protocol of §4.7 (the memory side carries one more tag bit).
+
+| Parameter | Value |
+|---|---|
+| Capacity, ways, line | 16 KB, 4-way, 32 B (the engine's line), 128 sets |
+| Tags / valid bits | distributed RAM / flip-flops, read in the request cycle |
+| Data | one block-RAM bank per way; a hit returns its line one cycle later |
+| Write policy | write-through, no write-allocate; acknowledged after memory acknowledges |
+| Misses in flight | 4 miss registers (MSHRs); a later miss to the same line joins one |
+| Replacement | an invalid way, else round robin |
+| Coherence | `inv` clears every valid bit at kernel launch; no dirty data exists |
+
+A read miss allocates a miss register and requests the line; every read that
+joins it is answered from the register once the line arrives, and the line is then
+written into the cache. A write to a line whose miss is still in flight waits, so
+a returning line never overwrites newer data. Memory-side tags are `{0, miss
+register}` for reads and `{1, engine tag}` for writes.
+
+With a 20-cycle memory (`tb_sync`, N = 1024), the cache speeds up the
+atomic-heavy kernels, whose read-modify-writes now hit: histogram 5.6×,
+block-shared histogram 2.4×, `reduce_all` 1.5×. Streaming reductions read each line
+once and are unchanged (within 5%).
+
 ### 4.8 The VRF write arbiter (M8)
 
 Two producers can target the file in the same cycle: the issue stage's **compute

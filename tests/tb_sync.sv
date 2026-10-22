@@ -22,7 +22,12 @@ module tb_sync
     // cycles to each request's latency, so responses return out of order.
     parameter int MEM_LAT   = 0,
     parameter int MEM_STALL = 0,
-    parameter int MEM_OOO   = 0
+    parameter int MEM_OOO   = 0,
+    // L1 = 1 puts the L1 data cache (l1_dcache) between the warp pool and memory.
+    parameter int L1        = 0,
+    /* verilator lint_off UNUSEDPARAM */   // read only when L1 = 1
+    parameter int L1_SETS   = 128     // sets of the L1 (4 ways, 32-byte lines)
+    /* verilator lint_on UNUSEDPARAM */
 )  ;
     logic                 clk = 0;
     logic                 rst;
@@ -67,8 +72,48 @@ module tb_sync
     localparam int MEM_WORDS = 16384;
     logic [31:0] mem [0:MEM_WORDS-1];
     assign imem_data = mem[imem_addr[15:2]];
+    // Memory side: the warp pool directly, or through the L1 (wider tags).
+    localparam int MTW   = (L1 != 0) ? MEM_TAGW + 1 : MEM_TAGW;
+    localparam int MTAGS = 1 << MTW;
+    logic                 m_req, m_gnt, m_we, m_rvalid;
+    logic [MTW-1:0]       m_tag, m_rtag;
+    /* verilator lint_off UNUSEDSIGNAL */   // only the line index is read
+    logic [31:0]          m_addr;
+    /* verilator lint_on UNUSEDSIGNAL */
+    logic [LINE_BITS-1:0] m_wdata, m_rdata;
+    logic [LINE_BE-1:0]   m_be;
+    int unsigned          l1_hits, l1_misses;
+    generate
+        if (L1 == 0) begin : g_nol1
+            assign m_req = dmem_req;  assign dmem_gnt = m_gnt;
+            assign m_tag = dmem_tag;  assign m_addr = dmem_addr;
+            assign m_we  = dmem_we;   assign m_wdata = dmem_wdata;  assign m_be = dmem_be;
+            assign dmem_rvalid = m_rvalid;  assign dmem_rtag = m_rtag;
+            assign dmem_rdata  = m_rdata;
+            assign l1_hits     = 0;
+            assign l1_misses   = 0;
+        end else begin : g_l1
+            logic hit_ev, miss_ev;
+            l1_dcache #(.NSET(L1_SETS)) u_l1 (
+                .clk(clk), .rst(rst), .inv(start),
+                .s_req(dmem_req), .s_gnt(dmem_gnt), .s_tag(dmem_tag), .s_addr(dmem_addr),
+                .s_we(dmem_we), .s_wdata(dmem_wdata), .s_be(dmem_be),
+                .s_rvalid(dmem_rvalid), .s_rtag(dmem_rtag), .s_rdata(dmem_rdata),
+                .m_req(m_req), .m_gnt(m_gnt), .m_tag(m_tag), .m_addr(m_addr),
+                .m_we(m_we), .m_wdata(m_wdata), .m_be(m_be),
+                .m_rvalid(m_rvalid), .m_rtag(m_rtag), .m_rdata(m_rdata),
+                .hit_ev(hit_ev), .miss_ev(miss_ev));
+            always @(posedge clk)
+                if (start) begin l1_hits <= 0; l1_misses <= 0; end
+                else begin
+                    if (hit_ev)  l1_hits   <= l1_hits + 1;
+                    if (miss_ev) l1_misses <= l1_misses + 1;
+                end
+        end
+    endgenerate
+
     logic [31:0] lbase;
-    assign lbase = {18'b0, dmem_addr[15:5], 3'b000};
+    assign lbase = {18'b0, m_addr[15:5], 3'b000};
     logic [LINE_BITS-1:0] line_now;              // the addressed line, this cycle
     always_comb
         for (int w = 0; w < LINE_WORDS; w++)
@@ -78,56 +123,56 @@ module tb_sync
     always @(posedge clk)
         if (rst) lfsr <= 16'hACE1;
         else     lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
-    assign dmem_gnt = (MEM_STALL == 0) || (lfsr[1:0] != 2'b00);
+    assign m_gnt = (MEM_STALL == 0) || (lfsr[1:0] != 2'b00);
 
     generate
         if (MEM_LAT == 0) begin : g_lat0
-            assign dmem_rvalid = dmem_req;
-            assign dmem_rtag   = dmem_tag;
-            assign dmem_rdata  = line_now;
+            assign m_rvalid = m_req;
+            assign m_rtag   = m_tag;
+            assign m_rdata  = line_now;
         end else begin : g_lat
             // One slot per tag (a tag is unique while outstanding): the line read at
             // acceptance and the cycle its response is due. Each cycle the lowest
             // due slot answers.
             int unsigned          now;
-            logic                 sv  [MEM_TAGS];
-            int unsigned          due [MEM_TAGS];
-            logic [LINE_BITS-1:0] sd  [MEM_TAGS];
+            logic                 sv  [MTAGS];
+            int unsigned          due [MTAGS];
+            logic [LINE_BITS-1:0] sd  [MTAGS];
             logic                 rv;
-            logic [MEM_TAGW-1:0]  rt;
+            logic [MTW-1:0]  rt;
             always_comb begin
                 rv = 1'b0;
                 rt = '0;
-                for (int t = MEM_TAGS-1; t >= 0; t--)
-                    if (sv[t] && (due[t] <= now)) begin rv = 1'b1; rt = MEM_TAGW'(t); end
+                for (int t = MTAGS-1; t >= 0; t--)
+                    if (sv[t] && (due[t] <= now)) begin rv = 1'b1; rt = MTW'(t); end
             end
             always @(posedge clk) begin
                 if (rst) begin
                     now <= 0;
-                    for (int t = 0; t < MEM_TAGS; t++) sv[t] <= 1'b0;
+                    for (int t = 0; t < MTAGS; t++) sv[t] <= 1'b0;
                 end else begin
                     now <= now + 1;
                     if (rv) sv[rt] <= 1'b0;
-                    if (dmem_req && dmem_gnt) begin
-                        sv[dmem_tag]  <= 1'b1;
-                        due[dmem_tag] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[4:2]) : 0);
-                        sd[dmem_tag]  <= line_now;
+                    if (m_req && m_gnt) begin
+                        sv[m_tag]  <= 1'b1;
+                        due[m_tag] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[4:2]) : 0);
+                        sd[m_tag]  <= line_now;
                     end
                 end
             end
-            assign dmem_rvalid = rv;
-            assign dmem_rtag   = rt;
-            assign dmem_rdata  = sd[rt];
+            assign m_rvalid = rv;
+            assign m_rtag   = rt;
+            assign m_rdata  = sd[rt];
         end
     endgenerate
 
     always @(posedge clk)
-        if (dmem_we && dmem_req && dmem_gnt)
+        if (m_we && m_req && m_gnt)
             for (int w = 0; w < LINE_WORDS; w++) begin
                 logic [31:0] cur;
                 cur = mem[lbase + w];
                 for (int b = 0; b < 4; b++)
-                    if (dmem_be[w*4 + b]) cur[b*8 +: 8] = dmem_wdata[w*32 + b*8 +: 8];
+                    if (m_be[w*4 + b]) cur[b*8 +: 8] = m_wdata[w*32 + b*8 +: 8];
                 mem[lbase + w] <= cur;
             end
 
@@ -197,6 +242,7 @@ module tb_sync
         while (!done && guard < 400000) begin @(posedge clk); guard++; end
         if (!done) begin $display("  [FAIL] %s timeout", tag); errors++; end
         last_cycles = guard + 1;
+        if (L1 != 0) $display("L1CSV,%s,%0d,%0d,%0d", tag, n, l1_hits, l1_misses);
         $display("SYNCCSV,%s,%0d,%0d,%0d,%0d,%0d", tag, n, blk, last_cycles,
                  dbg_mem_txns, dbg_scratch_txns);
     endtask
