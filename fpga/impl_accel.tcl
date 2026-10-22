@@ -22,7 +22,7 @@ read_verilog -sv [list \
     $rtl_dir/mmio_regs.sv  \
     $rtl_dir/simt_fpu.sv   \
     $rtl_dir/fp_divsqrt.sv \
-    $rtl_dir/warp_pool.sv  \
+    $rtl_dir/mem_engine.sv $rtl_dir/warp_pool.sv  \
     $rtl_dir/simt_accel.sv ]
 read_xdc [list [file normalize ./constr/simt_accel_ooc.xdc]]
 

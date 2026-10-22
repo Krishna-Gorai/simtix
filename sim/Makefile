@@ -17,7 +17,7 @@ ACCEL_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
 	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
-	../rtl/accel/warp_pool.sv \
+	../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv \
 	../rtl/accel/simt_accel.sv
 
 # lane.sv is the M1 single-thread reference core, still linted/tested standalone.
@@ -34,7 +34,7 @@ WARP_RTL := \
 POOL_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
-	../rtl/accel/warp_pool.sv
+	../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv
 
 # Host CPU RTL (reused, Verilog-2001) — linted permissively (3rd-party style).
 CPU_RTL := $(wildcard ../rtl/cpu/*.v)
@@ -46,7 +46,7 @@ SOC_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
 	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
-	../rtl/accel/warp_pool.sv \
+	../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv \
 	../rtl/accel/simt_accel.sv \
 	../rtl/soc/soc_top.sv \
 	$(SOC_CPU_RTL)
@@ -61,7 +61,7 @@ CHIP_RTL := \
 	../rtl/accel/simtix_pkg.sv \
 	../rtl/accel/mmio_regs.sv \
 	../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv \
-	../rtl/accel/warp_pool.sv \
+	../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv \
 	../rtl/accel/simt_accel.sv \
 	../rtl/soc/shared_mem.sv \
 	../rtl/soc/weight_rom.sv \
@@ -85,7 +85,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
 
@@ -125,10 +125,10 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat
+test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo
 
 test-accel:
-	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
+	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
 
 test-lane:
 	$(call run_tb,tb_lane,$(PKG) ../rtl/accel/lane.sv ../tests/tb_lane.sv)
@@ -137,48 +137,55 @@ test-warp:
 	$(call run_tb,tb_warp,$(PKG) ../rtl/accel/warp.sv ../tests/tb_warp.sv)
 
 test-pool:
-	$(call run_tb,tb_warp_pool,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_warp_pool.sv)
+	$(call run_tb,tb_warp_pool,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_warp_pool.sv)
 
 # v2: warp shuffle, block barrier, block-shared scratchpad and RV32A atomics on
 # real kernels (kernels/sync/*.S, assembled by kernels/sync/build.py into the
 # committed .svh images the testbench includes).
 test-sync:
 	rm -rf $(MDIR)
-	$(VERILATOR) --binary $(VFLAGS) -I../kernels/sync --Mdir $(MDIR) --top-module tb_sync 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_sync.sv -o tb_sync
+	$(VERILATOR) --binary $(VFLAGS) -I../kernels/sync --Mdir $(MDIR) --top-module tb_sync 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_sync.sv -o tb_sync
 	@echo "[test] running tb_sync..."
 	$(MDIR)/tb_sync
 
 # tb_sync again with a 7-cycle data memory that also withholds the grant.
 test-sync-lat:
 	rm -rf $(MDIR)
-	$(VERILATOR) --binary $(VFLAGS) -GMEM_LAT=7 -GMEM_STALL=1 -I../kernels/sync --Mdir $(MDIR) --top-module tb_sync 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_sync.sv -o tb_sync
+	$(VERILATOR) --binary $(VFLAGS) -GMEM_LAT=7 -GMEM_STALL=1 -I../kernels/sync --Mdir $(MDIR) --top-module tb_sync 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_sync.sv -o tb_sync
 	@echo "[test] running tb_sync (MEM_LAT=7, MEM_STALL=1)..."
+	$(MDIR)/tb_sync
+
+# ... and with responses out of order (4 cycles + 0..7 random).
+test-sync-ooo:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) -GMEM_LAT=4 -GMEM_STALL=1 -GMEM_OOO=1 -I../kernels/sync --Mdir $(MDIR) --top-module tb_sync 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_sync.sv -o tb_sync
+	@echo "[test] running tb_sync (MEM_LAT=4, MEM_STALL=1, MEM_OOO=1)..."
 	$(MDIR)/tb_sync
 
 # AI Tier-1: INT8 packed dot-product (pdot8) — bit-exact golden test of W_DOT.
 test-pdot8:
-	$(call run_tb,tb_pdot8,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_pdot8.sv)
+	$(call run_tb,tb_pdot8,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_pdot8.sv)
 
 # AI Tier-2: INT8 GEMM kernel (qgemm.S) — full 8x8xK tile, bit-exact vs int matmul.
 test-qgemm:
-	$(call run_tb,tb_qgemm,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_qgemm.sv)
+	$(call run_tb,tb_qgemm,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_qgemm.sv)
 
 # AI Tier-2: INT32->INT8 requantize kernel (requant.S) — FP-reuse, golden-checked.
 test-requant:
-	$(call run_tb,tb_requant,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_requant.sv)
+	$(call run_tb,tb_requant,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_requant.sv)
 
 # AI-4: INT8 GEMV kernel (qgemv.S) — MLP-layer primitive, parameterized Kp/N.
 test-qgemv:
-	$(call run_tb,tb_qgemv,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_qgemv.sv)
+	$(call run_tb,tb_qgemv,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_qgemv.sv)
 
 # AI-4: end-to-end quantized MNIST MLP inference (needs ml/data/*.hex from
 # `python3 ml/mnist_quant.py`; not in the default `test` since data is generated).
 test-mnist:
-	$(call run_tb,tb_mnist,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_mnist.sv)
+	$(call run_tb,tb_mnist,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_mnist.sv)
 
 # M14.0: floating-point load/store data path (flw/fsw through the f-regfile).
 test-fp:
-	$(call run_tb,tb_fp,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fp.sv)
+	$(call run_tb,tb_fp,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_fp.sv)
 
 # M14.1: standalone bit-exact verification of the per-lane FP32 unit against a
 # DPI-C IEEE-754 single-precision reference. Verilator compiles the DPI .c with
@@ -209,7 +216,7 @@ test-fpdivsqrt:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpdivsqrt \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpdivsqrt.sv $(FPU_REF_SRC) -o tb_fpdivsqrt
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpdivsqrt.sv $(FPU_REF_SRC) -o tb_fpdivsqrt
 	@echo "[test] running tb_fpdivsqrt..."
 	$(MDIR)/tb_fpdivsqrt
 
@@ -220,7 +227,7 @@ test-fpkernels:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpkernels \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpkernels.sv $(FPU_REF_SRC) -o tb_fpkernels
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpkernels.sv $(FPU_REF_SRC) -o tb_fpkernels
 	@echo "[test] running tb_fpkernels..."
 	$(MDIR)/tb_fpkernels
 
@@ -230,7 +237,7 @@ test-fparith:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fparith \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith.sv $(FPU_REF_SRC) -o tb_fparith
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith.sv $(FPU_REF_SRC) -o tb_fparith
 	@echo "[test] running tb_fparith..."
 	$(MDIR)/tb_fparith
 
@@ -240,7 +247,7 @@ test-fpfma:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpfma \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpfma.sv $(FPU_REF_SRC) -o tb_fpfma
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpfma.sv $(FPU_REF_SRC) -o tb_fpfma
 	@echo "[test] running tb_fpfma..."
 	$(MDIR)/tb_fpfma
 
@@ -250,7 +257,7 @@ test-fparith16:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fparith16 \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith16.sv $(FPU_REF_SRC) -o tb_fparith16
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_fparith16.sv $(FPU_REF_SRC) -o tb_fparith16
 	@echo "[test] running tb_fparith16..."
 	$(MDIR)/tb_fparith16
 
@@ -315,7 +322,7 @@ test-chip-mnist-short:
 # verifies golden results, and prints a metrics table + CSV rows. Capture with:
 #   make bench | grep '^CSV,' > ../docs/bench.csv
 bench:
-	$(call run_tb,tb_bench,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_bench.sv)
+	$(call run_tb,tb_bench,$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_bench.sv)
 
 # FP benchmark (M14 evaluation): FP32 + FP16 streaming kernels, golden-checked
 # against the DPI reference. Capture with:
@@ -324,7 +331,7 @@ fp-bench:
 	cp ../tests/fpu_ref.c $(FPU_REF_SRC)
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_fpbench \
-		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpbench.sv $(FPU_REF_SRC) -o tb_fpbench
+		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_fpbench.sv $(FPU_REF_SRC) -o tb_fpbench
 	@echo "[bench] running tb_fpbench..."
 	$(MDIR)/tb_fpbench
 
@@ -345,7 +352,7 @@ WARPS ?= 4
 dse:
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(SOC_VFLAGS) +define+SIMTIX_NUM_LANES=$(LANES) +define+SIMTIX_NUM_WARPS=$(WARPS) \
-		--Mdir $(MDIR) --top-module tb_dse $(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/warp_pool.sv ../tests/tb_dse.sv -o tb_dse
+		--Mdir $(MDIR) --top-module tb_dse $(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_dse.sv -o tb_dse
 	@echo "[dse] running tb_dse LANES=$(LANES) WARPS=$(WARPS)..."
 	$(MDIR)/tb_dse
 

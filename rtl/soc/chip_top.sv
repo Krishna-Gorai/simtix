@@ -117,6 +117,7 @@ module chip_top
     logic                 accel_dmem_we;
     logic [LINE_BE-1:0]   accel_dmem_be;
     logic                 accel_dmem_req;    // shared_mem answers in the same cycle
+    logic [MEM_TAGW-1:0]  accel_dmem_tag;
 
     simt_accel u_accel (
         .clk        (clk),
@@ -130,11 +131,13 @@ module chip_top
         .imem_data  (accel_imem_data),
         .dmem_req   (accel_dmem_req),
         .dmem_gnt   (1'b1),
+        .dmem_tag   (accel_dmem_tag),
         .dmem_addr  (accel_dmem_addr),
         .dmem_wdata (accel_dmem_wdata),
         .dmem_we    (accel_dmem_we),
         .dmem_be    (accel_dmem_be),
         .dmem_rvalid(accel_dmem_req),
+        .dmem_rtag  (accel_dmem_tag),
         .dmem_rdata (accel_dmem_rdata)
     );
 

@@ -28,7 +28,7 @@ read_verilog -sv [list \
     $acc_dir/mmio_regs.sv            \
     $acc_dir/simt_fpu.sv             \
     $acc_dir/fp_divsqrt.sv           \
-    $acc_dir/warp_pool.sv            \
+    $acc_dir/mem_engine.sv $acc_dir/warp_pool.sv            \
     $acc_dir/simt_accel.sv           \
     $soc_dir/shared_mem.sv           \
     $soc_dir/weight_rom.sv           \

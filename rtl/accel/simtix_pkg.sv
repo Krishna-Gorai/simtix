@@ -40,6 +40,9 @@ package simtix_pkg;
   parameter int LINE_BE    = LINE_WORDS * 4;     // 32 : per-byte write-enable bits
   parameter int LINE_WOFFW = $clog2(LINE_WORDS); // 3  : word index within a line
   parameter int LINE_OFF   = LINE_WOFFW + 2;     // 5  : byte offset within a line
+  // v2: global requests carry a tag; a response returns it (any order).
+  parameter int MEM_TAGS   = 8;                  // outstanding global requests
+  parameter int MEM_TAGW   = $clog2(MEM_TAGS);
 
   // ── Shared-memory scratchpad (M6) ────────────────────────────────────────────
   // A small, per-warp on-chip scratchpad. Kernel data accesses whose address

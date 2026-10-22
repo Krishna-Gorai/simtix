@@ -60,7 +60,9 @@
 
 module warp_pool
   import simtix_pkg::*;
-(
+#(
+    parameter int MEM_CTX = NUM_WARPS   // memory ops in flight (1 = the v1 engine)
+) (
     input  logic        clk,
     input  logic        rst,           // active-high
 
@@ -78,16 +80,19 @@ module warp_pool
     input  logic [31:0] imem_data,
 
     // Line-wide global data port, split transaction (v2 WP2). A request is
-    // accepted when dmem_req && dmem_gnt; every request (read or write) gets one
-    // response, in order, on dmem_rvalid. A zero-latency memory ties dmem_gnt = 1
-    // and dmem_rvalid = dmem_req and returns dmem_rdata for this cycle's address.
+    // accepted when dmem_req && dmem_gnt and carries dmem_tag; every request (read
+    // or write) gets one response on dmem_rvalid that returns the tag on dmem_rtag,
+    // in any order. A zero-latency memory ties dmem_gnt = 1, dmem_rvalid = dmem_req,
+    // dmem_rtag = dmem_tag and returns dmem_rdata for this cycle's address.
     output logic                 dmem_req,
     input  logic                 dmem_gnt,
+    output logic [MEM_TAGW-1:0]  dmem_tag,
     output logic [31:0]          dmem_addr,    // line-aligned byte address
     output logic [LINE_BITS-1:0] dmem_wdata,   // one cache line of write data
     output logic                 dmem_we,
     output logic [LINE_BE-1:0]   dmem_be,       // per-byte write enable across line
     input  logic                 dmem_rvalid,
+    input  logic [MEM_TAGW-1:0]  dmem_rtag,
     input  logic [LINE_BITS-1:0] dmem_rdata,    // one cache line of read data
 
     output logic        busy,
@@ -114,10 +119,6 @@ module warp_pool
     // VRF address = {warp, reg5}. NW is a power of two, so depth = NW*32.
     localparam int VAW    = WIDXW + 5;
     localparam int VDEPTH = (1 << VAW);
-    // Scratchpad address = {warp, sidx}. One flat single-port RAM holds all warps'
-    // scratch; depth = NW * SCRATCH_WORDS (M9: distributed-RAM, see banks below).
-    localparam int SCAW    = WIDXW + SCRATCH_AW;
-    localparam int SCDEPTH = NW * SCRATCH_WORDS;
 
     localparam logic [31:0] RPC_BOTTOM = 32'hFFFF_FFFF;  // base frame never pops
 
@@ -164,15 +165,6 @@ module warp_pool
 
     logic [31:0]    warp_base [0:NW-1];                 // base tid (for tid CSR)
 
-    // Per-warp on-chip scratchpad (M6): one word per address, shared by the
-    // warp's lanes. Accesses in the SCRATCH_BASE aperture are serviced here and
-    // never reach the global data port. M9: the array is a single flat
-    // single-port distributed RAM (addr = {warp, sidx}); the memory engine now
-    // services one lane per cycle (see scratch branch below) so a single port
-    // suffices, trading multi-cycle scratch ops for ~8 k fewer flip-flops.
-    logic [SCAW-1:0] sc_ra, sc_wa;   // scratch read / write address {warp, sidx}
-    logic [31:0]     sc_rd, sc_wd;   // scratch read data / write data
-    logic            sc_we;          // scratch write enable (store, lead lane)
 
     // Per-warp SIMT reconvergence stack. TOS = sp[w]; the TOS frame gives the
     // warp's live PC (stk_npc) and active mask (stk_mask); stk_rpc is the join PC
@@ -190,38 +182,19 @@ module warp_pool
     logic [WIDXW-1:0] rr_ptr;        // round-robin issue pointer
     logic [2:0]       blk_lg;        // log2(warps per block) of this grid, <= LOGNW
 
-    // ── Background memory engine (one in-flight, coalesced memory instruction) ──────
-    logic             mem_busy;
-    logic [WIDXW-1:0] mem_w;
-    logic [NL-1:0]    mem_pending;               // active lanes not yet serviced
-    logic             mem_is_store;
-    logic             mem_is_scratch;            // latched: scratchpad vs global op
-    logic             mem_is_fp;                 // latched: FP load/store (M14.0)
-    logic             mem_is_amo;                // latched: RV32A atomic (v2)
-    logic             mem_is_shared;             // latched: block-shared scratch view (v2)
-    logic [4:0]       mem_amo_op;                // latched: AMO funct5
-    logic [2:0]       mem_funct3;
-    logic [4:0]       mem_rd;
-    logic [31:0]      mem_next_pc;
-    logic [31:0]      mem_addr_lane  [0:NL-1];   // latched per-lane eff. address
-    logic [31:0]      mem_sdata_lane [0:NL-1];   // latched per-lane store data
-
-    // Outstanding global requests (v2 WP2). mq_* holds the lane group and kind of
-    // each accepted request whose response has not arrived; responses are in order.
-    // A response in the same cycle as its request bypasses the queue, so a
-    // zero-latency memory sees exactly the old one-line-per-cycle timing.
-    typedef enum logic [1:0] { MK_LOAD, MK_WRITE, MK_AMORD } mkind_e;
-    localparam int MQD = 8;
-    localparam int MQW = $clog2(MQD);
-    logic [NL-1:0]  mq_mask [0:MQD-1];
-    mkind_e         mq_kind [0:MQD-1];
-    logic [MQW-1:0] mq_wp, mq_rp;
-    logic [MQW:0]   mq_cnt;
-    // A global AMO is a read of the lead lane's word, then a write of the new value
-    // once the read returns; the lead lane retires when its write is accepted.
-    typedef enum logic [1:0] { AP_RD, AP_WAIT, AP_WR } amo_ph_e;
-    amo_ph_e        amo_ph;
-    logic [31:0]    amo_new;
+    // ── Memory engine interface (rtl/accel/mem_engine.sv) ──────────────────────────
+    logic             me_in_valid, me_in_ready;
+    logic [31:0]      me_sdata [0:NL-1];         // per-lane store data at issue
+    logic             me_rs_valid;               // a memory op finished: resume its warp
+    logic [WIDXW-1:0] me_rs_w;
+    logic [31:0]      me_rs_pc;
+    logic             me_busy, me_fp_busy, me_gtxn, me_stxn;
+    logic [WIDXW-1:0] me_wb_w;                   // writeback destination warp / reg
+    logic [4:0]       me_wb_rd;
+    logic             me_wb_fp;
+    logic             mem_wb_act;             // memory engine writes a regfile this cycle
+    logic [NL-1:0]    mem_wb_lane;            // per-lane: memory writeback fires
+    logic [31:0]      mem_wb_data [0:NL-1];
 
     // ── F-stage: round-robin FETCH selection (combinational) ────────────────────────
     // Task #23: the issue engine is a 2-stage F(etch)/X(ecute) pipeline. Placed
@@ -852,23 +825,6 @@ module warp_pool
     end
 
     // RV32A read-modify-write: new memory word from the old word m and rs2 value v.
-    function automatic logic [31:0] amo_alu(input logic [4:0]  op,
-                                            input logic [31:0] m,
-                                            input logic [31:0] v);
-        unique case (op)
-            AMO_ADD:  amo_alu = m + v;
-            AMO_SWAP: amo_alu = v;
-            AMO_XOR:  amo_alu = m ^ v;
-            AMO_OR:   amo_alu = m | v;
-            AMO_AND:  amo_alu = m & v;
-            AMO_MIN:  amo_alu = ($signed(m) < $signed(v)) ? m : v;
-            AMO_MAX:  amo_alu = ($signed(m) < $signed(v)) ? v : m;
-            AMO_MINU: amo_alu = (m < v) ? m : v;
-            AMO_MAXU: amo_alu = (m < v) ? v : m;
-            default:  amo_alu = m;
-        endcase
-    endfunction
-
     always_comb begin
         for (int l = 0; l < NL; l++) begin
             logic [31:0] a, b, y;
@@ -985,136 +941,56 @@ module warp_pool
     assign issue_is_scratch = (addr[first_l][31:30] == 2'b01);
     assign issue_is_shared  = issue_is_scratch && addr[first_l][29];   // SHARED_BASE
 
-    // ── Coalescing memory engine (uses the LATCHED replay context) ──────────────────
-    // Pick the line of the lowest still-pending lane, then gather EVERY pending
-    // lane sharing that line into one transaction. grp[l] = lanes serviced now.
-    logic [LIDXW-1:0]   lead;        // lowest-index pending lane (the line leader)
-    logic [31:LINE_OFF] lead_tag;    // its cache-line tag
-    logic [NL-1:0]      grp;         // lanes coalesced into this cycle's line
-
-    always_comb begin
-        lead = '0;
-        for (int l = NL-1; l >= 0; l--)        // low-to-... last write wins -> lowest
-            if (mem_pending[l]) lead = l[LIDXW-1:0];
-    end
-    assign lead_tag = mem_addr_lane[lead][31:LINE_OFF];
-
-    always_comb begin
+// ── Memory engine ───────────────────────────────────────────────────────────────
+    // A memory op is handed over when the X stage resolves it; the warp parks in
+    // W_MEM until the engine resumes it. See mem_engine.sv.
+    assign me_in_valid = issue_valid && !do_pop && !is_ecall && is_mem;
+    always_comb
         for (int l = 0; l < NL; l++)
-            grp[l] = mem_pending[l] &&
-                     (mem_addr_lane[l][31:LINE_OFF] == lead_tag);
-    end
+            me_sdata[l] = is_store_fp ? frv2[l] : rv2[l];   // fsw stores an f-register
 
-    // Per-lane load result, extracted from this cycle's line read.
-    logic [31:0] ld_data [0:NL-1];
-    always_comb begin
-        for (int l = 0; l < NL; l++) begin
-            logic [LINE_WOFFW-1:0] woff;
-            logic [1:0]            bsel;
-            logic [31:0]           word;
-            logic [7:0]            lb;
-            logic [15:0]           lh;
-            woff    = mem_addr_lane[l][LINE_OFF-1:2];
-            bsel    = mem_addr_lane[l][1:0];
-            word    = dmem_rdata[woff*32 +: 32];
-            lb      = word[8*bsel +: 8];
-            lh      = mem_addr_lane[l][1] ? word[31:16] : word[15:0];
-            unique case (mem_funct3)
-                3'b000:  ld_data[l] = {{24{lb[7]}},  lb};
-                3'b001:  ld_data[l] = {{16{lh[15]}}, lh};
-                3'b010:  ld_data[l] = word;
-                3'b100:  ld_data[l] = {24'b0, lb};
-                3'b101:  ld_data[l] = {16'b0, lh};
-                default: ld_data[l] = word;
-            endcase
-        end
-    end
-
-    // Request side. Loads and stores send the lead lane's line with every pending
-    // lane that shares it (grp); an AMO sends the lead lane's read, then its write.
-    logic [NL-1:0] lead_oh;
-    logic          mreq_valid, mreq_fire;
-    logic [NL-1:0] mreq_mask;          // lanes the request covers
-    mkind_e        mreq_kind;
-    always_comb begin
-        lead_oh       = '0;
-        lead_oh[lead] = 1'b1;
-        mreq_valid = 1'b0;
-        mreq_mask  = grp;
-        mreq_kind  = mem_is_store ? MK_WRITE : MK_LOAD;
-        if (mem_busy && !mem_is_scratch && (mq_cnt != (MQW+1)'(MQD))) begin
-            if (mem_is_amo) begin
-                mreq_mask  = lead_oh;
-                mreq_kind  = (amo_ph == AP_WR) ? MK_WRITE : MK_AMORD;
-                mreq_valid = (amo_ph != AP_WAIT) && (mem_pending != '0);
-            end else begin
-                mreq_valid = (mem_pending != '0);
-            end
-        end
-    end
-    assign dmem_req  = mreq_valid;
-    assign mreq_fire = mreq_valid && dmem_gnt;
-    assign dmem_addr = mreq_valid
-                     ? {mem_addr_lane[lead][31:LINE_OFF], {LINE_OFF{1'b0}}} : 32'd0;
-
-    // Response side: the oldest outstanding request, or this cycle's request when
-    // the queue is empty (same-cycle response).
-    logic          mq_byp, mq_push, mq_pop;
-    logic [NL-1:0] mrsp_mask;
-    mkind_e        mrsp_kind;
-    assign mq_byp    = dmem_rvalid && (mq_cnt == '0);
-    assign mq_push   = mreq_fire && !mq_byp;
-    assign mq_pop    = dmem_rvalid && !mq_byp;
-    assign mrsp_mask = mq_byp ? mreq_mask : mq_mask[mq_rp];
-    assign mrsp_kind = mq_byp ? mreq_kind : mq_kind[mq_rp];
-
-    always_comb begin
-        dmem_wdata = '0;
-        dmem_we    = 1'b0;
-        dmem_be    = '0;
-        if (mreq_valid) begin
-            if (mem_is_amo) begin
-                if (amo_ph == AP_WR) begin
-                    logic [LINE_WOFFW-1:0] awoff;
-                    awoff = mem_addr_lane[lead][LINE_OFF-1:2];
-                    dmem_we                    = 1'b1;
-                    dmem_wdata[awoff*32 +: 32] = amo_new;
-                    dmem_be[awoff*4 +: 4]      = 4'b1111;
-                end
-            end else if (mem_is_store) begin
-                dmem_we = 1'b1;
-                for (int l = 0; l < NL; l++) begin
-                    if (grp[l]) begin
-                        logic [LINE_WOFFW-1:0] woff;
-                        logic [1:0]            bsel;
-                        logic [31:0]           sd;
-                        woff = mem_addr_lane[l][LINE_OFF-1:2];
-                        bsel = mem_addr_lane[l][1:0];
-                        sd   = mem_sdata_lane[l];
-                        unique case (mem_funct3)
-                            3'b000: begin  // sb
-                                dmem_wdata[woff*32 + bsel*8 +: 8] = sd[7:0];
-                                dmem_be[woff*4 + bsel]            = 1'b1;
-                            end
-                            3'b001: begin  // sh
-                                if (mem_addr_lane[l][1]) begin
-                                    dmem_wdata[woff*32 + 16 +: 16] = sd[15:0];
-                                    dmem_be[woff*4 + 2 +: 2]       = 2'b11;
-                                end else begin
-                                    dmem_wdata[woff*32 +: 16] = sd[15:0];
-                                    dmem_be[woff*4 +: 2]      = 2'b11;
-                                end
-                            end
-                            default: begin  // sw
-                                dmem_wdata[woff*32 +: 32] = sd;
-                                dmem_be[woff*4 +: 4]      = 4'b1111;
-                            end
-                        endcase
-                    end
-                end
-            end
-        end
-    end
+    mem_engine #(.NC(MEM_CTX)) u_mem (
+        .clk        (clk),
+        .rst        (rst),
+        .blk_lg     (blk_lg),
+        .in_valid   (me_in_valid),
+        .in_ready   (me_in_ready),
+        .in_w       (issue_w),
+        .in_mask    (cur_mask),
+        .in_store   (is_store),
+        .in_scratch (issue_is_scratch),
+        .in_shared  (issue_is_shared),
+        .in_fp      (is_fp_mem),
+        .in_amo     (is_amo),
+        .in_amo_op  (amo_op),
+        .in_funct3  (funct3),
+        .in_rd      (rd),
+        .in_next_pc (fallthru),
+        .in_addr    (addr),
+        .in_sdata   (me_sdata),
+        .wb_lane    (mem_wb_lane),
+        .wb_data    (mem_wb_data),
+        .wb_w       (me_wb_w),
+        .wb_rd      (me_wb_rd),
+        .wb_fp      (me_wb_fp),
+        .rs_valid   (me_rs_valid),
+        .rs_w       (me_rs_w),
+        .rs_pc      (me_rs_pc),
+        .busy       (me_busy),
+        .fp_busy    (me_fp_busy),
+        .dmem_req   (dmem_req),
+        .dmem_gnt   (dmem_gnt),
+        .dmem_tag   (dmem_tag),
+        .dmem_addr  (dmem_addr),
+        .dmem_wdata (dmem_wdata),
+        .dmem_we    (dmem_we),
+        .dmem_be    (dmem_be),
+        .dmem_rvalid(dmem_rvalid),
+        .dmem_rtag  (dmem_rtag),
+        .dmem_rdata (dmem_rdata),
+        .gtxn       (me_gtxn),
+        .stxn       (me_stxn)
+    );
 
     // ── "Anything still running?" (combinational over current state) ────────────────
     logic any_busy;
@@ -1125,6 +1001,7 @@ module warp_pool
                 (wstate[k] == W_SFU) || (wstate[k] == W_FPC) ||
                 (wstate[k] == W_MUL) || (wstate[k] == W_DOT) ||
                 (wstate[k] == W_BAR) || (wstate[k] == W_SHF)) any_busy = 1'b1;
+        if (me_busy) any_busy = 1'b1;             // a memory op still in flight
     end
 
     // ── VRF write arbiter (one write port per lane bank) ────────────────────────────
@@ -1134,9 +1011,6 @@ module warp_pool
     // writeback is squashed that cycle — the instruction simply re-issues next cycle
     // (it is idempotent: same VRF in → same result out). Stores and rd==x0 never
     // write the file.
-    logic             mem_wb_act;             // memory engine writes a regfile this cycle
-    logic [NL-1:0]    mem_wb_lane;            // per-lane: memory writeback fires
-    logic [31:0]      mem_wb_data [0:NL-1];
     logic             do_compute;             // issue is a committing compute instr
     logic             squash_wb;              // its writeback is squashed by a mem write
 
@@ -1155,29 +1029,6 @@ module warp_pool
     logic [WIDXW-1:0] fv_ww [0:NL-1];
     logic [4:0]       fv_wr [0:NL-1];
 
-    always_comb begin
-        for (int l = 0; l < NL; l++) begin
-            mem_wb_lane[l] = 1'b0;
-            mem_wb_data[l] = 32'd0;
-            // FP loads target f0..f31 where f0 is a real register, so the rd!=x0
-            // guard applies to integer loads only.
-            if (mem_busy && !mem_is_store && (mem_is_fp || mem_rd != 5'd0)) begin
-                // Scratch (M9): the engine serves ONE lane (the lowest-index
-                // pending lane) per cycle, so only that lane's VRF is written,
-                // sourced from the single RAM read port sc_rd.
-                if (mem_is_scratch && mem_pending[lead] && (l[LIDXW-1:0] == lead)) begin
-                    mem_wb_lane[l] = 1'b1;
-                    mem_wb_data[l] = sc_rd;
-                end else if (!mem_is_scratch && dmem_rvalid && mrsp_mask[l] &&
-                             (mrsp_kind != MK_WRITE)) begin
-                    // Load lanes of the returning line; an AMO read returns the old
-                    // word to its lead lane only.
-                    mem_wb_lane[l] = 1'b1;
-                    mem_wb_data[l] = ld_data[l];
-                end
-            end
-        end
-    end
     assign mem_wb_act     = |mem_wb_lane;
     // An FP-compute op (add/sub/mul/FMA/sgnj/min/max/cmp/cvt/fmv/fclass — NOT div/
     // sqrt, NOT a load/store): retires through the pipelined FPC unit (W_FPC).
@@ -1202,29 +1053,29 @@ module warp_pool
 
     // The held SFU result drives the f-file when the unit is in writeback and the
     // memory engine is not using the FP port this cycle (mem wins; SFU result waits).
-    assign sfu_wb_fire = (sfu_state == SFU_WB) && !(mem_busy && mem_is_fp);
+    assign sfu_wb_fire = (sfu_state == SFU_WB) && !me_fp_busy;
 
     // The held FP-compute result drives its destination port when ready. It YIELDS to
     // the (non-deferrable) memory engine on the relevant port, and to the SFU on the
     // f-file — so it never collides; if blocked, it simply waits (the warp stays
     // parked and the result is held in fpc_data).
     assign fpc_wb_fire = (fpc_state == FPC_WB) &&
-                         ( fpc_isfp ? !((mem_wb_act && mem_is_fp) || sfu_wb_fire)
-                                    : !(mem_wb_act && !mem_is_fp) );
+                         ( fpc_isfp ? !((mem_wb_act && me_wb_fp) || sfu_wb_fire)
+                                    : !(mem_wb_act && !me_wb_fp) );
 
     // B1: the held integer-mul result drives the integer VRF when the unit is in
     // writeback and that port is free. It is deferrable like FPC: it yields to the
     // (non-deferrable) integer memory writeback and to the integer-dest FPC writeback,
     // so it never collides; if blocked it waits (the warp stays parked in W_MUL).
     assign mul_wb_fire = (mul_state == MUL_WB) &&
-                         !((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp));
+                         !((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp));
 
     // AI: the held INT8-dot result drives the integer VRF when the unit is in writeback
     // and the port is free. Deferrable like MUL: it yields to the integer memory
     // writeback, the integer-dest FPC writeback, AND the integer-mul writeback (it sits
     // one tier below mul in the same port); if blocked it waits (warp parked in W_DOT).
     assign dot_wb_fire    = (dot_state == DOT_WB) &&
-                         !((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
+                         !((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp) ||
                            mul_wb_fire);
 
     // A single-cycle integer compute (always integer-VRF dest now) is squashed when
@@ -1232,11 +1083,11 @@ module warp_pool
     // writeback, or the integer-mul writeback. It re-issues next cycle (idempotent).
     // v2: the shuffle result sits one tier below the dot result on the integer port.
     assign shf_wb_fire    = (shf_state == SHF_WB) &&
-                         !((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
+                         !((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp) ||
                            mul_wb_fire || dot_wb_fire);
 
     assign squash_wb      = do_compute &&
-                            ((mem_wb_act && !mem_is_fp) || (fpc_wb_fire && !fpc_isfp) ||
+                            ((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp) ||
                              mul_wb_fire || dot_wb_fire || shf_wb_fire);
 
     always_comb begin
@@ -1255,11 +1106,11 @@ module warp_pool
             // FP-file port priority: flw load result > SFU div/sqrt > pipelined
             // FP-compute (fpc, f-dest). The two deferrable engines (SFU, FPC) yield to
             // the memory engine and, for FPC, to the SFU — see *_wb_fire above.
-            if (mem_wb_lane[l] && mem_is_fp) begin                     // FP load writeback
+            if (mem_wb_lane[l] && me_wb_fp) begin                     // FP load writeback
                 fv_we[l] = 1'b1;
-                fv_ww[l] = mem_w;
-                fv_wr[l] = mem_rd;
-                fv_wa[l] = vaddr(mem_w, mem_rd);
+                fv_ww[l] = me_wb_w;
+                fv_wr[l] = me_wb_rd;
+                fv_wa[l] = vaddr(me_wb_w, me_wb_rd);
                 fv_wd[l] = mem_wb_data[l];
             end else if (sfu_wb_fire && sfu_mask[l]) begin             // SFU div/sqrt result
                 fv_we[l] = 1'b1;
@@ -1277,11 +1128,11 @@ module warp_pool
             // Integer VRF port priority: integer load result > pipelined FP-compute
             // (fpc, int-dest: cmp/cvt.w/fmv.x.w/fclass) > single-cycle integer compute
             // (ALU/jal/jalr/csr). A colliding integer compute is squashed (squash_wb).
-            if (mem_wb_lane[l] && !mem_is_fp) begin                    // integer mem writeback
+            if (mem_wb_lane[l] && !me_wb_fp) begin                    // integer mem writeback
                 v_we[l] = 1'b1;
-                v_ww[l] = mem_w;
-                v_wr[l] = mem_rd;
-                v_wa[l] = vaddr(mem_w, mem_rd);
+                v_ww[l] = me_wb_w;
+                v_wr[l] = me_wb_rd;
+                v_wa[l] = vaddr(me_wb_w, me_wb_rd);
                 v_wd[l] = mem_wb_data[l];
             end else if (fpc_wb_fire && !fpc_isfp && fpc_we[l]) begin  // pipelined FP-compute (int)
                 v_we[l] = 1'b1;
@@ -1349,36 +1200,6 @@ module warp_pool
         end
     endgenerate
 
-    // ── Scratchpad memory (distributed RAM, single port) ────────────────────────────
-    // The memory engine drains scratch ops one lane per cycle. `lead` is the lowest
-    // still-pending lane; that lane's word is the one read (load) or written (store)
-    // this cycle. Stores commit lead's data; loads feed sc_rd to the VRF arbiter.
-    // v2: in the block-shared view the low blk_lg bits of the warp field come from
-    // the address instead of the warp index, so the block's warps index one region
-    // of 2^blk_lg * SCRATCH_WORDS words. An AMO reads and rewrites the lead lane's
-    // word in the same cycle (asynchronous read, synchronous write).
-    logic [SCRATCH_AW-1:0] sc_sidx;
-    logic [WIDXW-1:0]      sc_wfield;
-    assign sc_sidx = mem_addr_lane[lead][SCRATCH_AW+1:2];
-    always_comb begin
-        sc_wfield = mem_w;
-        if (mem_is_shared)
-            for (int i = 0; i < LOGNW; i++)
-                if (i < int'(blk_lg)) sc_wfield[i] = mem_addr_lane[lead][SCRATCH_AW+2+i];
-    end
-    assign sc_ra   = {sc_wfield, sc_sidx};
-    assign sc_wa   = {sc_wfield, sc_sidx};
-    assign sc_wd   = mem_is_amo ? amo_alu(mem_amo_op, sc_rd, mem_sdata_lane[lead])
-                                : mem_sdata_lane[lead];
-    assign sc_we   = mem_busy && mem_is_scratch && (mem_is_store || mem_is_amo) &&
-                     mem_pending[lead];
-
-    (* ram_style = "distributed" *)
-    logic [31:0] scratch [0:SCDEPTH-1];
-    always_ff @(posedge clk)
-        if (sc_we) scratch[sc_wa] <= sc_wd;
-    assign sc_rd = scratch[sc_ra];
-
     // ── Sequential update ───────────────────────────────────────────────────────────
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -1388,14 +1209,6 @@ module warp_pool
             next_wid       <= 32'd0;
             total_warps    <= 32'd0;
             rr_ptr         <= '0;
-            mem_busy       <= 1'b0;
-            mem_is_scratch <= 1'b0;
-            mem_pending    <= '0;
-            mq_wp          <= '0;
-            mq_rp          <= '0;
-            mq_cnt         <= '0;
-            amo_ph         <= AP_RD;
-            amo_new        <= 32'd0;
             sfu_state      <= SFU_IDLE;
             sfu_core_start <= 1'b0;
             fpc_state      <= FPC_IDLE;
@@ -1435,7 +1248,6 @@ module warp_pool
                 total_warps <= (n_threads + WSZ - 1) / WSZ;
                 next_wid       <= 32'd0;
                 rr_ptr         <= '0;
-                mem_busy       <= 1'b0;
                 sfu_state      <= SFU_IDLE;
                 sfu_core_start <= 1'b0;
                 fpc_state      <= FPC_IDLE;
@@ -1511,7 +1323,7 @@ module warp_pool
                     // n_active lanes under gating vs all NL lanes ungated. A pop is
                     // bookkeeping (no datapath); a memory op or an fdiv/fsqrt that
                     // finds its engine busy re-attempts later (don't count the stall).
-                    if (!do_pop && !(is_mem && mem_busy) && !squash_wb &&
+                    if (!do_pop && !(is_mem && !me_in_ready) && !squash_wb &&
                         !(is_sfu_op && sfu_state != SFU_IDLE) &&
                         !(do_fp && fpc_state != FPC_IDLE) &&
                         !(do_mul && mul_state != MUL_IDLE) &&
@@ -1645,30 +1457,9 @@ module warp_pool
                         end
                         // else: SFU busy → warp waits.
                     end else if (is_mem) begin
-                        if (!mem_busy) begin
-                            // Hand the coalesced access to the background engine.
-                            // Only the currently-active lanes (cur_mask) participate.
-                            mem_busy     <= 1'b1;
-                            mem_w        <= issue_w;
-                            mem_pending  <= cur_mask;
-                            mem_is_store <= is_store;
-                            mem_is_scratch <= issue_is_scratch;
-                            mem_is_fp    <= is_fp_mem;       // M14.0: flw/fsw
-                            mem_is_amo   <= is_amo;          // v2: atomic RMW
-                            mem_amo_op   <= amo_op;
-                            amo_ph       <= AP_RD;
-                            mem_is_shared <= issue_is_shared;
-                            mem_funct3   <= funct3;
-                            mem_rd       <= rd;
-                            mem_next_pc  <= fallthru;        // mem is not control flow
-                            for (int l = 0; l < NL; l++) begin
-                                mem_addr_lane[l]  <= addr[l];
-                                // fsw stores an f-register; integer stores an x-register.
-                                mem_sdata_lane[l] <= is_store_fp ? frv2[l] : rv2[l];
-                            end
-                            wstate[issue_w] <= W_MEM;
-                        end
-                        // else: data port busy → warp waits (stays W_RUN).
+                        // Hand the op to a free memory context (mem_engine captures
+                        // its operands); if none is free the warp retries.
+                        if (me_in_ready) wstate[issue_w] <= W_MEM;
                     end else if (!squash_wb) begin
                         // Compute commit. The register writeback is performed by the
                         // central VRF write arbiter below (a memory writeback this
@@ -1710,63 +1501,13 @@ module warp_pool
                     end
                 end
 
-                // 3) Memory engine step.
-                if (mem_busy) begin
-                    if (mem_is_scratch) begin
-                        // On-chip scratchpad (M9): single-port distributed RAM, so the
-                        // engine serves ONE lane — the lowest still-pending lane `lead`
-                        // — per cycle. The store data write commits in the scratch RAM
-                        // block (sc_we); scratch LOADS write the VRF via the central
-                        // arbiter (lead lane only). Here we just retire lead and finish
-                        // when the warp's last scratch lane drains.
-                        dbg_scratch_txns <= dbg_scratch_txns + 32'd1;
-                        if ((mem_pending & ~lead_oh) == '0) begin
-                            mem_busy                  <= 1'b0;
-                            stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;
-                            wstate[mem_w]             <= W_RUN;
-                        end else begin
-                            mem_pending <= mem_pending & ~lead_oh;
-                        end
-                    end else begin
-                        // Global memory: at most one coalesced line request per cycle;
-                        // load data is written to the VRF by the central arbiter when
-                        // its response arrives. The warp resumes once every lane has
-                        // been sent and every response (writes included) is back.
-                        logic [NL-1:0] sent;
-                        logic [MQW:0]  cnt_n;
-                        sent = '0;
-                        if (mreq_fire && !(mem_is_amo && (amo_ph != AP_WR)))
-                            sent = mreq_mask;
-                        cnt_n = mq_cnt + (MQW+1)'(mq_push) - (MQW+1)'(mq_pop);
-                        if (mreq_fire) dbg_mem_txns <= dbg_mem_txns + 32'd1;
-                        if (mq_push) begin
-                            mq_mask[mq_wp] <= mreq_mask;
-                            mq_kind[mq_wp] <= mreq_kind;
-                            mq_wp          <= mq_wp + 1'b1;
-                        end
-                        if (mq_pop) mq_rp <= mq_rp + 1'b1;
-                        mq_cnt <= cnt_n;
-                        if (mem_is_amo) begin
-                            // read sent -> wait; read back -> compute; write sent -> next
-                            if (dmem_rvalid && (mrsp_kind == MK_AMORD)) begin
-                                amo_new <= amo_alu(mem_amo_op, ld_data[lead],
-                                                   mem_sdata_lane[lead]);
-                                amo_ph  <= AP_WR;
-                            end else if (mreq_fire && (amo_ph == AP_RD)) begin
-                                amo_ph  <= AP_WAIT;
-                            end else if (mreq_fire && (amo_ph == AP_WR)) begin
-                                amo_ph  <= AP_RD;
-                            end
-                        end
-                        if (((mem_pending & ~sent) == '0) && (cnt_n == '0)) begin
-                            mem_busy                  <= 1'b0;
-                            stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;  // resume after mem
-                            wstate[mem_w]             <= W_RUN;
-                        end else begin
-                            mem_pending <= mem_pending & ~sent;
-                        end
-                    end
+                // 3) Memory engine: resume the warp whose memory op finished.
+                if (me_rs_valid) begin
+                    stk_npc[me_rs_w][sp[me_rs_w]] <= me_rs_pc;
+                    wstate[me_rs_w]               <= W_RUN;
                 end
+                if (me_gtxn) dbg_mem_txns     <= dbg_mem_txns + 32'd1;
+                if (me_stxn) dbg_scratch_txns <= dbg_scratch_txns + 32'd1;
 
                 // 3c) SFU (divide/sqrt) engine step. RUN: the single shared core works
                 //     one active lane at a time; on each core `done` latch that lane's

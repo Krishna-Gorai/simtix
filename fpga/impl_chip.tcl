@@ -26,7 +26,7 @@ file mkdir $out_dir
 read_verilog -sv [list \
     $acc_dir/simtix_pkg.sv \
     $acc_dir/mmio_regs.sv  \
-    $acc_dir/warp_pool.sv  \
+    $acc_dir/mem_engine.sv $acc_dir/warp_pool.sv  \
     $acc_dir/simt_accel.sv \
     $soc_dir/shared_mem.sv \
     $soc_dir/cpu_driver_rom.sv \

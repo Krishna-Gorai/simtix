@@ -37,11 +37,13 @@ module soc_top
     // rvalid = req).
     output logic                 accel_dmem_req,
     input  logic                 accel_dmem_gnt,
+    output logic [MEM_TAGW-1:0]  accel_dmem_tag,
     output logic [31:0]          accel_dmem_addr,
     output logic [LINE_BITS-1:0] accel_dmem_wdata,
     output logic                 accel_dmem_we,
     output logic [LINE_BE-1:0]   accel_dmem_be,
     input  logic                 accel_dmem_rvalid,
+    input  logic [MEM_TAGW-1:0]  accel_dmem_rtag,
     input  logic [LINE_BITS-1:0] accel_dmem_rdata
 );
 
@@ -100,11 +102,13 @@ module soc_top
         .imem_data  (accel_imem_data),
         .dmem_req   (accel_dmem_req),
         .dmem_gnt   (accel_dmem_gnt),
+        .dmem_tag   (accel_dmem_tag),
         .dmem_addr  (accel_dmem_addr),
         .dmem_wdata (accel_dmem_wdata),
         .dmem_we    (accel_dmem_we),
         .dmem_be    (accel_dmem_be),
         .dmem_rvalid(accel_dmem_rvalid),
+        .dmem_rtag  (accel_dmem_rtag),
         .dmem_rdata (accel_dmem_rdata)
     );
 

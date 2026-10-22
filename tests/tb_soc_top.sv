@@ -27,6 +27,7 @@ module tb_soc_top
     logic [31:0]          accel_dmem_addr;
     logic [LINE_BITS-1:0] accel_dmem_wdata, accel_dmem_rdata;
     logic                 accel_dmem_we;
+    logic [MEM_TAGW-1:0]  accel_dmem_tag;
     logic                 accel_dmem_req;    // zero-latency memory: rvalid = req
     logic [LINE_BE-1:0]   accel_dmem_be;
 
@@ -38,7 +39,7 @@ module tb_soc_top
         .accel_imem_addr(accel_imem_addr), .accel_imem_data(accel_imem_data),
         .accel_dmem_addr(accel_dmem_addr), .accel_dmem_wdata(accel_dmem_wdata),
         .accel_dmem_we(accel_dmem_we), .accel_dmem_be(accel_dmem_be),
-        .accel_dmem_req(accel_dmem_req), .accel_dmem_gnt(1'b1),
+        .accel_dmem_req(accel_dmem_req), .accel_dmem_gnt(1'b1), .accel_dmem_tag(accel_dmem_tag), .accel_dmem_rtag(accel_dmem_tag),
         .accel_dmem_rvalid(accel_dmem_req), .accel_dmem_rdata(accel_dmem_rdata)
     );
 

@@ -27,6 +27,7 @@ module tb_pdot8
     logic [31:0]          dmem_addr;
     logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
     logic                 dmem_we;
+    logic [MEM_TAGW-1:0]  dmem_tag;
     logic                 dmem_req;          // zero-latency memory: rvalid = req
     logic [LINE_BE-1:0]   dmem_be;
     logic                 busy, done;
@@ -42,7 +43,7 @@ module tb_pdot8
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(3'd0),
         .imem_addr(imem_addr), .imem_data(imem_data),
         .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata),
-        .dmem_req(dmem_req), .dmem_gnt(1'b1), .dmem_we(dmem_we), .dmem_be(dmem_be),
+        .dmem_req(dmem_req), .dmem_gnt(1'b1), .dmem_tag(dmem_tag), .dmem_rtag(dmem_tag), .dmem_we(dmem_we), .dmem_be(dmem_be),
         .dmem_rvalid(dmem_req), .dmem_rdata(dmem_rdata),
         .busy(busy), .done(done),
         .dbg_retire_a0(dbg_retire_a0), .dbg_mem_txns(dbg_mem_txns),

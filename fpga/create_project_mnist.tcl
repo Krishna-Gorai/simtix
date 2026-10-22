@@ -49,7 +49,7 @@ add_files -fileset sources_1 [list \
     $acc_dir/mmio_regs.sv      \
     $acc_dir/simt_fpu.sv       \
     $acc_dir/fp_divsqrt.sv     \
-    $acc_dir/warp_pool.sv      \
+    $acc_dir/mem_engine.sv $acc_dir/warp_pool.sv      \
     $acc_dir/simt_accel.sv     \
     $soc_dir/shared_mem.sv     \
     $soc_dir/weight_rom.sv     \
@@ -68,7 +68,7 @@ add_files -fileset sources_1 [list \
 # Type the SystemVerilog files as SV (package + accel + soc).
 set_property file_type SystemVerilog [get_files [list \
     $acc_dir/simtix_pkg.sv $acc_dir/mmio_regs.sv $acc_dir/simt_fpu.sv \
-    $acc_dir/fp_divsqrt.sv $acc_dir/warp_pool.sv $acc_dir/simt_accel.sv \
+    $acc_dir/fp_divsqrt.sv $acc_dir/mem_engine.sv $acc_dir/warp_pool.sv $acc_dir/simt_accel.sv \
     $soc_dir/shared_mem.sv $soc_dir/weight_rom.sv $soc_dir/driver_rom.sv \
     $soc_dir/cpu_driver_rom.sv $soc_dir/chip_top.sv $soc_dir/chip_top_mnist.sv ]]
 

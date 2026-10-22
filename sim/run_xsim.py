@@ -18,8 +18,8 @@ BUILD = os.path.join(ROOT, 'build_xsim')
 
 A = 'rtl/accel/'
 PKG = [A + 'simtix_pkg.sv']
-POOL = PKG + [A + 'simt_fpu.sv', A + 'fp_divsqrt.sv', A + 'warp_pool.sv']
-ACCEL = PKG + [A + 'mmio_regs.sv', A + 'simt_fpu.sv', A + 'fp_divsqrt.sv', A + 'warp_pool.sv', A + 'simt_accel.sv']
+POOL = PKG + [A + 'simt_fpu.sv', A + 'fp_divsqrt.sv', A + 'mem_engine.sv', A + 'warp_pool.sv']
+ACCEL = PKG + [A + 'mmio_regs.sv', A + 'simt_fpu.sv', A + 'fp_divsqrt.sv', A + 'mem_engine.sv', A + 'warp_pool.sv', A + 'simt_accel.sv']
 CPU_ALL = sorted(glob.glob(os.path.join(ROOT, 'rtl/cpu/*.v')))
 CPU_SOC = [os.path.relpath(p, ROOT) for p in CPU_ALL if not p.endswith('top.v')]
 CPU_CHIP = [p for p in CPU_SOC if not p.endswith(('riscv_soc.v', 'instr_mem.v', 'data_mem.v'))]
@@ -50,6 +50,8 @@ TESTS = {
     'chip':      ('tb_chip_top', CHIP + ['tests/tb_chip_top.sv'], CPU_CHIP, False),
     'sync':      ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False),
     'sync_lat':  ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False, ['MEM_LAT=7', 'MEM_STALL=1']),
+    'sync_ooo':  ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False,
+                  ['MEM_LAT=4', 'MEM_STALL=1', 'MEM_OOO=1']),
 }
 # Include directories for `include in testbenches (kernel .svh images).
 INCDIRS = ['kernels/sync']

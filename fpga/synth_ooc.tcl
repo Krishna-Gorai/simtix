@@ -36,7 +36,7 @@ read_verilog -sv [list \
     $rtl_dir/mmio_regs.sv  \
     $rtl_dir/simt_fpu.sv   \
     $rtl_dir/fp_divsqrt.sv \
-    $rtl_dir/warp_pool.sv  \
+    $rtl_dir/mem_engine.sv $rtl_dir/warp_pool.sv  \
     $rtl_dir/simt_accel.sv ]
 
 # NB: wrap paths in [list ...] so read_xdc does not re-split on the space in the

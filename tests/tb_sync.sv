@@ -17,10 +17,12 @@ module tb_sync
 #(
     // Data-memory timing. MEM_LAT = 0 answers in the request cycle. MEM_LAT > 0
     // reads/writes the array when a request is accepted and returns its response
-    // MEM_LAT cycles later, in order. MEM_STALL = 1 withholds the grant on about one
-    // cycle in four (pseudo-random), to exercise back-pressure.
+    // MEM_LAT cycles later. MEM_STALL = 1 withholds the grant on about one cycle in
+    // four (pseudo-random), to exercise back-pressure. MEM_OOO = 1 adds 0..7 random
+    // cycles to each request's latency, so responses return out of order.
     parameter int MEM_LAT   = 0,
-    parameter int MEM_STALL = 0
+    parameter int MEM_STALL = 0,
+    parameter int MEM_OOO   = 0
 )  ;
     logic                 clk = 0;
     logic                 rst;
@@ -33,6 +35,7 @@ module tb_sync
     logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
     logic                 dmem_we;
     logic                 dmem_req, dmem_gnt, dmem_rvalid;
+    logic [MEM_TAGW-1:0]  dmem_tag, dmem_rtag;
     logic [LINE_BE-1:0]   dmem_be;
     logic                 busy, done;
     logic [31:0]          dbg_retire_a0, dbg_mem_txns, dbg_divergences, dbg_scratch_txns;
@@ -48,7 +51,7 @@ module tb_sync
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(block_log2),
         .imem_addr(imem_addr), .imem_data(imem_data),
         .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata),
-        .dmem_req(dmem_req), .dmem_gnt(dmem_gnt), .dmem_we(dmem_we), .dmem_be(dmem_be),
+        .dmem_req(dmem_req), .dmem_gnt(dmem_gnt), .dmem_tag(dmem_tag), .dmem_rtag(dmem_rtag), .dmem_we(dmem_we), .dmem_be(dmem_be),
         .dmem_rvalid(dmem_rvalid), .dmem_rdata(dmem_rdata),
         .busy(busy), .done(done),
         .dbg_retire_a0(dbg_retire_a0), .dbg_mem_txns(dbg_mem_txns),
@@ -80,17 +83,41 @@ module tb_sync
     generate
         if (MEM_LAT == 0) begin : g_lat0
             assign dmem_rvalid = dmem_req;
+            assign dmem_rtag   = dmem_tag;
             assign dmem_rdata  = line_now;
         end else begin : g_lat
-            // Response pipeline: valid bits and line data, oldest at the top.
-            logic [MEM_LAT-1:0]           rv;
-            logic [MEM_LAT*LINE_BITS-1:0] rd;
-            always @(posedge clk) begin
-                rv <= rst ? '0 : ((rv << 1) | MEM_LAT'(dmem_req && dmem_gnt));
-                rd <= (rd << LINE_BITS) | (MEM_LAT*LINE_BITS)'(line_now);
+            // One slot per tag (a tag is unique while outstanding): the line read at
+            // acceptance and the cycle its response is due. Each cycle the lowest
+            // due slot answers.
+            int unsigned          now;
+            logic                 sv  [MEM_TAGS];
+            int unsigned          due [MEM_TAGS];
+            logic [LINE_BITS-1:0] sd  [MEM_TAGS];
+            logic                 rv;
+            logic [MEM_TAGW-1:0]  rt;
+            always_comb begin
+                rv = 1'b0;
+                rt = '0;
+                for (int t = MEM_TAGS-1; t >= 0; t--)
+                    if (sv[t] && (due[t] <= now)) begin rv = 1'b1; rt = MEM_TAGW'(t); end
             end
-            assign dmem_rvalid = rv[MEM_LAT-1];
-            assign dmem_rdata  = rd[MEM_LAT*LINE_BITS-1 -: LINE_BITS];
+            always @(posedge clk) begin
+                if (rst) begin
+                    now <= 0;
+                    for (int t = 0; t < MEM_TAGS; t++) sv[t] <= 1'b0;
+                end else begin
+                    now <= now + 1;
+                    if (rv) sv[rt] <= 1'b0;
+                    if (dmem_req && dmem_gnt) begin
+                        sv[dmem_tag]  <= 1'b1;
+                        due[dmem_tag] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[4:2]) : 0);
+                        sd[dmem_tag]  <= line_now;
+                    end
+                end
+            end
+            assign dmem_rvalid = rv;
+            assign dmem_rtag   = rt;
+            assign dmem_rdata  = sd[rt];
         end
     endgenerate
 

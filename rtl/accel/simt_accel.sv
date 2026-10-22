@@ -37,11 +37,13 @@ module simt_accel
     // a warp's lane accesses into whole-line transfers.
     output logic                 dmem_req,
     input  logic                 dmem_gnt,
+    output logic [MEM_TAGW-1:0]  dmem_tag,
     output logic [31:0]          dmem_addr,
     output logic [LINE_BITS-1:0] dmem_wdata,
     output logic                 dmem_we,
     output logic [LINE_BE-1:0]   dmem_be,
     input  logic                 dmem_rvalid,
+    input  logic [MEM_TAGW-1:0]  dmem_rtag,
     input  logic [LINE_BITS-1:0] dmem_rdata
 );
 
@@ -96,11 +98,13 @@ module simt_accel
         .imem_data  (imem_data),
         .dmem_req   (dmem_req),
         .dmem_gnt   (dmem_gnt),
+        .dmem_tag   (dmem_tag),
         .dmem_addr  (dmem_addr),
         .dmem_wdata (dmem_wdata),
         .dmem_we    (dmem_we),
         .dmem_be    (dmem_be),
         .dmem_rvalid(dmem_rvalid),
+        .dmem_rtag  (dmem_rtag),
         .dmem_rdata (dmem_rdata),
         .busy       (pool_busy),
         .done       (pool_done),

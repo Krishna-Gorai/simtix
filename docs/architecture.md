@@ -194,34 +194,55 @@ old flip-flop behaviour exactly while keeping a single write port:
 See [docs/m8_lutram.md](m8_lutram.md) for the before/after and the "3-D RAM"
 inference pitfall this avoids.
 
-### 4.7 Background memory engine + coalescing (M4)
+### 4.7 Memory engine + coalescing (`mem_engine.sv`, v2)
 
-At most one memory instruction is in flight (single data port). When an issuing
-warp executes a `lw`/`sw` and the engine is free, the access **context is latched**
-— per-lane effective address (`mem_addr_lane`), store data (`mem_sdata_lane`),
-`mem_funct3`, `mem_rd`, the active mask (`mem_pending <= cur_mask`), and the resume
-PC (`mem_next_pc`) — and the warp moves to `W_MEM`. Latching is essential: the live
-decode keeps tracking the *currently-issued* warp, not the one being replayed.
+A warp that issues a load, store or AMO hands it to a free **memory context** and
+moves to `W_MEM`; the scheduler keeps issuing other warps. There are `MEM_CTX`
+contexts (default `NUM_WARPS`, so a warp never waits for one). A context **latches**
+the op at issue: per-lane effective address and store data, `funct3`, `rd`, the
+active mask (its pending lanes) and the resume PC. Latching is essential: the live
+decode keeps tracking the currently issued warp, not the one being served.
+`MEM_CTX = 1` reproduces the single engine of v1 cycle for cycle.
 
-The data port is a whole **256-bit line** (`LINE_WORDS = 8`, `LINE_OFF = 5`). Each
-cycle the engine:
+The global data port is a whole **256-bit line** (`LINE_WORDS = 8`, `LINE_OFF = 5`)
+and is **split transaction and tagged**:
 
-1. picks the line of the lowest still-pending lane (`lead`, `lead_tag`);
-2. gathers **every** pending lane sharing that line into `grp` (one transaction);
-3. for a load, extracts each lane's word/half/byte from the line read into
-   `ld_data[l]`; for a store, merges each lane's bytes into `dmem_wdata`/`dmem_be`;
-4. drains `mem_pending &= ~grp`; when empty, writes the resume PC back and returns
-   the warp to `W_RUN`.
+| Signal | Direction | Meaning |
+|---|---|---|
+| `dmem_req`, `dmem_gnt` | out, in | request accepted when both are high |
+| `dmem_tag` | out | request tag, unique while outstanding (`MEM_TAGS = 8`) |
+| `dmem_addr`, `dmem_we`, `dmem_wdata`, `dmem_be` | out | line address, write flag, merged line, byte enables |
+| `dmem_rvalid`, `dmem_rtag`, `dmem_rdata` | in | one response per request (writes too), any order |
+
+A memory that answers in the request cycle ties `dmem_gnt = 1`,
+`dmem_rvalid = dmem_req`, `dmem_rtag = dmem_tag` (the testbenches and `shared_mem`
+do). Each cycle one context sends a request (rotating priority):
+
+1. it picks the line of its lowest still-pending lane (`lead`);
+2. it gathers **every** pending lane sharing that line into one request;
+3. for a store it merges each lane's bytes into `dmem_wdata`/`dmem_be`;
+4. the lanes leave the pending mask; a tag table remembers the request's context,
+   lane group and kind.
+
+When a load response arrives, each lane of its group extracts its word, half or
+byte and the engine writes the register file (one writeback per cycle, with top
+priority in the write arbiter). A context finishes when every lane has been sent
+and every response, writes included, is back; the engine then resumes its warp
+(one warp per cycle).
+
+A global **AMO** is a read of the lead lane's word and, once it returns, a write of
+the new value. Between the two, that context owns the port, which keeps the
+read-modify-write atomic.
 
 Cost = number of distinct lines touched: a contiguous warp access (`A[tid]`) → **1**
-transaction; a fully scattered one → up to 8. `dbg_mem_txns` counts global line
-transactions.
+request; a fully scattered one → up to 8. `dbg_mem_txns` counts accepted global
+requests.
 
 ### 4.7.1 Shared-memory scratchpad (M6, LUTRAM in M9)
 
 A memory op whose leader-lane address is in the `SCRATCH_BASE` aperture
-(`addr[31:30] == 2'b01`) is flagged `mem_is_scratch` at issue and bypasses the
-global port entirely (the `dmem` driver is gated by `!mem_is_scratch`). Per-lane
+(`addr[31:30] == 2'b01`) is flagged as a scratch op at issue and never reaches the
+global port. At most one context serves the scratchpad at a time. Per-lane
 index `sidx = addr[SCRATCH_AW+1:2]`; `dbg_scratch_txns` counts scratchpad
 transactions. Staging reused data here (e.g. a broadcast matrix row) cuts global
 traffic.
@@ -231,7 +252,7 @@ flat `(* ram_style="distributed" *)` LUTRAM (`scratch[NW*SCRATCH_WORDS]`, addres
 `{warp, sidx}`) with one write and one read port. Because that is single-ported, the
 engine **serializes one lane per cycle** — each cycle it picks `lead` (the lowest
 still-pending lane), reads (load) or writes (store) that lane's word, and clears it
-from `mem_pending`, finishing when the last lane drains. This mirrors the global
+from the pending mask, finishing when the last lane drains. This mirrors the global
 coalescing drain and is semantically exact: within one SIMT memory instruction all
 lanes do the same op, so there is no intra-instruction lane-to-lane forwarding to
 lose, and store/store collisions still resolve last-writer-wins (highest lane). The
