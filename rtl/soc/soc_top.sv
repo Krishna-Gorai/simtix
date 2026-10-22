@@ -33,10 +33,15 @@ module soc_top
 
     // Accelerator shared-memory master: data — line-wide for coalesced transfers
     // (async read, synchronous per-byte-enabled write).
+    // Split transaction: see simt_accel (a zero-latency memory ties gnt = 1 and
+    // rvalid = req).
+    output logic                 accel_dmem_req,
+    input  logic                 accel_dmem_gnt,
     output logic [31:0]          accel_dmem_addr,
     output logic [LINE_BITS-1:0] accel_dmem_wdata,
     output logic                 accel_dmem_we,
     output logic [LINE_BE-1:0]   accel_dmem_be,
+    input  logic                 accel_dmem_rvalid,
     input  logic [LINE_BITS-1:0] accel_dmem_rdata
 );
 
@@ -93,10 +98,13 @@ module soc_top
         .rdata      (accel_rdata),
         .imem_addr  (accel_imem_addr),
         .imem_data  (accel_imem_data),
+        .dmem_req   (accel_dmem_req),
+        .dmem_gnt   (accel_dmem_gnt),
         .dmem_addr  (accel_dmem_addr),
         .dmem_wdata (accel_dmem_wdata),
         .dmem_we    (accel_dmem_we),
         .dmem_be    (accel_dmem_be),
+        .dmem_rvalid(accel_dmem_rvalid),
         .dmem_rdata (accel_dmem_rdata)
     );
 

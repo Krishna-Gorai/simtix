@@ -27,7 +27,8 @@ SOC = ACCEL + ['rtl/soc/soc_top.sv']
 CHIP = ACCEL + ['rtl/soc/shared_mem.sv', 'rtl/soc/weight_rom.sv', 'rtl/soc/cpu_driver_rom.sv',
                 'rtl/soc/driver_rom.sv', 'rtl/soc/chip_top.sv']
 
-# name: (top module, SystemVerilog sources, Verilog-2001 sources, uses DPI reference)
+# name: (top module, SystemVerilog sources, Verilog-2001 sources, uses DPI reference
+#        [, top-level parameter overrides])
 TESTS = {
     'accel':     ('tb_simt_accel', ACCEL + ['tests/tb_simt_accel.sv'], [], False),
     'lane':      ('tb_lane', PKG + [A + 'lane.sv', 'tests/tb_lane.sv'], [], False),
@@ -48,6 +49,7 @@ TESTS = {
     'soc':       ('tb_soc_top', SOC + ['tests/tb_soc_top.sv'], CPU_SOC, False),
     'chip':      ('tb_chip_top', CHIP + ['tests/tb_chip_top.sv'], CPU_CHIP, False),
     'sync':      ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False),
+    'sync_lat':  ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False, ['MEM_LAT=7', 'MEM_STALL=1']),
 }
 # Include directories for `include in testbenches (kernel .svh images).
 INCDIRS = ['kernels/sync']
@@ -65,7 +67,7 @@ def run(cmd, cwd, log):
 
 
 def run_test(name):
-    top, sv, v, dpi = TESTS[name]
+    top, sv, v, dpi, *gen = TESTS[name]
     wd = os.path.join(BUILD, name)
     shutil.rmtree(wd, ignore_errors=True)
     os.makedirs(wd)
@@ -76,6 +78,11 @@ def run_test(name):
     inc = sum((['-i', p] for p in ab(INCDIRS)), [])
     steps.append(('xvlog_sv', [tool('xvlog'), '-sv'] + inc + ab(sv)))
     elab = [tool('xelab'), '-debug', 'off', top, '-s', 'sim']
+    if gen:
+        # Through an options file: cmd.exe splits a .bat argument at '='.
+        with open(os.path.join(wd, 'generics.opt'), 'w') as fh:
+            fh.writelines(f'-generic_top "{g}"\n' for g in gen[0])
+        elab += ['-f', 'generics.opt']
     if dpi:
         steps.append(('xsc', [tool('xsc'), os.path.join(ROOT, 'tests', 'fpu_ref.c')]))
         elab += ['-sv_lib', 'dpi']

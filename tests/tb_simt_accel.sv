@@ -35,6 +35,7 @@ module tb_simt_accel
     logic [31:0]          dmem_addr;
     logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
     logic                 dmem_we;
+    logic                 dmem_req;          // zero-latency memory: rvalid = req
     logic [LINE_BE-1:0]   dmem_be;
 
     int unsigned errors = 0;
@@ -44,7 +45,8 @@ module tb_simt_accel
         .sel(sel), .we(we), .offset(offset), .wdata(wdata), .rdata(rdata),
         .imem_addr(imem_addr), .imem_data(imem_data),
         .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata),
-        .dmem_we(dmem_we), .dmem_be(dmem_be), .dmem_rdata(dmem_rdata)
+        .dmem_req(dmem_req), .dmem_gnt(1'b1), .dmem_we(dmem_we), .dmem_be(dmem_be),
+        .dmem_rvalid(dmem_req), .dmem_rdata(dmem_rdata)
     );
 
     /* verilator lint_off BLKSEQ */

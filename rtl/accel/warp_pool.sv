@@ -77,11 +77,17 @@ module warp_pool
     output logic [31:0] imem_addr,
     input  logic [31:0] imem_data,
 
-    // Single line-wide data port (coalesced accesses are issued onto it).
+    // Line-wide global data port, split transaction (v2 WP2). A request is
+    // accepted when dmem_req && dmem_gnt; every request (read or write) gets one
+    // response, in order, on dmem_rvalid. A zero-latency memory ties dmem_gnt = 1
+    // and dmem_rvalid = dmem_req and returns dmem_rdata for this cycle's address.
+    output logic                 dmem_req,
+    input  logic                 dmem_gnt,
     output logic [31:0]          dmem_addr,    // line-aligned byte address
     output logic [LINE_BITS-1:0] dmem_wdata,   // one cache line of write data
     output logic                 dmem_we,
     output logic [LINE_BE-1:0]   dmem_be,       // per-byte write enable across line
+    input  logic                 dmem_rvalid,
     input  logic [LINE_BITS-1:0] dmem_rdata,    // one cache line of read data
 
     output logic        busy,
@@ -199,6 +205,23 @@ module warp_pool
     logic [31:0]      mem_next_pc;
     logic [31:0]      mem_addr_lane  [0:NL-1];   // latched per-lane eff. address
     logic [31:0]      mem_sdata_lane [0:NL-1];   // latched per-lane store data
+
+    // Outstanding global requests (v2 WP2). mq_* holds the lane group and kind of
+    // each accepted request whose response has not arrived; responses are in order.
+    // A response in the same cycle as its request bypasses the queue, so a
+    // zero-latency memory sees exactly the old one-line-per-cycle timing.
+    typedef enum logic [1:0] { MK_LOAD, MK_WRITE, MK_AMORD } mkind_e;
+    localparam int MQD = 8;
+    localparam int MQW = $clog2(MQD);
+    logic [NL-1:0]  mq_mask [0:MQD-1];
+    mkind_e         mq_kind [0:MQD-1];
+    logic [MQW-1:0] mq_wp, mq_rp;
+    logic [MQW:0]   mq_cnt;
+    // A global AMO is a read of the lead lane's word, then a write of the new value
+    // once the read returns; the lead lane retires when its write is accepted.
+    typedef enum logic [1:0] { AP_RD, AP_WAIT, AP_WR } amo_ph_e;
+    amo_ph_e        amo_ph;
+    logic [31:0]    amo_new;
 
     // ── F-stage: round-robin FETCH selection (combinational) ────────────────────────
     // Task #23: the issue engine is a 2-stage F(etch)/X(ecute) pipeline. Placed
@@ -1007,25 +1030,57 @@ module warp_pool
         end
     end
 
-    // Drive the line port: line-aligned address, plus a merged store line. The
-    // address is driven on its own so the AMO write data (which depends on the read
-    // data of that address) does not form a combinational loop through the memory.
-    assign dmem_addr = (mem_busy && !mem_is_scratch)
+    // Request side. Loads and stores send the lead lane's line with every pending
+    // lane that shares it (grp); an AMO sends the lead lane's read, then its write.
+    logic [NL-1:0] lead_oh;
+    logic          mreq_valid, mreq_fire;
+    logic [NL-1:0] mreq_mask;          // lanes the request covers
+    mkind_e        mreq_kind;
+    always_comb begin
+        lead_oh       = '0;
+        lead_oh[lead] = 1'b1;
+        mreq_valid = 1'b0;
+        mreq_mask  = grp;
+        mreq_kind  = mem_is_store ? MK_WRITE : MK_LOAD;
+        if (mem_busy && !mem_is_scratch && (mq_cnt != (MQW+1)'(MQD))) begin
+            if (mem_is_amo) begin
+                mreq_mask  = lead_oh;
+                mreq_kind  = (amo_ph == AP_WR) ? MK_WRITE : MK_AMORD;
+                mreq_valid = (amo_ph != AP_WAIT) && (mem_pending != '0);
+            end else begin
+                mreq_valid = (mem_pending != '0);
+            end
+        end
+    end
+    assign dmem_req  = mreq_valid;
+    assign mreq_fire = mreq_valid && dmem_gnt;
+    assign dmem_addr = mreq_valid
                      ? {mem_addr_lane[lead][31:LINE_OFF], {LINE_OFF{1'b0}}} : 32'd0;
+
+    // Response side: the oldest outstanding request, or this cycle's request when
+    // the queue is empty (same-cycle response).
+    logic          mq_byp, mq_push, mq_pop;
+    logic [NL-1:0] mrsp_mask;
+    mkind_e        mrsp_kind;
+    assign mq_byp    = dmem_rvalid && (mq_cnt == '0);
+    assign mq_push   = mreq_fire && !mq_byp;
+    assign mq_pop    = dmem_rvalid && !mq_byp;
+    assign mrsp_mask = mq_byp ? mreq_mask : mq_mask[mq_rp];
+    assign mrsp_kind = mq_byp ? mreq_kind : mq_kind[mq_rp];
 
     always_comb begin
         dmem_wdata = '0;
         dmem_we    = 1'b0;
         dmem_be    = '0;
-        if (mem_busy && !mem_is_scratch) begin
+        if (mreq_valid) begin
             if (mem_is_amo) begin
-                // v2 AMO: the lead lane's word is read and rewritten in one cycle.
-                logic [LINE_WOFFW-1:0] awoff;
-                awoff = mem_addr_lane[lead][LINE_OFF-1:2];
-                dmem_we                    = 1'b1;
-                dmem_wdata[awoff*32 +: 32] = amo_alu(mem_amo_op, ld_data[lead],
-                                                     mem_sdata_lane[lead]);
-                dmem_be[awoff*4 +: 4]      = 4'b1111;
+                if (amo_ph == AP_WR) begin
+                    logic [LINE_WOFFW-1:0] awoff;
+                    awoff = mem_addr_lane[lead][LINE_OFF-1:2];
+                    dmem_we                    = 1'b1;
+                    dmem_wdata[awoff*32 +: 32] = amo_new;
+                    dmem_be[awoff*4 +: 4]      = 4'b1111;
+                end
             end else if (mem_is_store) begin
                 dmem_we = 1'b1;
                 for (int l = 0; l < NL; l++) begin
@@ -1113,10 +1168,10 @@ module warp_pool
                 if (mem_is_scratch && mem_pending[lead] && (l[LIDXW-1:0] == lead)) begin
                     mem_wb_lane[l] = 1'b1;
                     mem_wb_data[l] = sc_rd;
-                end else if (!mem_is_scratch &&
-                             (mem_is_amo ? (mem_pending[lead] && (l[LIDXW-1:0] == lead))
-                                         : grp[l])) begin
-                    // An AMO returns the old word of the lead lane only.
+                end else if (!mem_is_scratch && dmem_rvalid && mrsp_mask[l] &&
+                             (mrsp_kind != MK_WRITE)) begin
+                    // Load lanes of the returning line; an AMO read returns the old
+                    // word to its lead lane only.
                     mem_wb_lane[l] = 1'b1;
                     mem_wb_data[l] = ld_data[l];
                 end
@@ -1336,6 +1391,11 @@ module warp_pool
             mem_busy       <= 1'b0;
             mem_is_scratch <= 1'b0;
             mem_pending    <= '0;
+            mq_wp          <= '0;
+            mq_rp          <= '0;
+            mq_cnt         <= '0;
+            amo_ph         <= AP_RD;
+            amo_new        <= 32'd0;
             sfu_state      <= SFU_IDLE;
             sfu_core_start <= 1'b0;
             fpc_state      <= FPC_IDLE;
@@ -1596,6 +1656,7 @@ module warp_pool
                             mem_is_fp    <= is_fp_mem;       // M14.0: flw/fsw
                             mem_is_amo   <= is_amo;          // v2: atomic RMW
                             mem_amo_op   <= amo_op;
+                            amo_ph       <= AP_RD;
                             mem_is_shared <= issue_is_shared;
                             mem_funct3   <= funct3;
                             mem_rd       <= rd;
@@ -1658,9 +1719,6 @@ module warp_pool
                         // block (sc_we); scratch LOADS write the VRF via the central
                         // arbiter (lead lane only). Here we just retire lead and finish
                         // when the warp's last scratch lane drains.
-                        logic [NL-1:0] lead_oh;
-                        lead_oh = '0;
-                        lead_oh[lead] = 1'b1;
                         dbg_scratch_txns <= dbg_scratch_txns + 32'd1;
                         if ((mem_pending & ~lead_oh) == '0) begin
                             mem_busy                  <= 1'b0;
@@ -1670,23 +1728,42 @@ module warp_pool
                             mem_pending <= mem_pending & ~lead_oh;
                         end
                     end else begin
-                        // Global memory: one coalesced line transaction / cycle. The
-                        // load result is written to the VRF by the central arbiter. An
-                        // AMO retires only its lead lane per cycle (serialised RMW).
-                        logic [NL-1:0] done_m;
-                        done_m = grp;
-                        if (mem_is_amo) begin
-                            done_m       = '0;
-                            done_m[lead] = 1'b1;
+                        // Global memory: at most one coalesced line request per cycle;
+                        // load data is written to the VRF by the central arbiter when
+                        // its response arrives. The warp resumes once every lane has
+                        // been sent and every response (writes included) is back.
+                        logic [NL-1:0] sent;
+                        logic [MQW:0]  cnt_n;
+                        sent = '0;
+                        if (mreq_fire && !(mem_is_amo && (amo_ph != AP_WR)))
+                            sent = mreq_mask;
+                        cnt_n = mq_cnt + (MQW+1)'(mq_push) - (MQW+1)'(mq_pop);
+                        if (mreq_fire) dbg_mem_txns <= dbg_mem_txns + 32'd1;
+                        if (mq_push) begin
+                            mq_mask[mq_wp] <= mreq_mask;
+                            mq_kind[mq_wp] <= mreq_kind;
+                            mq_wp          <= mq_wp + 1'b1;
                         end
-                        dbg_mem_txns <= dbg_mem_txns + 32'd1;
-
-                        if ((mem_pending & ~done_m) == '0) begin
+                        if (mq_pop) mq_rp <= mq_rp + 1'b1;
+                        mq_cnt <= cnt_n;
+                        if (mem_is_amo) begin
+                            // read sent -> wait; read back -> compute; write sent -> next
+                            if (dmem_rvalid && (mrsp_kind == MK_AMORD)) begin
+                                amo_new <= amo_alu(mem_amo_op, ld_data[lead],
+                                                   mem_sdata_lane[lead]);
+                                amo_ph  <= AP_WR;
+                            end else if (mreq_fire && (amo_ph == AP_RD)) begin
+                                amo_ph  <= AP_WAIT;
+                            end else if (mreq_fire && (amo_ph == AP_WR)) begin
+                                amo_ph  <= AP_RD;
+                            end
+                        end
+                        if (((mem_pending & ~sent) == '0) && (cnt_n == '0)) begin
                             mem_busy                  <= 1'b0;
                             stk_npc[mem_w][sp[mem_w]] <= mem_next_pc;  // resume after mem
                             wstate[mem_w]             <= W_RUN;
                         end else begin
-                            mem_pending <= mem_pending & ~done_m;
+                            mem_pending <= mem_pending & ~sent;
                         end
                     end
                 end

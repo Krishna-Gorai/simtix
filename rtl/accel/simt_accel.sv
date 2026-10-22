@@ -32,12 +32,16 @@ module simt_accel
     output logic [31:0] imem_addr,
     input  logic [31:0] imem_data,
 
-    // Data master: line-wide (async read, synchronous byte-enabled write) — the
-    // memory engine coalesces a warp's lane accesses into whole-line transfers.
+    // Data master: line-wide, split transaction (request dmem_req/dmem_gnt, one
+    // in-order response per request on dmem_rvalid) — the memory engine coalesces
+    // a warp's lane accesses into whole-line transfers.
+    output logic                 dmem_req,
+    input  logic                 dmem_gnt,
     output logic [31:0]          dmem_addr,
     output logic [LINE_BITS-1:0] dmem_wdata,
     output logic                 dmem_we,
     output logic [LINE_BE-1:0]   dmem_be,
+    input  logic                 dmem_rvalid,
     input  logic [LINE_BITS-1:0] dmem_rdata
 );
 
@@ -90,10 +94,13 @@ module simt_accel
         .block_log2 (block_log2),
         .imem_addr  (imem_addr),
         .imem_data  (imem_data),
+        .dmem_req   (dmem_req),
+        .dmem_gnt   (dmem_gnt),
         .dmem_addr  (dmem_addr),
         .dmem_wdata (dmem_wdata),
         .dmem_we    (dmem_we),
         .dmem_be    (dmem_be),
+        .dmem_rvalid(dmem_rvalid),
         .dmem_rdata (dmem_rdata),
         .busy       (pool_busy),
         .done       (pool_done),

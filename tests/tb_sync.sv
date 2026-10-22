@@ -14,7 +14,14 @@
 `timescale 1ns/1ps
 module tb_sync
     import simtix_pkg::*;
-#()  ;
+#(
+    // Data-memory timing. MEM_LAT = 0 answers in the request cycle. MEM_LAT > 0
+    // reads/writes the array when a request is accepted and returns its response
+    // MEM_LAT cycles later, in order. MEM_STALL = 1 withholds the grant on about one
+    // cycle in four (pseudo-random), to exercise back-pressure.
+    parameter int MEM_LAT   = 0,
+    parameter int MEM_STALL = 0
+)  ;
     logic                 clk = 0;
     logic                 rst;
     logic                 start;
@@ -25,6 +32,7 @@ module tb_sync
     logic [31:0]          dmem_addr;
     logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
     logic                 dmem_we;
+    logic                 dmem_req, dmem_gnt, dmem_rvalid;
     logic [LINE_BE-1:0]   dmem_be;
     logic                 busy, done;
     logic [31:0]          dbg_retire_a0, dbg_mem_txns, dbg_divergences, dbg_scratch_txns;
@@ -40,7 +48,8 @@ module tb_sync
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(block_log2),
         .imem_addr(imem_addr), .imem_data(imem_data),
         .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata),
-        .dmem_we(dmem_we), .dmem_be(dmem_be), .dmem_rdata(dmem_rdata),
+        .dmem_req(dmem_req), .dmem_gnt(dmem_gnt), .dmem_we(dmem_we), .dmem_be(dmem_be),
+        .dmem_rvalid(dmem_rvalid), .dmem_rdata(dmem_rdata),
         .busy(busy), .done(done),
         .dbg_retire_a0(dbg_retire_a0), .dbg_mem_txns(dbg_mem_txns),
         .dbg_divergences(dbg_divergences), .dbg_scratch_txns(dbg_scratch_txns),
@@ -57,11 +66,36 @@ module tb_sync
     assign imem_data = mem[imem_addr[15:2]];
     logic [31:0] lbase;
     assign lbase = {18'b0, dmem_addr[15:5], 3'b000};
+    logic [LINE_BITS-1:0] line_now;              // the addressed line, this cycle
     always_comb
         for (int w = 0; w < LINE_WORDS; w++)
-            dmem_rdata[w*32 +: 32] = mem[lbase + w];
+            line_now[w*32 +: 32] = mem[lbase + w];
+
+    logic [15:0] lfsr;
     always @(posedge clk)
-        if (dmem_we)
+        if (rst) lfsr <= 16'hACE1;
+        else     lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
+    assign dmem_gnt = (MEM_STALL == 0) || (lfsr[1:0] != 2'b00);
+
+    generate
+        if (MEM_LAT == 0) begin : g_lat0
+            assign dmem_rvalid = dmem_req;
+            assign dmem_rdata  = line_now;
+        end else begin : g_lat
+            // Response pipeline: valid bits and line data, oldest at the top.
+            logic [MEM_LAT-1:0]           rv;
+            logic [MEM_LAT*LINE_BITS-1:0] rd;
+            always @(posedge clk) begin
+                rv <= rst ? '0 : ((rv << 1) | MEM_LAT'(dmem_req && dmem_gnt));
+                rd <= (rd << LINE_BITS) | (MEM_LAT*LINE_BITS)'(line_now);
+            end
+            assign dmem_rvalid = rv[MEM_LAT-1];
+            assign dmem_rdata  = rd[MEM_LAT*LINE_BITS-1 -: LINE_BITS];
+        end
+    endgenerate
+
+    always @(posedge clk)
+        if (dmem_we && dmem_req && dmem_gnt)
             for (int w = 0; w < LINE_WORDS; w++) begin
                 logic [31:0] cur;
                 cur = mem[lbase + w];
