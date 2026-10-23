@@ -12,7 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GCC = os.environ.get('RISCV_GCC', 'riscv-none-elf-gcc')
 OBJCOPY = GCC.replace('gcc', 'objcopy')
 KERNELS = ['shfl_test', 'reduce_shfl', 'reduce_all', 'reduce_block',
-           'histogram', 'hist_shared', 'scan_warp', 'amo_test',
+           'histogram', 'hist_shared', 'scan_warp', 'amo_test', 'amo_contend',
            '../reduce/reduce']   # the v1 reduce, timed beside reduce_shfl
 
 

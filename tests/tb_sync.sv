@@ -28,6 +28,9 @@ module tb_sync
     // AXI = 1 (needs L1 = 1) puts axi_line_master behind the L1 and serves it from
     // a behavioural AXI4 slave (MEM_LAT / MEM_STALL / MEM_OOO apply to it).
     parameter int AXI       = 0,
+    // AGG = 0 runs a global AMO as one read-modify-write per lane (the baseline
+    // for the line-aggregated AMOs of the memory engine).
+    parameter bit AGG       = 1'b1,
     /* verilator lint_off UNUSEDPARAM */   // read only when L1 = 1
     parameter int L1_SETS   = 128     // sets of the L1 (4 ways, 32-byte lines)
     /* verilator lint_on UNUSEDPARAM */
@@ -53,7 +56,7 @@ module tb_sync
     int unsigned errors = 0;
     int unsigned checks = 0;
 
-    warp_pool dut (
+    warp_pool #(.AMO_AGG(AGG)) dut (
         .clk(clk), .rst(rst), .start(start),
         .base_a(base_a), .base_b(base_b), .base_c(base_c),
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(block_log2),
@@ -326,7 +329,7 @@ module tb_sync
 
     // Kernel slots: kernel k lives at word 64*k (PC = 256*k).
     localparam int K_SHFL = 0, K_RSHFL = 1, K_RALL = 2, K_RBLK = 3, K_HIST = 4,
-                   K_HSH = 5, K_SCAN = 6, K_AMO = 7, K_ROLD = 8;
+                   K_HSH = 5, K_SCAN = 6, K_AMO = 7, K_ROLD = 8, K_CONT = 9;
 
     /* verilator lint_off UNUSEDSIGNAL */
     function automatic int unsigned widx(input logic [31:0] byte_addr);
@@ -345,6 +348,7 @@ module tb_sync
         at = 64*K_SCAN;  `include "scan_warp.svh"
         at = 64*K_AMO;   `include "amo_test.svh"
         at = 64*K_ROLD;  `include "reduce.svh"
+        at = 64*K_CONT;  `include "amo_contend.svh"
     endtask
 
     // Deterministic test data. avals are small, so block sums never overflow.
@@ -511,6 +515,38 @@ module tb_sync
         fill_inputs();                           // amo_test rewrote A[0..n)
     endtask
 
+    // Colliding AMOs: lanes of a warp with the same bucket share a word, and the
+    // returned values must equal executing the lanes in ascending order.
+    task automatic test_contend(input int n);
+        logic [31:0] k [NMAX];
+        clear_c();
+        for (int i = 0; i < 16*(n/8); i++) k[i] = mem[widx(B_BASE) + i];
+        run("amo_contend", K_CONT, n, 0, B_BASE);
+        for (int t = 0; t < n; t++) begin
+            logic [31:0] v, nv;
+            int          b, j;
+            v = aval(t);
+            b = int'(v[1:0]);
+            j = 16*(t/8) + b;
+            chk("contend.add", 4*t, k[j]);
+            k[j] = k[j] + v;
+            chk("contend.max", 4*t + 1, k[j + 4]);
+            nv = amo_ref(6, k[j + 4], v);
+            k[j + 4] = nv;
+            chk("contend.swap", 4*t + 2, k[j + 8]);
+            k[j + 8] = 32'(t);
+        end
+        for (int i = 0; i < 16*(n/8); i++) begin
+            checks++;
+            if (mem[widx(B_BASE) + i] !== k[i]) begin
+                $display("  [FAIL] contend final K[%0d]: got=%08h exp=%08h",
+                         i, mem[widx(B_BASE) + i], k[i]);
+                errors++;
+            end
+        end
+        fill_inputs();                           // amo_contend rewrote B
+    endtask
+
     initial begin
         start = 0; n_threads = 0; kernel_pc = 0; block_log2 = 0;
         base_a = 0; base_b = 0; base_c = 0;
@@ -520,11 +556,13 @@ module tb_sync
         rst = 1; repeat (3) @(posedge clk); rst = 0;
 
         $display("=============================================================================");
-        $display("SIMTiX v2 synchronisation test  (NUM_LANES=%0d  NUM_WARPS=%0d)", NUM_LANES, NUM_WARPS);
+        $display("SIMTiX v2 synchronisation test  (NUM_LANES=%0d  NUM_WARPS=%0d  AGG=%0d)",
+                 NUM_LANES, NUM_WARPS, AGG);
 
         test_shfl();
         test_scan(64);
         test_amo(16);
+        test_contend(64);
         test_reduce(1024);
         test_reduce_all(1024);
         test_reduce_all(1004);                   // partial last warp

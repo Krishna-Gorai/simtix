@@ -16,9 +16,15 @@
 // dmem_rtag = dmem_tag; with NC = 1 the engine then reproduces the single
 // engine of v1 cycle for cycle.
 //
-// A global AMO is a read of the lead lane's word and, once the read returns, a
-// write of the new value. While one context is between that read and write no
-// other context may send a request, which makes the read-modify-write atomic.
+// A global AMO is a read-modify-write of one line. The read fetches the line of
+// the lead lane; with AGG = 1 it serves every pending lane whose word lies in that
+// line, with AGG = 0 the lead lane only. When the line returns, the engine applies
+// the group's lanes to a line buffer in ascending lane order, each lane receiving
+// the word's value before its own update (the result of executing the lanes one
+// after another); lanes on distinct words are applied in the same cycle, so the
+// group takes as many cycles as the most lanes on one word. The updated words go
+// back in one write request. While one context is between that read and write no other context may
+// send a request, which makes the read-modify-write atomic.
 //
 // The scratchpad (single-port distributed RAM, one word per lane per cycle) is
 // served by at most one context at a time. A scratch lane writes the register
@@ -33,6 +39,7 @@ module mem_engine
 #(
     parameter int NC   = NUM_WARPS,   // memory contexts (outstanding memory ops)
     parameter int MQD  = MEM_TAGS,    // outstanding global requests (tags)
+    parameter bit AGG  = 1'b1,        // AMO: one read-modify-write per line (0: per lane)
     parameter int WIDXW = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1
 ) (
     input  logic                  clk,
@@ -96,7 +103,8 @@ module mem_engine
     localparam int SCDEPTH = NW * SCRATCH_WORDS;
 
     typedef enum logic [1:0] { MK_LOAD, MK_WRITE, MK_AMORD } mkind_e;
-    typedef enum logic [1:0] { AP_RD, AP_WAIT, AP_WR } amo_ph_e;
+    // AMO phases: send the read, wait for the line, apply the lanes, send the write.
+    typedef enum logic [1:0] { AP_RD, AP_WAIT, AP_AGG, AP_WR } amo_ph_e;
 
     function automatic logic [31:0] amo_alu(input logic [4:0]  op,
                                             input logic [31:0] m,
@@ -146,7 +154,6 @@ module mem_engine
     logic [NL*32-1:0]    c_addr   [0:NC-1];     // lane l at [l*32 +: 32]
     logic [NL*32-1:0]    c_sdata  [0:NC-1];
     amo_ph_e             c_ph     [0:NC-1];
-    logic [31:0]         c_new    [0:NC-1];     // AMO value to write
     logic [TW:0]         c_cnt    [0:NC-1];     // its requests still outstanding
 
     // Lead lane (lowest pending) and its line, per context.
@@ -199,7 +206,7 @@ module mem_engine
         for (int c = 0; c < NC; c++) begin
             c_locked[c] = c_busy[c] && !c_scratch[c] && c_amo[c] && (c_ph[c] != AP_RD);
             c_want[c]   = c_busy[c] && !c_scratch[c] && !c_done[c] && (c_pend[c] != '0) &&
-                          (!c_amo[c] || (c_ph[c] != AP_WAIT));
+                          (!c_amo[c] || (c_ph[c] == AP_RD) || (c_ph[c] == AP_WR));
         end
     end
 
@@ -233,11 +240,18 @@ module mem_engine
         mreq_mask = c_grp[sel];
         mreq_kind = c_store[sel] ? MK_WRITE : MK_LOAD;
         if (c_amo[sel]) begin
-            mreq_mask         = '0;
-            mreq_mask[sel_lead] = 1'b1;
-            mreq_kind         = (c_ph[sel] == AP_WR) ? MK_WRITE : MK_AMORD;
+            if (!AGG) begin
+                mreq_mask           = '0;
+                mreq_mask[sel_lead] = 1'b1;
+            end
+            mreq_kind = (c_ph[sel] == AP_WR) ? MK_WRITE : MK_AMORD;
         end
     end
+
+    // AMO line buffer, used by the one context inside a read-modify-write.
+    logic [LINE_BITS-1:0]  a_line;   // the line, with the lanes applied so far
+    logic [NL-1:0]         a_left;   // group lanes not yet applied
+    logic [LINE_WORDS-1:0] a_touch;  // words updated (written back)
 
     assign dmem_req  = mreq_valid;
     assign dmem_tag  = alloc_t;
@@ -251,10 +265,8 @@ module mem_engine
         if (mreq_valid && (mreq_kind == MK_WRITE)) begin
             dmem_we = 1'b1;
             if (c_amo[sel]) begin
-                logic [LINE_WOFFW-1:0] aw;
-                aw = c_addr[sel][sel_lead*32 + 2 +: LINE_WOFFW];
-                dmem_wdata[aw*32 +: 32] = c_new[sel];
-                dmem_be[aw*4 +: 4]      = 4'b1111;
+                dmem_wdata = a_line;
+                for (int w = 0; w < LINE_WORDS; w++) dmem_be[w*4 +: 4] = {4{a_touch[w]}};
             end else begin
                 for (int l = 0; l < NL; l++) begin
                     if (mreq_mask[l]) begin
@@ -306,7 +318,46 @@ module mem_engine
             rdata_l[l] = ld_extract(c_f3[rc], c_addr[rc][l*32 +: LINE_OFF], dmem_rdata);
 
     logic gwb;                       // global writeback this cycle
-    assign gwb = dmem_rvalid && (rkind != MK_WRITE) && (c_fp[rc] || (c_rd[rc] != 5'd0));
+    assign gwb = dmem_rvalid && (rkind == MK_LOAD) && (c_fp[rc] || (c_rd[rc] != 5'd0));
+
+    // ── AMO lane application: the locked context, in rounds ──────────────────────
+    // A round applies every remaining lane whose word no lower remaining lane
+    // still has to update: those lanes hit distinct words, so all of them update
+    // in parallel and each sees the word as left by the lower lanes. A word hit by
+    // k lanes takes k rounds. The round's old words go to the lanes' registers in
+    // a cycle with no global writeback.
+    logic                  a_act, a_step, a_wb, a_last;
+    logic [LINE_WOFFW-1:0] a_off   [0:NL-1];      // word of each lane in the line
+    logic [NL-1:0]         a_rnd;                 // lanes applied this round
+    logic [31:0]           a_old   [0:NL-1];      // word value seen by each lane
+    logic [31:0]           a_wnew  [0:LINE_WORDS-1];
+    logic [LINE_WORDS-1:0] a_whit;                // words updated this round
+    always_comb begin
+        for (int l = 0; l < NL; l++) begin
+            a_off[l] = c_addr[lock_c][l*32 + 2 +: LINE_WOFFW];
+            a_old[l] = a_line[a_off[l]*32 +: 32];
+        end
+        for (int l = 0; l < NL; l++) begin
+            a_rnd[l] = a_left[l];
+            for (int j = 0; j < l; j++)
+                if (a_left[j] && (a_off[j] == a_off[l])) a_rnd[l] = 1'b0;
+        end
+        for (int w = 0; w < LINE_WORDS; w++) begin
+            logic [31:0] v;
+            v = '0;
+            a_whit[w] = 1'b0;
+            for (int l = 0; l < NL; l++)
+                if (a_rnd[l] && (a_off[l] == LINE_WOFFW'(w))) begin
+                    a_whit[w] = 1'b1;
+                    v         = v | c_sdata[lock_c][l*32 +: 32];
+                end
+            a_wnew[w] = amo_alu(c_amo_op[lock_c], a_line[w*32 +: 32], v);
+        end
+    end
+    assign a_act  = (|c_locked) && (c_ph[lock_c] == AP_AGG);
+    assign a_wb   = a_act && (c_rd[lock_c] != 5'd0);
+    assign a_step = a_act && !(a_wb && gwb);
+    assign a_last = a_step && ((a_left & ~a_rnd) == '0);
 
     // ── Scratchpad: the one busy scratch context, one lane per cycle ─────────────
     logic          sc_act;           // a scratch context exists
@@ -320,7 +371,7 @@ module mem_engine
     logic             sc_step;       // serve the lead lane this cycle
     logic [LIDXW-1:0] sc_lead;
     logic [31:0]      sc_laddr;
-    assign sc_step  = sc_act && !gwb;
+    assign sc_step  = sc_act && !gwb && !(a_wb && a_step);
     assign sc_lead  = c_lead[sc_c];
     assign sc_laddr = c_addr[sc_c][sc_lead*32 +: 32];
 
@@ -358,6 +409,12 @@ module mem_engine
         for (int l = 0; l < NL; l++) wb_data[l] = rdata_l[l];
         if (gwb) begin
             wb_lane = rmask;
+        end else if (a_wb && a_step) begin
+            wb_lane = a_rnd;
+            wb_w    = c_w[lock_c];
+            wb_rd   = c_rd[lock_c];
+            wb_fp   = 1'b0;
+            for (int l = 0; l < NL; l++) wb_data[l] = a_old[l];
         end else if (sc_step && !c_store[sc_c] && (c_fp[sc_c] || (c_rd[sc_c] != 5'd0))) begin
             wb_lane[sc_lead] = 1'b1;
             wb_w  = c_w[sc_c];
@@ -443,21 +500,35 @@ module mem_engine
                     if (last)            c_busy[gc] <= 1'b0;
                     else if (c_fin[gc])  c_done[gc] <= 1'b1;
                     if (c_amo[gc] && !c_scratch[gc]) begin
-                        // read sent -> wait; read back -> compute; write sent -> next
-                        if (rhere && (rkind == MK_AMORD)) begin
-                            c_new[gc] <= amo_alu(c_amo_op[gc], rdata_l[c_lead[gc]],
-                                                 c_sdata[gc][c_lead[gc]*32 +: 32]);
-                            c_ph[gc]  <= AP_WR;
-                        end else if (here && (c_ph[gc] == AP_RD)) begin
-                            c_ph[gc]  <= AP_WAIT;
-                        end else if (here && (c_ph[gc] == AP_WR)) begin
-                            c_ph[gc]  <= AP_RD;
-                        end
+                        // read sent -> wait; line back -> apply lanes; last lane
+                        // applied -> write; write sent -> next line
+                        if (rhere && (rkind == MK_AMORD))
+                            c_ph[gc] <= AP_AGG;
+                        else if (here && (c_ph[gc] == AP_RD))
+                            c_ph[gc] <= AP_WAIT;
+                        else if (a_last && (lock_c == CW'(gc)))
+                            c_ph[gc] <= AP_WR;
+                        else if (here && (c_ph[gc] == AP_WR))
+                            c_ph[gc] <= AP_RD;
                     end
                 end
             end
         end
     endgenerate
+
+    // ── AMO line buffer ──────────────────────────────────────────────────────────
+    always_ff @(posedge clk) begin
+        if (dmem_rvalid && (rkind == MK_AMORD)) begin
+            a_line  <= dmem_rdata;
+            a_left  <= rmask;
+            a_touch <= '0;
+        end else if (a_step) begin
+            for (int w = 0; w < LINE_WORDS; w++)
+                if (a_whit[w]) a_line[w*32 +: 32] <= a_wnew[w];
+            a_left  <= a_left & ~a_rnd;
+            a_touch <= a_touch | a_whit;
+        end
+    end
 
     // ── Tag table and request rotation ───────────────────────────────────────────
     always_ff @(posedge clk) begin

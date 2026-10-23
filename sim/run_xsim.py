@@ -54,6 +54,8 @@ TESTS = {
     'sync_lat':  ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False, ['MEM_LAT=7', 'MEM_STALL=1']),
     'sync_ooo':  ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False,
                   ['MEM_LAT=4', 'MEM_STALL=1', 'MEM_OOO=1']),
+    'sync_noagg': ('tb_sync', POOL + ['tests/tb_sync.sv'], [], False,
+                   ['MEM_LAT=4', 'MEM_STALL=1', 'MEM_OOO=1', 'AGG=0']),
     'sync_l1':   ('tb_sync', POOL + [A + 'l1_dcache.sv', 'tests/tb_sync.sv'], [], False,
                   ['MEM_LAT=20', 'MEM_STALL=1', 'MEM_OOO=1', 'L1=1']),
     'sync_l1s':  ('tb_sync', POOL + [A + 'l1_dcache.sv', 'tests/tb_sync.sv'], [], False,

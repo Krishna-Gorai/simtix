@@ -54,14 +54,16 @@
 // group has arrived; the SHARED_BASE scratch aperture addresses the group's
 // scratch storage, shared by the block. b = 0 reproduces the earlier one-warp-
 // at-a-time spawning exactly. Warp shuffles run on a cross-lane engine (W_SHF)
-// and RV32A atomics run in the memory engine, one lane per cycle.
+// and RV32A atomics run in the memory engine, which applies the lanes of a
+// global AMO that fall in one line with a single read-modify-write.
 // =============================================================================
 `timescale 1ns/1ps
 
 module warp_pool
   import simtix_pkg::*;
 #(
-    parameter int MEM_CTX = NUM_WARPS   // memory ops in flight (1 = the v1 engine)
+    parameter int MEM_CTX = NUM_WARPS,  // memory ops in flight (1 = the v1 engine)
+    parameter bit AMO_AGG = 1'b1        // AMO lanes share one read-modify-write per line
 ) (
     input  logic        clk,
     input  logic        rst,           // active-high
@@ -949,7 +951,7 @@ module warp_pool
         for (int l = 0; l < NL; l++)
             me_sdata[l] = is_store_fp ? frv2[l] : rv2[l];   // fsw stores an f-register
 
-    mem_engine #(.NC(MEM_CTX)) u_mem (
+    mem_engine #(.NC(MEM_CTX), .AGG(AMO_AGG)) u_mem (
         .clk        (clk),
         .rst        (rst),
         .blk_lg     (blk_lg),

@@ -230,9 +230,24 @@ priority in the write arbiter). A context finishes when every lane has been sent
 and every response, writes included, is back; the engine then resumes its warp
 (one warp per cycle).
 
-A global **AMO** is a read of the lead lane's word and, once it returns, a write of
-the new value. Between the two, that context owns the port, which keeps the
-read-modify-write atomic.
+A global **AMO** is a read-modify-write of one line. The read fetches the line of
+the lead lane for every pending lane whose word lies in that line (`AGG = 1`, the
+default; `AGG = 0` serves the lead lane only, one read-modify-write per lane).
+When the line returns, the engine copies it into a line buffer and applies the
+group's lanes in rounds. A round takes every remaining lane whose word no lower
+remaining lane still has to update; those lanes hit distinct words, so they update
+in parallel, and each returns the word as the lower lanes left it. A word that *k*
+lanes hit therefore takes *k* rounds, and every lane gets the value it would see if
+the lanes ran one after another in ascending order. One write with the byte
+enables of the updated words ends the read-modify-write. From the read until that
+write is sent, the context owns the port, which keeps the read-modify-write atomic.
+
+A warp's AMO thus costs one read and one write per distinct line instead of per
+lane. In `tb_sync` (N = 1024, `sim/amo_sweep.py`, `docs/amo_agg.csv`) the
+global-atomic histogram needs 640 instead of 2176 memory requests and runs 2.8×
+faster at zero latency, 3.6× with a 7-cycle memory, 2.0× behind the L1 and 1.9×
+through the L1 and AXI master. `amo_contend`, where lanes of a warp collide on
+the same words and use the returned values, runs 1.6–4.1× faster.
 
 Cost = number of distinct lines touched: a contiguous warp access (`A[tid]`) → **1**
 request; a fully scattered one → up to 8. `dbg_mem_txns` counts accepted global
@@ -279,7 +294,8 @@ written into the cache. A write to a line whose miss is still in flight waits, s
 a returning line never overwrites newer data. Memory-side tags are `{0, miss
 register}` for reads and `{1, engine tag}` for writes.
 
-With a 20-cycle memory (`tb_sync`, N = 1024), the cache speeds up the
+With a 20-cycle memory (`tb_sync`, N = 1024, AMOs one lane per read-modify-write
+as before aggregation), the cache speeds up the
 atomic-heavy kernels, whose read-modify-writes now hit: histogram 5.6×,
 block-shared histogram 2.4×, `reduce_all` 1.5×. Streaming reductions read each line
 once and are unchanged (within 5%).
