@@ -11,7 +11,7 @@ import os, struct, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 GCC = os.environ.get('RISCV_GCC', 'riscv-none-elf-gcc')
 OBJCOPY = GCC.replace('gcc', 'objcopy')
-KERNELS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add']
+KERNELS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add', 'mlp']
 
 
 def build(name):

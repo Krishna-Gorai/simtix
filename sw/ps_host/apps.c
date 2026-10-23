@@ -48,6 +48,7 @@
 #define PC_BFS         0x600u
 #define PC_SCAN        0x700u
 #define PC_SCAN_ADD    0x800u
+#define PC_MLP         0x900u
 
 #define ARENA_BASE     0x10000000u
 #define ARENA_SIZE     0x10000000u
@@ -386,6 +387,83 @@ static unsigned app_scan(uint32_t n)
     return e;
 }
 
+/* ── MLP: INT8 fully connected layers, ReLU between, INT32 logits ───────────── */
+/* Layer l: acc = x . W (pdot8 on the accelerator); hidden layers requantize to
+   trunc(clamp(fmaf((float)acc, scale, zp), 0, 127)) (the engine's fcvt.w.s
+   truncates; zp holds the +0.5 of round-half-up). Columns are padded to Npad, a
+   power of two of at least 8; each image's activations are Npad bytes. */
+static unsigned app_mlp(uint32_t batch)
+{
+    static const uint32_t dims[] = { 784, 256, 128, 10 };
+    const unsigned nl = sizeof dims / sizeof dims[0] - 1;
+    const float scale = 1.0f / 1024.0f, zp = 3.5f;
+    XTime t0, t1, t2, t3;
+    uint8_t  *x0 = alloc(batch * dims[0]);
+    int8_t   *w[3];
+    uint32_t *p[3], npad[3], k[3];
+    void     *out[3];
+    k[0] = dims[0];
+    for (uint32_t i = 0; i < batch * dims[0]; i++) x0[i] = rnd() & 0x7Fu;
+    const void *in = x0;
+    for (unsigned l = 0; l < nl; l++) {
+        npad[l] = 8;
+        while (npad[l] < dims[l + 1]) npad[l] <<= 1;
+        uint32_t lg = 0;
+        while ((1u << lg) < npad[l]) lg++;
+        /* packed [k/4][npad] words, byte i of word (kk, n) = W[4kk+i][n] */
+        w[l] = alloc(k[l] * npad[l]);
+        for (uint32_t kk = 0; kk < k[l] / 4; kk++)
+            for (uint32_t n = 0; n < npad[l]; n++)
+                for (uint32_t i = 0; i < 4; i++)
+                    w[l][(kk * npad[l] + n) * 4 + i] =
+                        (n < dims[l + 1]) ? (int8_t)((int32_t)(rnd() % 128u) - 64) : 0;
+        int last = (l == nl - 1);
+        out[l] = alloc(batch * npad[l] * (last ? 4u : 1u));
+        p[l] = params(8);
+        p[l][0] = addr(in); p[l][1] = addr(w[l]); p[l][2] = addr(out[l]);
+        p[l][3] = k[l] / 4; p[l][4] = lg; p[l][5] = f2u(scale); p[l][6] = f2u(zp);
+        p[l][7] = last ? 0 : 1;
+        in = out[l];
+        if (!last) k[l + 1] = npad[l];
+    }
+    clean_all();
+    XTime_GetTime(&t0);
+    for (unsigned l = 0; l < nl; l++) launch(PC_MLP, p[l], batch * npad[l], 0);
+    XTime_GetTime(&t1);
+    invalidate_all();
+
+    /* A53: the same layers, one image at a time */
+    uint8_t *act = alloc(batch * 256), *nxt = alloc(batch * 256);
+    int32_t *logit = alloc(4u * batch * npad[nl - 1]);
+    XTime_GetTime(&t2);
+    const uint8_t *src = x0;
+    for (unsigned l = 0; l < nl; l++) {
+        int last = (l == nl - 1);
+        for (uint32_t b = 0; b < batch; b++)
+            for (uint32_t n = 0; n < npad[l]; n++) {
+                int32_t acc = 0;
+                for (uint32_t kk = 0; kk < k[l]; kk++)
+                    acc += (int32_t)(int8_t)src[b * k[l] + kk] *
+                           w[l][((kk / 4) * npad[l] + n) * 4 + kk % 4];
+                if (last) {
+                    logit[b * npad[l] + n] = acc;
+                } else {
+                    float v = fmaf((float)acc, scale, zp);
+                    v = v > 127.0f ? 127.0f : (v < 0.0f ? 0.0f : v);
+                    nxt[b * npad[l] + n] = (uint8_t)(int32_t)v;
+                }
+            }
+        if (!last) {
+            for (uint32_t i = 0; i < batch * npad[l]; i++) act[i] = nxt[i];
+            src = act;
+        }
+    }
+    XTime_GetTime(&t3);
+    unsigned e = diff((uint32_t *)out[nl - 1], (uint32_t *)logit, batch * npad[nl - 1]);
+    report("mlp", batch, us(t0, t1), us(t2, t3), e);
+    return e;
+}
+
 /* ── Suite ──────────────────────────────────────────────────────────────────── */
 static void load(uint32_t pc, const uint32_t *w, unsigned n)
 {
@@ -404,6 +482,7 @@ unsigned run_apps(void)
     load(PC_BFS,      k_bfs,      sizeof k_bfs / 4u);
     load(PC_SCAN,     k_scan,     sizeof k_scan / 4u);
     load(PC_SCAN_ADD, k_scan_add, sizeof k_scan_add / 4u);
+    load(PC_MLP,      k_mlp,      sizeof k_mlp / 4u);
 
     RUN(app_gemm(64));          RUN(app_gemm(256));
     RUN(app_spmv(4096, 16));    RUN(app_spmv(65536, 16));
@@ -411,5 +490,6 @@ unsigned run_apps(void)
     RUN(app_kmeans(16384, 16)); RUN(app_kmeans(262144, 16));
     RUN(app_bfs(16384, 8));     RUN(app_bfs(262144, 8));
     RUN(app_scan(65536));       RUN(app_scan(1u << 20));
+    RUN(app_mlp(16));           RUN(app_mlp(256));
     return errs;
 }

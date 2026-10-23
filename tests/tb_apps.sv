@@ -19,7 +19,9 @@
 module tb_apps
   import simtix_pkg::*;
 #(
-    parameter int MEM_LAT = 24
+    parameter int MEM_LAT = 24,
+    parameter int AGG     = 1,      // AMO variant (see mem_engine)
+    parameter int APAR    = 0
 );
     localparam int DW    = 128;
     localparam int IDW   = MEM_TAGW + 1;
@@ -51,7 +53,7 @@ module tb_apps
     logic [DW-1:0]   m_wdata, m_rdata;
     logic [DW/8-1:0] m_wstrb;
 
-    simt_ps_top #(.AXI_DW(DW)) dut (
+    simt_ps_top #(.AXI_DW(DW), .AMO_AGG(AGG != 0), .AMO_PAR(APAR != 0)) dut (
         .clk(clk), .rst(rst),
         .s_axil_awaddr(awaddr), .s_axil_awvalid(awvalid), .s_axil_awready(awready),
         .s_axil_wdata(wdata), .s_axil_wstrb(4'hF), .s_axil_wvalid(wvalid), .s_axil_wready(wready),
@@ -179,7 +181,8 @@ module tb_apps
             $display("[tb_apps] FAIL: no manifest (%s); run sim/gen_apps.py", manifest);
             $finish;
         end
-        $display("[tb_apps] manifest %s, DDR4 latency %0d cycles", manifest, MEM_LAT);
+        $display("[tb_apps] manifest %s, DDR4 latency %0d cycles, AGG=%0d APAR=%0d",
+                 manifest, MEM_LAT, AGG, APAR);
         while ($fgets(line, fd) > 0) begin
             if ($sscanf(line, "%s", key) != 1) continue;
             if (key == "KERNEL") begin

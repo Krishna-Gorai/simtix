@@ -13,7 +13,7 @@ import os, re
 HERE = os.path.dirname(os.path.abspath(__file__))
 KDIR = os.path.join(HERE, '..', '..', 'kernels')
 SYNC = ['reduce_shfl', 'histogram', 'reduce_all', 'hist_shared']
-APPS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add']
+APPS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add', 'mlp']
 
 
 def words_of(name):

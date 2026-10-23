@@ -17,7 +17,10 @@
 
 module simt_accel
   import simtix_pkg::*;
-(
+#(
+    parameter bit AMO_AGG = 1'b1,   // see warp_pool / mem_engine
+    parameter bit AMO_PAR = 1'b0
+) (
     input  logic        clk,
     input  logic        rst,            // active-high
 
@@ -84,7 +87,7 @@ module simt_accel
     logic [31:0] pool_dbg_insns;
     logic [31:0] pool_dbg_active;
 
-    warp_pool u_pool (
+    warp_pool #(.AMO_AGG(AMO_AGG), .AMO_PAR(AMO_PAR)) u_pool (
         .clk        (clk),
         .rst        (rst),
         .start      (pool_start),

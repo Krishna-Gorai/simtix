@@ -25,7 +25,9 @@ module simt_ps_top
   import simtix_pkg::*;
 #(
     parameter int AXI_DW = 128,
-    parameter int IRAM_WORDS = 1024
+    parameter int IRAM_WORDS = 1024,
+    parameter bit AMO_AGG = 1'b1,   // see mem_engine
+    parameter bit AMO_PAR = 1'b0
 ) (
     input  logic                clk,
     input  logic                rst,             // active-high
@@ -125,7 +127,7 @@ module simt_ps_top
     logic [LINE_BITS-1:0] a_wdata, a_rdata;
     logic [LINE_BE-1:0]   a_be;
 
-    simt_accel u_accel (
+    simt_accel #(.AMO_AGG(AMO_AGG), .AMO_PAR(AMO_PAR)) u_accel (
         .clk        (clk),
         .rst        (rst),
         .sel        (wr_regs || (rd_fire && (rd_addr[15:8] == 8'h00))),

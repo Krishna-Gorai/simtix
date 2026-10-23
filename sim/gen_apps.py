@@ -24,7 +24,8 @@ from fractions import Fraction
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 KDIR = os.path.join(ROOT, 'kernels', 'apps')
-SLOTS = {'gemm': 0, 'spmv': 1, 'stencil': 2, 'kmeans': 3, 'bfs': 4, 'scan': 5, 'scan_add': 6}
+SLOTS = {'gemm': 0, 'spmv': 1, 'stencil': 2, 'kmeans': 3, 'bfs': 4, 'scan': 5, 'scan_add': 6,
+         'mlp': 7}
 DDR_BASE = 0x1000_0000
 WORDS = 1 << 20                     # axi_mem_model WORDS in tb_apps (4 MB)
 UNSEEN = 0xFFFF_FFFF
@@ -273,11 +274,61 @@ def scan(rng, n):
     return c
 
 
+F127 = 0x42FE_0000                                # 127.0f
+
+
+def requant(acc, scale, zp):
+    """mlp.S mode 1: trunc(clamp(fmadd(float(acc), scale, zp), 0, 127)).
+    fcvt.w.s on the engine truncates; zp includes +0.5 for round-half-up."""
+    v = f2fr(fma(fr2f(Fraction(acc)), scale, zp))
+    v = min(max(v, Fraction(0)), f2fr(F127))
+    return int(v)                                 # v >= 0: int() truncates
+
+
+def pack8(vals):
+    """INT8 values -> little-endian words (len(vals) a multiple of 4)."""
+    return [sum((v & 0xFF) << (8 * i) for i, v in enumerate(vals[j:j + 4]))
+            for j in range(0, len(vals), 4)]
+
+
+def mlp(rng, batch, dims):
+    """INT8 MLP, dims = [K0, N1, ..., NL]; ReLU between layers, INT32 logits."""
+    c = Case(f'mlp_{"x".join(map(str, dims))}_b{batch}')
+    scale = struct.unpack('<I', struct.pack('<f', 2.0 ** -10))[0]
+    zp = struct.unpack('<I', struct.pack('<f', 3.5))[0]
+    x = [[rng.randrange(128) for _ in range(dims[0])] for _ in range(batch)]
+    k = dims[0]
+    px = c.img.alloc(batch * k // 4, [w for img in x for w in pack8(img)])
+    for li, n in enumerate(dims[1:]):
+        npad = max(8, 1 << (n - 1).bit_length())
+        last = li == len(dims) - 2
+        w = [[rng.randrange(-64, 64) if col < n else 0 for col in range(npad)]
+             for _ in range(k)]
+        wp = [pack8([w[4 * kk + i][col] for i in range(4)])[0]
+              for kk in range(k // 4) for col in range(npad)]
+        pw = c.img.alloc(len(wp), wp)
+        out_words = batch * npad if last else batch * npad // 4
+        po = c.img.alloc(out_words)
+        c.launch(f'layer{li}', 'mlp', [px, pw, po, k // 4, npad.bit_length() - 1,
+                                       scale, zp, 0 if last else 1], batch * npad)
+        acc = [[sum(x[b][kk] * w[kk][col] for kk in range(k)) for col in range(npad)]
+               for b in range(batch)]
+        if last:
+            c.expect(po, [a for row in acc for a in row])
+        else:
+            x = [[requant(a, scale, zp) for a in row] for row in acc]
+            c.expect(po, [wd for img in x for wd in pack8(img)])
+        px, k = po, npad
+    return c
+
+
 SIZES = {
     'small': lambda r: [gemm(r, 32, 32, 32), spmv(r, 512, 512, 16), stencil(r, 32, 32, 2),
-                        kmeans(r, 1024, 8), bfs(r, 1024, 6), scan(r, 2048)],
+                        kmeans(r, 1024, 8), bfs(r, 1024, 6), scan(r, 2048),
+                        mlp(r, 8, [784, 128, 10])],
     'large': lambda r: [gemm(r, 64, 64, 64), spmv(r, 4096, 4096, 16), stencil(r, 128, 128, 2),
-                        kmeans(r, 16384, 16), bfs(r, 16384, 8), scan(r, 65536)],
+                        kmeans(r, 16384, 16), bfs(r, 16384, 8), scan(r, 65536),
+                        mlp(r, 64, [784, 256, 128, 10])],
 }
 
 
