@@ -85,9 +85,9 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-l1 test-sync-l1s test-sync-axi mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-l1 test-sync-l1s test-sync-axi test-ps lint-ps mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
 
-lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip
+lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip lint-ps
 
 lint-accel:
 	$(VERILATOR) --lint-only $(VFLAGS) --top-module simt_accel $(ACCEL_RTL)
@@ -113,6 +113,10 @@ lint-soc:
 	$(VERILATOR) --lint-only $(SOC_VFLAGS) --top-module soc_top $(SOC_RTL)
 	@echo "[lint] SoC integration OK"
 
+lint-ps:
+	$(VERILATOR) --lint-only $(VFLAGS) --top-module simt_ps_top $(ACCEL_RTL) ../rtl/accel/l1_dcache.sv ../rtl/accel/axi_line_master.sv ../rtl/soc/simt_ps_top.sv
+	@echo "[lint] board top OK"
+
 lint-chip:
 	$(VERILATOR) --lint-only $(SOC_VFLAGS) --top-module chip_top $(CHIP_RTL)
 	@echo "[lint] full chip OK"
@@ -125,7 +129,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-l1 test-sync-l1s test-sync-axi
+test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-l1 test-sync-l1s test-sync-axi test-ps
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -290,6 +294,13 @@ test-soc:
 	$(MDIR)/tb_soc_top
 
 # The full-chip test pulls in the Verilog CPU core, so it builds with SOC_VFLAGS.
+# v2 board top (ARM host over AXI4-Lite, DDR4 over AXI4) against an AXI4 memory model.
+test-ps:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) -I../kernels/sync --Mdir $(MDIR) --top-module tb_ps_top $(ACCEL_RTL) ../rtl/accel/l1_dcache.sv ../rtl/accel/axi_line_master.sv ../rtl/soc/simt_ps_top.sv ../tests/axi_mem_model.sv ../tests/tb_ps_top.sv -o tb_ps_top
+	@echo "[test] running tb_ps_top..."
+	$(MDIR)/tb_ps_top
+
 test-chip:
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(SOC_VFLAGS) --Mdir $(MDIR) --top-module tb_chip_top $(CHIP_RTL) ../tests/tb_chip_top.sv -o tb_chip_top

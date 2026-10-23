@@ -24,6 +24,8 @@ CPU_ALL = sorted(glob.glob(os.path.join(ROOT, 'rtl/cpu/*.v')))
 CPU_SOC = [os.path.relpath(p, ROOT) for p in CPU_ALL if not p.endswith('top.v')]
 CPU_CHIP = [p for p in CPU_SOC if not p.endswith(('riscv_soc.v', 'instr_mem.v', 'data_mem.v'))]
 SOC = ACCEL + ['rtl/soc/soc_top.sv']
+PS = ACCEL + [A + 'l1_dcache.sv', A + 'axi_line_master.sv', 'rtl/soc/simt_ps_top.sv',
+             'tests/axi_mem_model.sv']
 CHIP = ACCEL + ['rtl/soc/shared_mem.sv', 'rtl/soc/weight_rom.sv', 'rtl/soc/cpu_driver_rom.sv',
                 'rtl/soc/driver_rom.sv', 'rtl/soc/chip_top.sv']
 
@@ -56,6 +58,7 @@ TESTS = {
                   ['MEM_LAT=20', 'MEM_STALL=1', 'MEM_OOO=1', 'L1=1']),
     'sync_l1s':  ('tb_sync', POOL + [A + 'l1_dcache.sv', 'tests/tb_sync.sv'], [], False,
                   ['MEM_LAT=20', 'MEM_STALL=1', 'MEM_OOO=1', 'L1=1', 'L1_SETS=2']),
+    'ps':        ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], [], False),
     'sync_axi':  ('tb_sync', POOL + [A + 'l1_dcache.sv', A + 'axi_line_master.sv', 'tests/tb_sync.sv'],
                   [], False, ['MEM_LAT=24', 'MEM_STALL=1', 'MEM_OOO=1', 'L1=1', 'AXI=1']),
 }
