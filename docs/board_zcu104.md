@@ -66,3 +66,13 @@ RESULT: PASS (0 errors)
 `accel_cycles` is the accelerator's own cycle counter (100 MHz); `accel_us` is
 the wall time from GO to DONE measured by the A53 (including register polling);
 `a53_us` is the same computation on one A53 core.
+
+After `reduce_shfl` and `histogram`, the application suite (`sw/ps_host/apps.c`,
+the kernels of `kernels/apps/`) prints one row per application and size, with the
+size in the `N` column: `gemm` (n x n FP32, n = 64, 256), `spmv` (rows, 16 nonzeros
+at most per row), `stencil` (n x n, 4 sweeps), `kmeans` (points, 16 clusters),
+`bfs` (vertices, degree 8) and `scan` (elements). Multi-launch applications
+(stencil, BFS, scan) sum cycles and L1 counts over their launches, and `accel_us`
+covers the first GO to the last DONE. The A53 baselines are ordinary sequential
+codes (a queue for BFS, a running sum for scan, i-k-j GEMM), and every accelerator
+output is compared exactly with them; the data lives in DDR4 at `0x1000_0000`.

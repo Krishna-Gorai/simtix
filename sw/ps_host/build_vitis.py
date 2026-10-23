@@ -6,7 +6,7 @@ build_vitis.py -- build the SIMTiX v2 A53 host program with the Vitis Python API
 Creates (or recreates) the workspace sw/ps_host/ws with
   simtix_plat : a standalone platform for psu_cortexa53_0 from the .xsa
                 (default: fpga/simtix_ps.xsa, written by fpga/create_bd_ps.tcl)
-  ps_host     : the host application (main.c + kernels.h), built -O2
+  ps_host     : the host application (main.c, apps.c, kernels.h), built -O2
 and prints the path of the resulting ELF.
 """
 import os
@@ -46,7 +46,7 @@ platform.build()
 xpfm = client.find_platform_in_repos('simtix_plat')
 app = client.create_app_component(name='ps_host', platform=xpfm,
                                   domain='standalone_a53', template='empty_application')
-app.import_files(from_loc=HERE, files=['main.c', 'kernels.h'], dest_dir_in_cmp='src')
+app.import_files(from_loc=HERE, files=['main.c', 'apps.c', 'kernels.h'], dest_dir_in_cmp='src')
 app.set_app_config(key='USER_COMPILE_OPTIMIZATION_LEVEL', values='-O2')
 app.build()
 

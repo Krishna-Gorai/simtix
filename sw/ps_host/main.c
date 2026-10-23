@@ -9,7 +9,8 @@
  *   4. invalidates the data cache, checks every result against a reference
  *      computed on the A53, and
  *   5. times the same computation on the A53 (the CPU baseline).
- * Results are printed on the UART as CSV:
+ * It then runs the application suite (apps.c). Results are printed on the UART
+ * as CSV:
  *   BOARD,<kernel>,<N>,<accel cycles>,<accel us>,<a53 us>,<L1 hits>,<L1 misses>,<errors>
  *
  * Register map: rtl/soc/simt_ps_top.sv; window at 0xA000_0000 (create_bd_ps.tcl).
@@ -20,6 +21,8 @@
 #include "xil_printf.h"
 #include "xiltimer.h"      /* XTime, XTime_GetTime, COUNTS_PER_SECOND */
 #include "kernels.h"
+
+unsigned run_apps(void);   /* apps.c */
 
 #define SIMT_BASE      0xA0000000u
 #define REG_KERNEL_PC  0x00u
@@ -152,6 +155,7 @@ int main(void)
         errs += run_reduce(sizes[s]);
         errs += run_hist(sizes[s]);
     }
+    errs += run_apps();
     if (rd(REG_AXI_ERR) & 1u) { xil_printf("AXI error response seen\r\n"); errs++; }
     xil_printf("RESULT: %s (%u errors)\r\n", errs ? "FAIL" : "PASS", errs);
     return 0;
