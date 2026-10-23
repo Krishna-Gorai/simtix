@@ -21,9 +21,9 @@
 // line, with AGG = 0 the lead lane only. When the line returns, the engine applies
 // the group's lanes to a line buffer in ascending lane order, each lane receiving
 // the word's value before its own update (the result of executing the lanes one
-// after another); lanes on distinct words are applied in the same cycle, so the
-// group takes as many cycles as the most lanes on one word. The updated words go
-// back in one write request. While one context is between that read and write no other context may
+// after another): one lane per cycle (APAR = 0), or, with APAR = 1, every lane on
+// a distinct word in the same cycle, so the group takes as many cycles as the
+// most lanes on one word. The updated words go back in one write request. While one context is between that read and write no other context may
 // send a request, which makes the read-modify-write atomic.
 //
 // The scratchpad (single-port distributed RAM, one word per lane per cycle) is
@@ -40,6 +40,7 @@ module mem_engine
     parameter int NC   = NUM_WARPS,   // memory contexts (outstanding memory ops)
     parameter int MQD  = MEM_TAGS,    // outstanding global requests (tags)
     parameter bit AGG  = 1'b1,        // AMO: one read-modify-write per line (0: per lane)
+    parameter bit APAR = 1'b0,        // AMO lanes per cycle: 1 = all on distinct words
     parameter int WIDXW = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1
 ) (
     input  logic                  clk,
@@ -321,37 +322,57 @@ module mem_engine
     assign gwb = dmem_rvalid && (rkind == MK_LOAD) && (c_fp[rc] || (c_rd[rc] != 5'd0));
 
     // ── AMO lane application: the locked context, in rounds ──────────────────────
-    // A round applies every remaining lane whose word no lower remaining lane
-    // still has to update: those lanes hit distinct words, so all of them update
-    // in parallel and each sees the word as left by the lower lanes. A word hit by
-    // k lanes takes k rounds. The round's old words go to the lanes' registers in
-    // a cycle with no global writeback.
+    // Each cycle a round applies some remaining lanes; the round's old words go to
+    // the lanes' registers in a cycle with no global writeback.
+    //   APAR = 1: every remaining lane whose word no lower remaining lane still has
+    //             to update. Those lanes hit distinct words, so they update in
+    //             parallel (one AMO ALU per word); a word hit by k lanes takes k
+    //             rounds.
+    //   APAR = 0: the lowest remaining lane only (one AMO ALU).
+    // Either way each lane sees its word as the lower lanes left it.
     logic                  a_act, a_step, a_wb, a_last;
     logic [LINE_WOFFW-1:0] a_off   [0:NL-1];      // word of each lane in the line
     logic [NL-1:0]         a_rnd;                 // lanes applied this round
     logic [31:0]           a_old   [0:NL-1];      // word value seen by each lane
     logic [31:0]           a_wnew  [0:LINE_WORDS-1];
     logic [LINE_WORDS-1:0] a_whit;                // words updated this round
-    always_comb begin
-        for (int l = 0; l < NL; l++) begin
-            a_off[l] = c_addr[lock_c][l*32 + 2 +: LINE_WOFFW];
-            a_old[l] = a_line[a_off[l]*32 +: 32];
+    always_comb
+        for (int l = 0; l < NL; l++) a_off[l] = c_addr[lock_c][l*32 + 2 +: LINE_WOFFW];
+    if (APAR) begin : g_apar
+        always_comb begin
+            for (int l = 0; l < NL; l++) a_old[l] = a_line[a_off[l]*32 +: 32];
+            for (int l = 0; l < NL; l++) begin
+                a_rnd[l] = a_left[l];
+                for (int j = 0; j < l; j++)
+                    if (a_left[j] && (a_off[j] == a_off[l])) a_rnd[l] = 1'b0;
+            end
+            for (int w = 0; w < LINE_WORDS; w++) begin
+                logic [31:0] v;
+                v = '0;
+                a_whit[w] = 1'b0;
+                for (int l = 0; l < NL; l++)
+                    if (a_rnd[l] && (a_off[l] == LINE_WOFFW'(w))) begin
+                        a_whit[w] = 1'b1;
+                        v         = v | c_sdata[lock_c][l*32 +: 32];
+                    end
+                a_wnew[w] = amo_alu(c_amo_op[lock_c], a_line[w*32 +: 32], v);
+            end
         end
-        for (int l = 0; l < NL; l++) begin
-            a_rnd[l] = a_left[l];
-            for (int j = 0; j < l; j++)
-                if (a_left[j] && (a_off[j] == a_off[l])) a_rnd[l] = 1'b0;
-        end
-        for (int w = 0; w < LINE_WORDS; w++) begin
-            logic [31:0] v;
-            v = '0;
-            a_whit[w] = 1'b0;
-            for (int l = 0; l < NL; l++)
-                if (a_rnd[l] && (a_off[l] == LINE_WOFFW'(w))) begin
-                    a_whit[w] = 1'b1;
-                    v         = v | c_sdata[lock_c][l*32 +: 32];
-                end
-            a_wnew[w] = amo_alu(c_amo_op[lock_c], a_line[w*32 +: 32], v);
+    end else begin : g_aser
+        logic [LIDXW-1:0]      lane;
+        logic [LINE_WOFFW-1:0] wo;
+        logic [31:0]           old, nw;
+        always_comb begin
+            lane = '0;
+            for (int l = NL-1; l >= 0; l--)
+                if (a_left[l]) lane = l[LIDXW-1:0];
+            wo     = a_off[lane];
+            old    = a_line[wo*32 +: 32];
+            nw     = amo_alu(c_amo_op[lock_c], old, c_sdata[lock_c][lane*32 +: 32]);
+            a_rnd  = a_left & (NL'(1) << lane);
+            a_whit = (a_left != '0) ? (LINE_WORDS'(1) << wo) : '0;
+            for (int l = 0; l < NL; l++)         a_old[l]  = old;
+            for (int w = 0; w < LINE_WORDS; w++) a_wnew[w] = nw;
         end
     end
     assign a_act  = (|c_locked) && (c_ph[lock_c] == AP_AGG);

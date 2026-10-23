@@ -234,20 +234,34 @@ A global **AMO** is a read-modify-write of one line. The read fetches the line o
 the lead lane for every pending lane whose word lies in that line (`AGG = 1`, the
 default; `AGG = 0` serves the lead lane only, one read-modify-write per lane).
 When the line returns, the engine copies it into a line buffer and applies the
-group's lanes in rounds. A round takes every remaining lane whose word no lower
-remaining lane still has to update; those lanes hit distinct words, so they update
-in parallel, and each returns the word as the lower lanes left it. A word that *k*
-lanes hit therefore takes *k* rounds, and every lane gets the value it would see if
-the lanes ran one after another in ascending order. One write with the byte
-enables of the updated words ends the read-modify-write. From the read until that
-write is sent, the context owns the port, which keeps the read-modify-write atomic.
+group's lanes in ascending order, each lane returning the word as the lower lanes
+left it, which is the value it would see if the lanes ran one after another. With
+`APAR = 0` (the default) one lane is applied per cycle through one AMO ALU. With
+`APAR = 1` a cycle applies every remaining lane whose word no lower remaining lane
+still has to update: those lanes hit distinct words and update in parallel through
+one ALU per word, so a word that *k* lanes hit takes *k* cycles. One write with
+the byte enables of the updated words ends the read-modify-write. From the read
+until that write is sent, the context owns the port, which keeps the
+read-modify-write atomic.
 
 A warp's AMO thus costs one read and one write per distinct line instead of per
 lane. In `tb_sync` (N = 1024, `sim/amo_sweep.py`, `docs/amo_agg.csv`) the
-global-atomic histogram needs 640 instead of 2176 memory requests and runs 2.8×
-faster at zero latency, 3.6× with a 7-cycle memory, 2.0× behind the L1 and 1.9×
-through the L1 and AXI master. `amo_contend`, where lanes of a warp collide on
-the same words and use the returned values, runs 1.6–4.1× faster.
+global-atomic histogram needs 640 instead of 2176 memory requests:
+
+| Memory | `AGG = 0` (cycles) | `APAR = 0` | `APAR = 1` |
+|---|---|---|---|
+| zero latency | 4004 | 1.79× | 2.76× |
+| 7 cycles | 11451 | 2.62× | 3.56× |
+| L1, 20-cycle memory | 5657 | 1.78× | 2.01× |
+| L1 + AXI master, 24-cycle memory | 6183 | 1.71× | 1.86× |
+
+`amo_contend`, where lanes of a warp collide on the same words and use the
+returned values, runs 1.6–3.3× (`APAR = 0`) and 1.6–4.1× (`APAR = 1`) faster.
+Out of context at 100 MHz (`fpga/impl_mem_engine.tcl`) the engine before these
+changes takes 10,705 LUT and 2,457 FF; `APAR = 0` takes 13,256 LUT and 2,601 FF
+(+3.40 ns slack) and `APAR = 1` 16,628 LUT (+1.73 ns). The parallel version's
+extra 3.4k LUT made the board build miss 100 MHz by 0.12 ns, so the board uses
+`APAR = 0`.
 
 Cost = number of distinct lines touched: a contiguous warp access (`A[tid]`) → **1**
 request; a fully scattered one → up to 8. `dbg_mem_txns` counts accepted global

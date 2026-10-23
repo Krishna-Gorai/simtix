@@ -30,7 +30,9 @@ module tb_sync
     parameter int AXI       = 0,
     // AGG = 0 runs a global AMO as one read-modify-write per lane (the baseline
     // for the line-aggregated AMOs of the memory engine).
-    parameter bit AGG       = 1'b1,
+    parameter int AGG       = 1,
+    // APAR = 1 applies a line's AMO lanes on distinct words in the same cycle.
+    parameter int APAR      = 0,
     /* verilator lint_off UNUSEDPARAM */   // read only when L1 = 1
     parameter int L1_SETS   = 128     // sets of the L1 (4 ways, 32-byte lines)
     /* verilator lint_on UNUSEDPARAM */
@@ -56,7 +58,7 @@ module tb_sync
     int unsigned errors = 0;
     int unsigned checks = 0;
 
-    warp_pool #(.AMO_AGG(AGG)) dut (
+    warp_pool #(.AMO_AGG(AGG != 0), .AMO_PAR(APAR != 0)) dut (
         .clk(clk), .rst(rst), .start(start),
         .base_a(base_a), .base_b(base_b), .base_c(base_c),
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(block_log2),
@@ -556,8 +558,8 @@ module tb_sync
         rst = 1; repeat (3) @(posedge clk); rst = 0;
 
         $display("=============================================================================");
-        $display("SIMTiX v2 synchronisation test  (NUM_LANES=%0d  NUM_WARPS=%0d  AGG=%0d)",
-                 NUM_LANES, NUM_WARPS, AGG);
+        $display("SIMTiX v2 synchronisation test  (NUM_LANES=%0d  NUM_WARPS=%0d  AGG=%0d  APAR=%0d)",
+                 NUM_LANES, NUM_WARPS, AGG, APAR);
 
         test_shfl();
         test_scan(64);

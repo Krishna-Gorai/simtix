@@ -85,7 +85,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-l1 test-sync-l1s test-sync-axi test-ps test-apps lint-ps mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-apar test-sync-l1 test-sync-l1s test-sync-axi test-ps test-apps lint-ps mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip lint-ps
 
@@ -129,7 +129,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-l1 test-sync-l1s test-sync-axi test-ps test-apps
+test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-apar test-sync-l1 test-sync-l1s test-sync-axi test-ps test-apps
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -171,6 +171,13 @@ test-sync-noagg:
 	rm -rf $(MDIR)
 	$(VERILATOR) --binary $(VFLAGS) -GMEM_LAT=4 -GMEM_STALL=1 -GMEM_OOO=1 -GAGG=0 -I../kernels/sync --Mdir $(MDIR) --top-module tb_sync 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../tests/tb_sync.sv -o tb_sync
 	@echo "[test] running tb_sync (MEM_LAT=4, out of order, AGG=0)..."
+	$(MDIR)/tb_sync
+
+# ... and with a line's AMO lanes on distinct words applied in parallel (APAR=1).
+test-sync-apar:
+	rm -rf $(MDIR)
+	$(VERILATOR) --binary $(VFLAGS) -GMEM_LAT=20 -GMEM_STALL=1 -GMEM_OOO=1 -GL1=1 -GAPAR=1 -I../kernels/sync --Mdir $(MDIR) --top-module tb_sync 		$(PKG) ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../rtl/accel/l1_dcache.sv ../tests/tb_sync.sv -o tb_sync
+	@echo "[test] running tb_sync (L1, MEM_LAT=20, APAR=1)..."
 	$(MDIR)/tb_sync
 
 # ... through the L1 data cache, in front of a 20-cycle out-of-order memory.

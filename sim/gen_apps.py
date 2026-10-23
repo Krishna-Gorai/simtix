@@ -24,7 +24,7 @@ from fractions import Fraction
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 KDIR = os.path.join(ROOT, 'kernels', 'apps')
-SLOTS = {'gemm': 0, 'spmv': 1, 'stencil': 2, 'kmeans': 3, 'bfs': 4}
+SLOTS = {'gemm': 0, 'spmv': 1, 'stencil': 2, 'kmeans': 3, 'bfs': 4, 'scan': 5, 'scan_add': 6}
 DDR_BASE = 0x1000_0000
 WORDS = 1 << 20                     # axi_mem_model WORDS in tb_apps (4 MB)
 UNSEEN = 0xFFFF_FFFF
@@ -245,11 +245,39 @@ def bfs(rng, nv, deg):
     return c
 
 
+def scan(rng, n):
+    c = Case(f'scan_{n}')
+    assert n % 32 == 0
+    vals = [rng.randrange(1 << 16) for _ in range(n)]
+    lvl = [0]
+
+    def level(src, m):
+        # scan of m (a multiple of 32) words at src; returns the address of the result
+        out = c.img.alloc(m)
+        nb = m // 32
+        bs = c.img.alloc(-(-nb // 32) * 32)           # block totals, zero padded
+        c.launch(f'scan{lvl[0]}', 'scan', [src, out, bs], m, blk=2)
+        lvl[0] += 1
+        if nb > 1:
+            bsc = level(bs, -(-nb // 32) * 32)
+            c.launch(f'add{lvl[0]}', 'scan_add', [out, bsc], m)
+            lvl[0] += 1
+        return out
+
+    out = level(c.img.alloc(n, vals), n)
+    acc, pre = 0, []
+    for v in vals:
+        acc = (acc + v) & 0xFFFF_FFFF
+        pre.append(acc)
+    c.expect(out, pre)
+    return c
+
+
 SIZES = {
     'small': lambda r: [gemm(r, 32, 32, 32), spmv(r, 512, 512, 16), stencil(r, 32, 32, 2),
-                        kmeans(r, 1024, 8), bfs(r, 1024, 6)],
+                        kmeans(r, 1024, 8), bfs(r, 1024, 6), scan(r, 2048)],
     'large': lambda r: [gemm(r, 64, 64, 64), spmv(r, 4096, 4096, 16), stencil(r, 128, 128, 2),
-                        kmeans(r, 16384, 16), bfs(r, 16384, 8)],
+                        kmeans(r, 16384, 16), bfs(r, 16384, 8), scan(r, 65536)],
 }
 
 

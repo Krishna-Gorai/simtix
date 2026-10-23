@@ -63,7 +63,8 @@ module warp_pool
   import simtix_pkg::*;
 #(
     parameter int MEM_CTX = NUM_WARPS,  // memory ops in flight (1 = the v1 engine)
-    parameter bit AMO_AGG = 1'b1        // AMO lanes share one read-modify-write per line
+    parameter bit AMO_AGG = 1'b1,       // AMO lanes share one read-modify-write per line
+    parameter bit AMO_PAR = 1'b0        // AMO lanes per cycle: 1 = all on distinct words, 0 = one
 ) (
     input  logic        clk,
     input  logic        rst,           // active-high
@@ -951,7 +952,7 @@ module warp_pool
         for (int l = 0; l < NL; l++)
             me_sdata[l] = is_store_fp ? frv2[l] : rv2[l];   // fsw stores an f-register
 
-    mem_engine #(.NC(MEM_CTX), .AGG(AMO_AGG)) u_mem (
+    mem_engine #(.NC(MEM_CTX), .AGG(AMO_AGG), .APAR(AMO_PAR)) u_mem (
         .clk        (clk),
         .rst        (rst),
         .blk_lg     (blk_lg),
