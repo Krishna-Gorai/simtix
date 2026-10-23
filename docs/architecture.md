@@ -284,6 +284,23 @@ atomic-heavy kernels, whose read-modify-writes now hit: histogram 5.6×,
 block-shared histogram 2.4×, `reduce_all` 1.5×. Streaming reductions read each line
 once and are unchanged (within 5%).
 
+### 4.7.3 AXI4 master (`axi_line_master.sv`, v2)
+
+`axi_line_master` turns the L1's memory-side line port into AXI4 for a 128-bit
+slave such as the Zynq UltraScale+ `S_AXI_HP` ports into DDR4. A 32-byte line is
+one INCR burst of two 128-bit beats; the line tag is the AXI ID, so reads with
+different IDs may complete in any order. A write sends AW and its two W beats
+(`WSTRB` from the byte enables) and is answered on B. Read beats are collected
+per ID, since AXI4 lets beats of different IDs interleave. One read and one write
+can wait in staging registers for their address channel. `err` is set on any
+`SLVERR`/`DECERR`.
+
+Out of context on xczu7ev the L1 alone uses 2.7k LUTs, 1.7k flip-flops and 16
+RAMB36 (4 ways × 4 BRAMs of 256-bit lines) and routes at 100 MHz with +3.97 ns
+slack (`fpga/impl_l1.tcl`, `fpga/reports_l1/`). `tb_sync` with `AXI = 1` runs the
+whole path, engine → L1 → AXI4 master → a behavioural AXI4 slave with 24-cycle,
+out-of-order responses and ready stalls.
+
 ### 4.8 The VRF write arbiter (M8)
 
 Two producers can target the file in the same cycle: the issue stage's **compute

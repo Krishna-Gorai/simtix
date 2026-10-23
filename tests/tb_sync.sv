@@ -25,6 +25,9 @@ module tb_sync
     parameter int MEM_OOO   = 0,
     // L1 = 1 puts the L1 data cache (l1_dcache) between the warp pool and memory.
     parameter int L1        = 0,
+    // AXI = 1 (needs L1 = 1) puts axi_line_master behind the L1 and serves it from
+    // a behavioural AXI4 slave (MEM_LAT / MEM_STALL / MEM_OOO apply to it).
+    parameter int AXI       = 0,
     /* verilator lint_off UNUSEDPARAM */   // read only when L1 = 1
     parameter int L1_SETS   = 128     // sets of the L1 (4 ways, 32-byte lines)
     /* verilator lint_on UNUSEDPARAM */
@@ -114,7 +117,9 @@ module tb_sync
 
     logic [31:0] lbase;
     assign lbase = {18'b0, m_addr[15:5], 3'b000};
+    /* verilator lint_off UNUSEDSIGNAL */   // the AXI model reads mem[] itself
     logic [LINE_BITS-1:0] line_now;              // the addressed line, this cycle
+    /* verilator lint_on UNUSEDSIGNAL */
     always_comb
         for (int w = 0; w < LINE_WORDS; w++)
             line_now[w*32 +: 32] = mem[lbase + w];
@@ -123,57 +128,195 @@ module tb_sync
     always @(posedge clk)
         if (rst) lfsr <= 16'hACE1;
         else     lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
-    assign m_gnt = (MEM_STALL == 0) || (lfsr[1:0] != 2'b00);
+    // One write port into the array, used by whichever memory model is selected.
+    logic                 wr_en;
+    logic [31:0]          wr_lbase;
+    logic [LINE_BITS-1:0] wr_data;
+    logic [LINE_BE-1:0]   wr_be;
+    logic                 axi_err;
 
     generate
-        if (MEM_LAT == 0) begin : g_lat0
-            assign m_rvalid = m_req;
-            assign m_rtag   = m_tag;
-            assign m_rdata  = line_now;
-        end else begin : g_lat
-            // One slot per tag (a tag is unique while outstanding): the line read at
-            // acceptance and the cycle its response is due. Each cycle the lowest
-            // due slot answers.
-            int unsigned          now;
-            logic                 sv  [MTAGS];
-            int unsigned          due [MTAGS];
-            logic [LINE_BITS-1:0] sd  [MTAGS];
-            logic                 rv;
-            logic [MTW-1:0]  rt;
-            always_comb begin
-                rv = 1'b0;
-                rt = '0;
-                for (int t = MTAGS-1; t >= 0; t--)
-                    if (sv[t] && (due[t] <= now)) begin rv = 1'b1; rt = MTW'(t); end
-            end
-            always @(posedge clk) begin
-                if (rst) begin
-                    now <= 0;
-                    for (int t = 0; t < MTAGS; t++) sv[t] <= 1'b0;
-                end else begin
-                    now <= now + 1;
-                    if (rv) sv[rt] <= 1'b0;
-                    if (m_req && m_gnt) begin
-                        sv[m_tag]  <= 1'b1;
-                        due[m_tag] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[4:2]) : 0);
-                        sd[m_tag]  <= line_now;
+        if (AXI == 0) begin : g_linemem
+            assign axi_err  = 1'b0;
+            assign wr_en    = m_we && m_req && m_gnt;
+            assign wr_lbase = lbase;
+            assign wr_data  = m_wdata;
+            assign wr_be    = m_be;
+        assign m_gnt = (MEM_STALL == 0) || (lfsr[1:0] != 2'b00);
+
+            if (MEM_LAT == 0) begin : g_lat0
+                assign m_rvalid = m_req;
+                assign m_rtag   = m_tag;
+                assign m_rdata  = line_now;
+            end else begin : g_lat
+                // One slot per tag (a tag is unique while outstanding): the line read at
+                // acceptance and the cycle its response is due. Each cycle the lowest
+                // due slot answers.
+                int unsigned          now;
+                logic                 sv  [MTAGS];
+                int unsigned          due [MTAGS];
+                logic [LINE_BITS-1:0] sd  [MTAGS];
+                logic                 rv;
+                logic [MTW-1:0]  rt;
+                always_comb begin
+                    rv = 1'b0;
+                    rt = '0;
+                    for (int t = MTAGS-1; t >= 0; t--)
+                        if (sv[t] && (due[t] <= now)) begin rv = 1'b1; rt = MTW'(t); end
+                end
+                always @(posedge clk) begin
+                    if (rst) begin
+                        now <= 0;
+                        for (int t = 0; t < MTAGS; t++) sv[t] <= 1'b0;
+                    end else begin
+                        now <= now + 1;
+                        if (rv) sv[rt] <= 1'b0;
+                        if (m_req && m_gnt) begin
+                            sv[m_tag]  <= 1'b1;
+                            due[m_tag] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[4:2]) : 0);
+                            sd[m_tag]  <= line_now;
+                        end
                     end
                 end
+                assign m_rvalid = rv;
+                assign m_rtag   = rt;
+                assign m_rdata  = sd[rt];
             end
-            assign m_rvalid = rv;
-            assign m_rtag   = rt;
-            assign m_rdata  = sd[rt];
+        end else begin : g_axi
+            localparam int DW = 128, NB = LINE_BITS / DW, BBW = $clog2(NB);
+            /* verilator lint_off UNUSEDSIGNAL */   // fixed burst attributes are not checked
+            logic [MTW-1:0]  awid, arid, bid, rid;
+            logic [31:0]     awaddr, araddr;
+            logic [7:0]      awlen, arlen;
+            logic [2:0]      awsize, arsize, awprot, arprot;
+            logic [1:0]      awburst, arburst;
+            logic [3:0]      awcache, arcache;
+            logic            awvalid, awready, wvalid, wready, wlast, bvalid, bready;
+            logic            arvalid, arready, rvalid, rready, rlast;
+            logic [DW-1:0]   wdata, rdata;
+            logic [DW/8-1:0] wstrb;
+            /* verilator lint_on UNUSEDSIGNAL */
+            axi_line_master #(.IDW(MTW), .DW(DW)) u_axi (
+                .clk(clk), .rst(rst),
+                .s_req(m_req), .s_gnt(m_gnt), .s_tag(m_tag), .s_addr(m_addr),
+                .s_we(m_we), .s_wdata(m_wdata), .s_be(m_be),
+                .s_rvalid(m_rvalid), .s_rtag(m_rtag), .s_rdata(m_rdata), .err(axi_err),
+                .m_axi_awid(awid), .m_axi_awaddr(awaddr), .m_axi_awlen(awlen),
+                .m_axi_awsize(awsize), .m_axi_awburst(awburst), .m_axi_awcache(awcache),
+                .m_axi_awprot(awprot), .m_axi_awvalid(awvalid), .m_axi_awready(awready),
+                .m_axi_wdata(wdata), .m_axi_wstrb(wstrb), .m_axi_wlast(wlast),
+                .m_axi_wvalid(wvalid), .m_axi_wready(wready),
+                .m_axi_bid(bid), .m_axi_bresp(2'b00), .m_axi_bvalid(bvalid), .m_axi_bready(bready),
+                .m_axi_arid(arid), .m_axi_araddr(araddr), .m_axi_arlen(arlen),
+                .m_axi_arsize(arsize), .m_axi_arburst(arburst), .m_axi_arcache(arcache),
+                .m_axi_arprot(arprot), .m_axi_arvalid(arvalid), .m_axi_arready(arready),
+                .m_axi_rid(rid), .m_axi_rdata(rdata), .m_axi_rresp(2'b00), .m_axi_rlast(rlast),
+                .m_axi_rvalid(rvalid), .m_axi_rready(rready));
+
+            // ── Behavioural AXI4 slave on mem[] ─────────────────────────────────
+            // Reads: the line is captured at AR acceptance and its burst is due
+            // MEM_LAT (+0..7 if MEM_OOO) cycles later; the lowest due ID streams
+            // next, so bursts of different IDs complete out of order. Writes: W
+            // beats apply to the oldest accepted AW; B is due MEM_LAT (+0..7) later.
+            int unsigned          now;
+            logic                 rdy;
+            logic                 rs_v   [MTAGS];
+            int unsigned          rs_due [MTAGS];
+            logic [LINE_BITS-1:0] rs_line[MTAGS];
+            logic                 rb_act;
+            logic [MTW-1:0]       rb_id;
+            logic [BBW-1:0]       rb_beat;
+            logic                 bs_v   [MTAGS];
+            int unsigned          bs_due [MTAGS];
+            logic [31:0]          awq_addr [16];
+            logic [MTW-1:0]       awq_id   [16];
+            logic [3:0]           awq_wp, awq_rp;
+            logic [4:0]           awq_n;
+            logic [BBW-1:0]       wb_beat;
+            logic [LINE_BITS-1:0] ar_line;
+            logic                 r_pick, b_pick;
+            logic [MTW-1:0]       r_pid, b_pid;
+
+            assign rdy     = (MEM_STALL == 0) || (lfsr[3:2] != 2'b00);
+            assign arready = rdy;
+            assign awready = rdy && (awq_n != 5'd16);
+            assign wready  = rdy && (awq_n != 5'd0);
+            always_comb
+                for (int w = 0; w < LINE_WORDS; w++)
+                    ar_line[w*32 +: 32] = mem[{18'b0, araddr[15:5], 3'b000} + w];
+            always_comb begin
+                r_pick = 1'b0; r_pid = '0; b_pick = 1'b0; b_pid = '0;
+                for (int t = MTAGS-1; t >= 0; t--) begin
+                    if (rs_v[t] && (rs_due[t] <= now)) begin r_pick = 1'b1; r_pid = MTW'(t); end
+                    if (bs_v[t] && (bs_due[t] <= now)) begin b_pick = 1'b1; b_pid = MTW'(t); end
+                end
+            end
+            assign rvalid = rb_act;
+            assign rid    = rb_id;
+            assign rdata  = rs_line[rb_id][rb_beat*DW +: DW];
+            assign rlast  = (rb_beat == BBW'(NB - 1));
+            assign bvalid = b_pick;
+            assign bid    = b_pid;
+
+            assign wr_en    = wvalid && wready;
+            assign wr_lbase = {18'b0, awq_addr[awq_rp][15:5], 3'b000};
+            always_comb begin
+                wr_data = '0;
+                wr_be   = '0;
+                wr_data[wb_beat*DW +: DW]     = wdata;
+                wr_be[wb_beat*(DW/8) +: DW/8] = wstrb;
+            end
+
+            always @(posedge clk) begin
+                if (rst) begin
+                    now <= 0; rb_act <= 1'b0; rb_beat <= '0; wb_beat <= '0;
+                    awq_wp <= '0; awq_rp <= '0; awq_n <= '0;
+                    for (int t = 0; t < MTAGS; t++) rs_v[t] <= 1'b0;
+                    for (int t = 0; t < MTAGS; t++) bs_v[t] <= 1'b0;
+                end else begin
+                    now <= now + 1;
+                    if (arvalid && arready) begin
+                        rs_v[arid]    <= 1'b1;
+                        rs_due[arid]  <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[6:4]) : 0);
+                        rs_line[arid] <= ar_line;
+                    end
+                    if (rb_act) begin
+                        if (rready) begin
+                            rb_beat <= rb_beat + 1'b1;
+                            if (rlast) begin rb_act <= 1'b0; rb_beat <= '0; rs_v[rb_id] <= 1'b0; end
+                        end
+                    end else if (r_pick) begin
+                        rb_act <= 1'b1; rb_id <= r_pid; rb_beat <= '0;
+                    end
+                    if (awvalid && awready) begin
+                        awq_addr[awq_wp] <= awaddr;
+                        awq_id[awq_wp]   <= awid;
+                        awq_wp           <= awq_wp + 1'b1;
+                    end
+                    if (wvalid && wready) begin
+                        wb_beat <= wb_beat + 1'b1;
+                        if (wlast) begin
+                            wb_beat <= '0;
+                            awq_rp  <= awq_rp + 1'b1;
+                            bs_v[awq_id[awq_rp]]   <= 1'b1;
+                            bs_due[awq_id[awq_rp]] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[9:7]) : 0);
+                        end
+                    end
+                    awq_n <= awq_n + 5'(awvalid && awready) - 5'(wvalid && wready && wlast);
+                    if (bvalid && bready) bs_v[bid] <= 1'b0;
+                end
+            end
         end
     endgenerate
 
     always @(posedge clk)
-        if (m_we && m_req && m_gnt)
+        if (wr_en)
             for (int w = 0; w < LINE_WORDS; w++) begin
                 logic [31:0] cur;
-                cur = mem[lbase + w];
+                cur = mem[wr_lbase + w];
                 for (int b = 0; b < 4; b++)
-                    if (m_be[w*4 + b]) cur[b*8 +: 8] = m_wdata[w*32 + b*8 +: 8];
-                mem[lbase + w] <= cur;
+                    if (wr_be[w*4 + b]) cur[b*8 +: 8] = wr_data[w*32 + b*8 +: 8];
+                mem[wr_lbase + w] <= cur;
             end
 
     localparam logic [31:0] A_BASE = 32'h0000_2000;   // 1024 words
@@ -394,6 +537,7 @@ module tb_sync
 
         $display("  %0d checks, %0d errors", checks, errors);
         $display("=============================================================================");
+        if (axi_err) begin $display("  [FAIL] AXI error response"); errors++; end
         if (errors != 0) begin $display("RESULT: FAIL (%0d errors)", errors); $fatal(1); end
         else             $display("RESULT: PASS");
         $finish;
