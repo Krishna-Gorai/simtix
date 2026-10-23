@@ -61,6 +61,7 @@ TESTS = {
     'sync_l1s':  ('tb_sync', POOL + [A + 'l1_dcache.sv', 'tests/tb_sync.sv'], [], False,
                   ['MEM_LAT=20', 'MEM_STALL=1', 'MEM_OOO=1', 'L1=1', 'L1_SETS=2']),
     'ps':        ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], [], False),
+    'apps':      ('tb_apps', PS + ['tests/tb_apps.sv'], [], False),   # needs sim/gen_apps.py
     'sync_axi':  ('tb_sync', POOL + [A + 'l1_dcache.sv', A + 'axi_line_master.sv', 'tests/tb_sync.sv'],
                   [], False, ['MEM_LAT=24', 'MEM_STALL=1', 'MEM_OOO=1', 'L1=1', 'AXI=1']),
 }

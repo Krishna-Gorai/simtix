@@ -85,7 +85,7 @@ SOC_VFLAGS:= -sv -Wno-lint -Wno-style -Wno-WIDTH --timing
 # checkout path has no spaces.)
 MDIR      := /tmp/simtix-build
 
-.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-l1 test-sync-l1s test-sync-axi test-ps lint-ps mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
+.PHONY: lint lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip test test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-l1 test-sync-l1s test-sync-axi test-ps test-apps lint-ps mnist-driver mnist-driver-short test-chip-mnist test-chip-mnist-short bench fp-bench cpu-bench clean
 
 lint: lint-accel lint-lane lint-warp lint-pool lint-cpu lint-soc lint-chip lint-ps
 
@@ -129,7 +129,7 @@ define run_tb
 	$(MDIR)/$(1)
 endef
 
-test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-l1 test-sync-l1s test-sync-axi test-ps
+test: test-accel test-lane test-warp test-pool test-pdot8 test-qgemm test-requant test-qgemv test-fp test-fpu test-divsqrt test-fparith test-fpfma test-fparith16 test-fpdivsqrt test-fpkernels test-soc test-chip test-sync test-sync-lat test-sync-ooo test-sync-noagg test-sync-l1 test-sync-l1s test-sync-axi test-ps test-apps
 
 test-accel:
 	$(call run_tb,tb_simt_accel,$(PKG) ../rtl/accel/mmio_regs.sv ../rtl/accel/simt_fpu.sv ../rtl/accel/fp_divsqrt.sv ../rtl/accel/mem_engine.sv ../rtl/accel/warp_pool.sv ../rtl/accel/simt_accel.sv ../tests/tb_simt_accel.sv)
@@ -307,6 +307,14 @@ test-ps:
 	$(VERILATOR) --binary $(VFLAGS) -I../kernels/sync --Mdir $(MDIR) --top-module tb_ps_top $(ACCEL_RTL) ../rtl/accel/l1_dcache.sv ../rtl/accel/axi_line_master.sv ../rtl/soc/simt_ps_top.sv ../tests/axi_mem_model.sv ../tests/tb_ps_top.sv -o tb_ps_top
 	@echo "[test] running tb_ps_top..."
 	$(MDIR)/tb_ps_top
+
+# v2 application suite (GEMM, SpMV, stencil, k-means, BFS) on the board top.
+test-apps:
+	rm -rf $(MDIR)
+	python3 gen_apps.py --out $(MDIR)/apps
+	$(VERILATOR) --binary $(VFLAGS) --Mdir $(MDIR) --top-module tb_apps $(ACCEL_RTL) ../rtl/accel/l1_dcache.sv ../rtl/accel/axi_line_master.sv ../rtl/soc/simt_ps_top.sv ../tests/axi_mem_model.sv ../tests/tb_apps.sv -o tb_apps
+	@echo "[test] running tb_apps..."
+	$(MDIR)/tb_apps +MANIFEST=$(MDIR)/apps/apps.manifest
 
 test-chip:
 	rm -rf $(MDIR)
