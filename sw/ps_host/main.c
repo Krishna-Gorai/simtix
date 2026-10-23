@@ -18,7 +18,7 @@
 #include "xil_io.h"
 #include "xil_cache.h"
 #include "xil_printf.h"
-#include "xtime_l.h"
+#include "xiltimer.h"      /* XTime, XTime_GetTime, COUNTS_PER_SECOND */
 #include "kernels.h"
 
 #define SIMT_BASE      0xA0000000u

@@ -87,3 +87,6 @@ fpga/simtix_ps/
 fpga/*.xsa
 # Python bytecode
 __pycache__/
+# A53 host workspace and log (regenerate with sw/ps_host/build_vitis.py)
+sw/ps_host/ws/
+sw/ps_host/vitis_build.log
