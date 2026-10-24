@@ -92,3 +92,5 @@ sw/ps_host/ws/
 sw/ps_host/vitis_build.log
 # v2 application-suite data (regenerate with sim/gen_apps.py)
 build_apps/
+# Vortex baseline run logs (baselines/vortex/run_apps.sh)
+build_vortex/

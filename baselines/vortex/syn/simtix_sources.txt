@@ -1,0 +1,13 @@
+# SIMTiX board top (simt_ps_top: AXI-Lite registers, instruction RAM, accelerator,
+# L1, AXI4 master) for Vortex's project.tcl. parse_vcs_list substs each line, so
+# SIMTIX_ROOT comes from the environment (run_syn.ps1 -Top simt_ps_top).
+$::env(SIMTIX_ROOT)/rtl/accel/simtix_pkg.sv
+$::env(SIMTIX_ROOT)/rtl/accel/mmio_regs.sv
+$::env(SIMTIX_ROOT)/rtl/accel/simt_fpu.sv
+$::env(SIMTIX_ROOT)/rtl/accel/fp_divsqrt.sv
+$::env(SIMTIX_ROOT)/rtl/accel/mem_engine.sv
+$::env(SIMTIX_ROOT)/rtl/accel/warp_pool.sv
+$::env(SIMTIX_ROOT)/rtl/accel/simt_accel.sv
+$::env(SIMTIX_ROOT)/rtl/accel/l1_dcache.sv
+$::env(SIMTIX_ROOT)/rtl/accel/axi_line_master.sv
+$::env(SIMTIX_ROOT)/rtl/soc/simt_ps_top.sv
