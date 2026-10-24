@@ -335,9 +335,10 @@ Without the two registers the board build missed 100 MHz by 2.5 ns
 request, formed from its pending-lane masks, went through the tag lookup to the
 block-RAM write port, and through the grant back into the warp resume, in one
 cycle. With them and `MEM_BYP = 0` (§4.7) it meets 100 MHz with +0.10 ns slack
-(81.1k LUT, 23.7k flip-flops, 72 DSP, 16 RAMB36, 4.21 W; `fpga/reports_ps/`).
-Its worst path now lies inside the warp pool: a branch's operand read and compare
-into the reconvergence stack, 79% of it wire.
+(81.1k LUT, 23.9k flip-flops, 72 DSP, 16 RAMB36, 4.19 W; `fpga/reports_ps/`).
+Its worst path now lies inside a lane's FPU: the stage-0 add (exponent compare,
+alignment and 48-bit add into the special-case flag), 35 levels, 66% of it wire.
+The next paths are the L1 input register and the warp state, at +0.36 ns and more.
 
 With a 20-cycle memory (`tb_sync`, N = 1024, AMOs one lane per read-modify-write
 as before aggregation), the cache speeds up the
