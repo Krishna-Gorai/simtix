@@ -57,8 +57,30 @@ uint32_t ref_sqrt(uint32_t a) {
 uint32_t ref_cvt_sw (uint32_t x) { return f2b((float)(int32_t)x);  }
 uint32_t ref_cvt_swu(uint32_t x) { return f2b((float)(uint32_t)x); }
 
-// float -> int32 (truncate toward zero, C cast semantics)
-uint32_t ref_cvt_ws (uint32_t a) { return (uint32_t)(int32_t)b2f(a); }
+// float -> int32 / uint32 (uns) under RISC-V rounding mode rm: 0 RNE, 1 RTZ, 2 RDN,
+// 3 RUP, 4 RMM, anything else RNE (the engine's dyn). Saturates as RISC-V does: NaN
+// -> the largest value, out of range -> the nearer bound. Subnormals flush to zero.
+uint32_t ref_cvt_ws(uint32_t a, int rm, int uns) {
+    float f = b2f(a);
+    if (isnan(f)) return uns ? 0xffffffffu : 0x7fffffffu;
+    if (fpclassify(f) == FP_SUBNORMAL) f = 0.0f;
+    double v = (double)f, r;
+    switch (rm) {
+    case 1:  r = trunc(v); break;
+    case 2:  r = floor(v); break;
+    case 3:  r = ceil(v);  break;
+    case 4:  r = round(v); break;          // ties away from zero
+    default: r = nearbyint(v); break;      // ties to even (the default FE_TONEAREST)
+    }
+    if (uns) {
+        if (r <= 0.0)          return 0u;
+        if (r >= 4294967296.0) return 0xffffffffu;
+        return (uint32_t)r;
+    }
+    if (r >= 2147483648.0)  return 0x7fffffffu;
+    if (r < -2147483648.0)  return 0x80000000u;
+    return (uint32_t)(int32_t)r;
+}
 
 // ── FP16 helpers ─────────────────────────────────────────────────────────────
 // half bits -> double (exact value; FTZ subnormal input -> signed zero)
@@ -123,8 +145,8 @@ uint32_t ref_cvt_sh(uint32_t h) {
 }
 // FP32 -> half (narrow, RNE, FTZ)
 uint32_t ref_cvt_hs(uint32_t a) { return d2h((double)b2f(a)); }
-// half -> int32 (RTZ) and int32 -> half (RNE) via the FP32 references
-uint32_t ref_cvt_wh(uint32_t h) { return ref_cvt_ws(ref_cvt_sh(h)); }
+// half -> int32 / uint32 (by rm) and int32 -> half (RNE) via the FP32 references
+uint32_t ref_cvt_wh(uint32_t h, int rm, int uns) { return ref_cvt_ws(ref_cvt_sh(h), rm, uns); }
 uint32_t ref_cvt_hw(uint32_t x) { return ref_cvt_hs(ref_cvt_sw(x)); }
 
 #ifdef __cplusplus

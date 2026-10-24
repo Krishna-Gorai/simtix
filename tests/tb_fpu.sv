@@ -18,14 +18,14 @@ module tb_fpu
     import "DPI-C" function int unsigned ref_mul(input int unsigned a, input int unsigned b);
     import "DPI-C" function int unsigned ref_cvt_sw (input int unsigned x);
     import "DPI-C" function int unsigned ref_cvt_swu(input int unsigned x);
-    import "DPI-C" function int unsigned ref_cvt_ws (input int unsigned a);
+    import "DPI-C" function int unsigned ref_cvt_ws (input int unsigned a, input int rm, input int uns);
     // FP16 references (tests/fpu_ref.c): operate on 16-bit half patterns.
     import "DPI-C" function int unsigned ref_hadd(input int unsigned a, input int unsigned b);
     import "DPI-C" function int unsigned ref_hsub(input int unsigned a, input int unsigned b);
     import "DPI-C" function int unsigned ref_hmul(input int unsigned a, input int unsigned b);
     import "DPI-C" function int unsigned ref_cvt_sh(input int unsigned h);  // half -> FP32
     import "DPI-C" function int unsigned ref_cvt_hs(input int unsigned a);  // FP32 -> half
-    import "DPI-C" function int unsigned ref_cvt_wh(input int unsigned h);  // half -> int32
+    import "DPI-C" function int unsigned ref_cvt_wh(input int unsigned h, input int rm, input int uns);  // half -> int
     import "DPI-C" function int unsigned ref_cvt_hw(input int unsigned x);  // int32 -> half
     // Fused multiply-add (single rounding): np/nc select the four variants.
     import "DPI-C" function int unsigned ref_fmaf(input int unsigned a, input int unsigned b,
@@ -111,6 +111,32 @@ module tb_fpu
         return {s, e, m};
     endfunction
 
+    // Rounding-mode codes a float -> int convert can carry: RNE RTZ RDN RUP RMM dyn.
+    localparam logic [2:0] RMS [6] = '{3'b000, 3'b001, 3'b010, 3'b011, 3'b100, 3'b111};
+    // Directed float -> int inputs: ties and their neighbours, the int32 / uint32
+    // bounds, zeros, subnormals (FTZ), infinities and NaNs.
+    localparam int NDIR = 49;
+    localparam logic [31:0] CVT_DIR [NDIR] = '{
+        32'h3f000000, 32'hbf000000, 32'h3fc00000, 32'hbfc00000,   // +-0.5   +-1.5
+        32'h40200000, 32'hc0200000, 32'h40600000, 32'hc0600000,   // +-2.5   +-3.5
+        32'h3e800000, 32'hbe800000, 32'h3f400000, 32'hbf400000,   // +-0.25  +-0.75
+        32'h3fa00000, 32'hbfa00000, 32'h3fe00000, 32'hbfe00000,   // +-1.25  +-1.75
+        32'h3effffff, 32'hbeffffff, 32'h3f000001, 32'hbf000001,   // just below / above 0.5
+        32'h3f800000, 32'hbf800000, 32'h42c90000, 32'hc2c90000,   // +-1     +-100.5
+        32'h42cb0000, 32'hc2cb0000, 32'h4a800001, 32'h4a800003,   // +-101.5, 2^22 + 0.5 / 1.5
+        32'hcaffffff, 32'h4affffff, 32'h4b000000, 32'h4effffff,   // +-(2^23 - 0.5), 2^23, < 2^31
+        32'h4f000000, 32'hcf000000, 32'hcf000001, 32'h4f32d05e,   // 2^31, -2^31, below, ~3e9
+        32'h4f7fffff, 32'h4f800000, 32'h00000000, 32'h80000000,   // < 2^32, 2^32, +-0
+        32'h00000001, 32'h807fffff, 32'h00800000, 32'h80800000,   // subnormals, +-min normal
+        32'h7f800000, 32'hff800000, 32'h7fc00000, 32'hffc00000,   // +-inf, +-qNaN
+        32'h7f800001 };                                           // sNaN
+    localparam int NDIR_H = 19;
+    localparam logic [15:0] CVT_DIR_H [NDIR_H] = '{
+        16'h3800, 16'hb800, 16'h3e00, 16'hbe00, 16'h4100, 16'hc100,   // +-0.5 +-1.5 +-2.5
+        16'h3400, 16'hb400, 16'h3a00, 16'hba00,                       // +-0.25 +-0.75
+        16'h7bff, 16'hfbff, 16'h0001, 16'h8001,                       // +-65504, subnormals
+        16'h7c00, 16'hfc00, 16'h7e00, 16'h0000, 16'h8000 };           // +-inf, NaN, +-0
+
     // The caller sets the operands/controls (held stable here), then ck() clocks the FPU
     // pipeline latency so `res` reflects them. simt_fpu is a 5-stage pipeline (B2): the
     // significand multiply is a fully-pipelined DSP (input reg + 3 output regs), so the
@@ -125,8 +151,8 @@ module tb_fpu
         #1;                                 // stage-3 combinational settles
         if (res !== exp) begin
             if (errors < 12)
-                $display("  [FAIL] %-10s a=%08h b=%08h c=%08h xa=%08h -> %08h exp %08h",
-                         tag, sa, sb, sc, sxa, res, exp);
+                $display("  [FAIL] %-10s a=%08h b=%08h c=%08h xa=%08h rm=%0d -> %08h exp %08h",
+                         tag, sa, sb, sc, sxa, rm, res, exp);
             errors++;
         end
     endtask
@@ -178,13 +204,31 @@ module tb_fpu
         $display("[tb_fpu] conversions vs DPI float golden");
         rm = 3'b000;
         for (int i = 0; i < 4000; i++) begin
-            logic [31:0] iv, fv;
+            logic [31:0] iv;
             iv = $random;
             funct5 = FP_CVT_S; cvt_unsigned = 1'b0; xa = iv; ck(ref_cvt_sw(iv),  "cvt.s.w");
             funct5 = FP_CVT_S; cvt_unsigned = 1'b1; xa = iv; ck(ref_cvt_swu(iv), "cvt.s.wu");
-            fv = rand_normal();
-            funct5 = FP_CVT_W; cvt_unsigned = 1'b0; a = fv; ck(ref_cvt_ws(fv),  "cvt.w.s");
         end
+
+        // float -> int under every rounding mode, signed and unsigned: random values
+        // with |x| from 2^-8 to 2^34 (fractions, ties, saturation), then directed ones.
+        $display("[tb_fpu] float -> int, all rounding modes, vs DPI golden");
+        funct5 = FP_CVT_W;
+        for (int i = 0; i < 8000; i++) begin
+            logic [31:0] fv;
+            fv = rand_fp(119, 42);
+            rm = RMS[$unsigned($random) % 6]; cvt_unsigned = 1'($random); a = fv;
+            if (cvt_unsigned) ck(ref_cvt_ws(fv, int'(rm), 1), "cvt.wu.s");
+            else              ck(ref_cvt_ws(fv, int'(rm), 0), "cvt.w.s");
+        end
+        for (int j = 0; j < NDIR; j++)
+            for (int k = 0; k < 6; k++) begin
+                rm = RMS[k]; a = CVT_DIR[j];
+                cvt_unsigned = 1'b0; ck(ref_cvt_ws(CVT_DIR[j], int'(rm), 0), "cvt.w.s");
+                cvt_unsigned = 1'b1; ck(ref_cvt_ws(CVT_DIR[j], int'(rm), 1), "cvt.wu.s");
+            end
+        rm = 3'b000; cvt_unsigned = 1'b0;
+        $display("  %0d checks, %0d errors so far", checks, errors);
 
         // ── Fused multiply-add (FP32), all four variants, vs single-rounded fmaf ──
         $display("[tb_fpu] FP32 fused FMA vs DPI fmaf golden (all 4 variants)");
@@ -281,14 +325,25 @@ module tb_fpu
             fv = {1'($random), 8'(115 + ($unsigned($random) % 26)), 23'($random)};
             funct5 = FP_CVT_FF; fmt = FMT_H; cvt_src_h = 1'b0; a = fv;
             ck(boxh(16'(ref_cvt_hs(fv))), "cvt.h.s");
-            // fcvt.w.h : half -> int32 (RTZ)
+            // fcvt.w.h / fcvt.wu.h : half -> int, a random rounding mode
             funct5 = FP_CVT_W; fmt = FMT_H; cvt_src_h = 1'b0; a = boxh(hv);
-            ck(ref_cvt_wh(32'(hv)), "cvt.w.h");
+            rm = RMS[$unsigned($random) % 6]; cvt_unsigned = 1'($random);
+            if (cvt_unsigned) ck(ref_cvt_wh(32'(hv), int'(rm), 1), "cvt.wu.h");
+            else              ck(ref_cvt_wh(32'(hv), int'(rm), 0), "cvt.w.h");
+            rm = 3'b000; cvt_unsigned = 1'b0;
             // fcvt.h.w : int32 -> half (RNE)
             iv = $random;
             funct5 = FP_CVT_S; fmt = FMT_H; cvt_src_h = 1'b0; xa = iv;
             ck(boxh(16'(ref_cvt_hw(iv))), "cvt.h.w");
         end
+        funct5 = FP_CVT_W; fmt = FMT_H; cvt_src_h = 1'b0;
+        for (int j = 0; j < NDIR_H; j++)
+            for (int k = 0; k < 6; k++) begin
+                rm = RMS[k]; a = boxh(CVT_DIR_H[j]);
+                cvt_unsigned = 1'b0; ck(ref_cvt_wh(32'(CVT_DIR_H[j]), int'(rm), 0), "cvt.w.h");
+                cvt_unsigned = 1'b1; ck(ref_cvt_wh(32'(CVT_DIR_H[j]), int'(rm), 1), "cvt.wu.h");
+            end
+        rm = 3'b000; cvt_unsigned = 1'b0;
 
         // ── Fused multiply-add (FP16), all four variants, vs single-rounded fma ──
         $display("[tb_fpu] FP16 fused FMA vs DPI half-fma golden (all 4 variants)");

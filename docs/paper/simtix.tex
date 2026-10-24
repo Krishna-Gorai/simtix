@@ -512,8 +512,9 @@ integer load can retire in the same cycle; only same-file collisions defer.
 The unit implements add, subtract, multiply, the fused multiply-add
 (all four sign variants), sign-injection, min/max, the ordered compares,
 integer$\leftrightarrow$float conversion, the FP32$\leftrightarrow$FP16 format
-conversions, the integer/FP bit-moves, and classify, in both precisions. Rounding
-is round-to-nearest-even; float-to-integer truncates; subnormals are flushed to
+conversions, the integer/FP bit-moves, and classify, in both precisions. Arithmetic
+rounds to nearest even; float-to-integer conversion rounds by the instruction's
+rounding mode; subnormals are flushed to
 zero in both formats, a deliberate throughput-oriented choice that keeps each lane
 small. Division and square root are inherently multi-cycle and are handled by a
 separate iterative unit behind a stall scoreboard

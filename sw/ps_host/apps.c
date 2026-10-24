@@ -389,14 +389,22 @@ static unsigned app_scan(uint32_t n)
 
 /* ── MLP: INT8 fully connected layers, ReLU between, INT32 logits ───────────── */
 /* Layer l: acc = x . W (pdot8 on the accelerator); hidden layers requantize to
-   trunc(clamp(fmaf((float)acc, scale, zp), 0, 127)) (the engine's fcvt.w.s
-   truncates; zp holds the +0.5 of round-half-up). Columns are padded to Npad, a
-   power of two of at least 8; each image's activations are Npad bytes. */
+   rne(clamp(fmaf((float)acc, scale, zp), 0, 127)), rounding half to even. Columns
+   are padded to Npad, a power of two of at least 8; each image's activations are
+   Npad bytes. */
+static uint8_t rne_u8(float v)          /* 0 <= v <= 127 */
+{
+    int32_t i = (int32_t)v;
+    float   f = v - (float)i;           /* exact */
+    if (f > 0.5f || (f == 0.5f && (i & 1))) i++;
+    return (uint8_t)i;
+}
+
 static unsigned app_mlp(uint32_t batch)
 {
     static const uint32_t dims[] = { 784, 256, 128, 10 };
     const unsigned nl = sizeof dims / sizeof dims[0] - 1;
-    const float scale = 1.0f / 1024.0f, zp = 3.5f;
+    const float scale = 1.0f / 1024.0f, zp = 3.0f;
     XTime t0, t1, t2, t3;
     uint8_t  *x0 = alloc(batch * dims[0]);
     int8_t   *w[3];
@@ -450,7 +458,7 @@ static unsigned app_mlp(uint32_t batch)
                 } else {
                     float v = fmaf((float)acc, scale, zp);
                     v = v > 127.0f ? 127.0f : (v < 0.0f ? 0.0f : v);
-                    nxt[b * npad[l] + n] = (uint8_t)(int32_t)v;
+                    nxt[b * npad[l] + n] = rne_u8(v);
                 }
             }
         if (!last) {

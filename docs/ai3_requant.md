@@ -83,25 +83,31 @@ dedicated integer datapath would avoid this entirely.
 
 ## 5. Verification
 
-`tests/tb_requant.sv` runs the kernel on eight accumulators spanning the sign range,
-**both clamp saturations**, near-zero, and the +127 edge, with `scale = 0.05`,
-`zero_point = 2.0`. Each output byte is checked against a software reference:
+`tests/tb_requant.sv` runs the kernel on two sets of eight accumulators. Set 0
+(`scale = 0.05`, `zero_point = 2.0`) gives values on either side of `.5`, both signs,
+near zero and **both clamp saturations**. Set 1 (`scale = 0.125`, exact, `zero_point
+= 0`) gives exact ties (±0.5, ±1.5, ±2.5). Each output byte is checked against a
+software reference:
 
 ```
-out = clamp( round_nearest( acc·scale + zp ), -128, 127 )
+out = round_half_even( clamp( acc·scale + zp, -128, 127 ) )
 ```
 
-Test values are chosen away from `.5` rounding boundaries so the integer result is
-unambiguous and the check is **exact**. Result:
+Each set contains values that truncation, round-half-up and round-half-away-from-zero
+get wrong. Result:
 
 ```
 SIMTiX INT32->INT8 requantize golden test  (LANES=8 WARPS=4)
-  [PASS] all 8 requantized bytes bit-exact
+  [PASS] all 16 requantized bytes bit-exact (2 sets)
 RESULT: PASS
 ```
 
-Run with `make -C sim test-requant`. No RTL is added, so the full regression stays
-green.
+Run with `make -C sim test-requant`.
+
+Until 2026-10-24 the FPU truncated in every `fcvt.w`, whatever the instruction's
+rounding mode, and the test data then in use (`y` = 52, −48, 2, … , all integers)
+could not show it. With the present data the old FPU fails 7 of the 16 bytes.
+`simt_fpu` now rounds float-to-integer conversions by the instruction's mode.
 
 > **Verification aside (worth recording for the thesis).** The first run "failed"
 > — but the *reference* was wrong, not the kernel. SystemVerilog's `int'(real)`

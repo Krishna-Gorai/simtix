@@ -3,10 +3,10 @@
 //
 // AI Tier-2. One thread per element: acc(int32) -> clamp(round(acc*scale+zp),-128,127)
 // stored as a signed byte. Runs kernels/quant/requant.S on warp_pool and checks each
-// lane's output byte against a software reference. Test data spans positive/negative,
-// both clamp saturations, near-zero, and the +127 edge; all values are chosen away
-// from .5 rounding boundaries so the integer result is unambiguous and the check is
-// exact.
+// lane's output byte against a software reference, for two parameter sets: one whose
+// results fall either side of .5 (both signs, both clamps, near zero), and one with
+// exact ties, which round to the even neighbour. Every set has values that
+// truncation, round-half-up and round-half-away would get wrong.
 //
 //   Build/run:  make -C sim test-requant
 // =============================================================================
@@ -80,11 +80,20 @@ module tb_requant
     endfunction
     /* verilator lint_on UNUSEDSIGNAL */
 
-    // scale = 0.05 (0x3D4CCCCD), zero_point = 2.0 (0x40000000)
-    localparam logic [31:0] SCALE_F = 32'h3D4CCCCD;
-    localparam logic [31:0] ZP_F    = 32'h40000000;
-    localparam real         SCALE_R = 0.05;
-    localparam real         ZP_R    = 2.0;
+    // Set 0: scale = 0.05 (0x3D4CCCCD), zero_point = 2.0 (0x40000000).
+    // Set 1: scale = 0.125 (0x3E000000, exact), zero_point = 0, so x.5 is an exact tie.
+    function automatic logic [31:0] scale_f(input int set);
+        return (set == 0) ? 32'h3D4CCCCD : 32'h3E000000;
+    endfunction
+    function automatic logic [31:0] zp_f(input int set);
+        return (set == 0) ? 32'h40000000 : 32'h00000000;
+    endfunction
+    function automatic real scale_r(input int set);
+        return (set == 0) ? 0.05 : 0.125;
+    endfunction
+    function automatic real zp_r(input int set);
+        return (set == 0) ? 2.0 : 0.0;
+    endfunction
 
     // ── kernels/quant/requant.S, assembled (rv32imf, -Ttext=0) → 17 words ────────
     task automatic load_kernel();
@@ -96,30 +105,41 @@ module tb_requant
         mem[15] = 32'h01df0023; mem[16] = 32'h00000073;
     endtask
 
-    // Test accumulators (span sign / both clamps / zero / +127 edge).
-    function automatic int acc_in(input int i);
-        case (i % 8)
-            0: acc_in =  1000;  1: acc_in = -1000;  2: acc_in =  5000;  3: acc_in = -6000;
-            4: acc_in =     0;  5: acc_in =  1260;  6: acc_in =  -740;  default: acc_in = 2500;
-        endcase
+    // Accumulators and the y = acc*scale + zp they give. Set 0: 52.65, -48.65, 52.35,
+    // -48.35, -0.85, 126.95, 252 (clamps), -298 (clamps). Set 1: ties 0.5, 1.5, 2.5,
+    // -0.5, -1.5, -2.5, then 0.75 and 127.5 (clamps to 127 before the convert).
+    function automatic int acc_in(input int set, input int i);
+        if (set == 0)
+            case (i % 8)
+                0: acc_in =  1013;  1: acc_in = -1013;  2: acc_in =  1007;  3: acc_in = -1007;
+                4: acc_in =   -57;  5: acc_in =  2499;  6: acc_in =  5000;  default: acc_in = -6000;
+            endcase
+        else
+            case (i % 8)
+                0: acc_in =     4;  1: acc_in =    12;  2: acc_in =    20;  3: acc_in =    -4;
+                4: acc_in =   -12;  5: acc_in =   -20;  6: acc_in =     6;  default: acc_in =  1020;
+            endcase
     endfunction
 
-    // Software reference: clamp(round_nearest(acc*scale+zp), -128, 127). Data avoids
-    // .5 boundaries so double vs. the kernel's f32 give the same integer.
-    function automatic int req_ref(input int acc);
-        real y; int r;
-        y = real'(acc) * SCALE_R + ZP_R;
-        r = int'(y);                 // SV int'(real) already rounds to nearest
-        if (r >  127) r =  127;
-        if (r < -128) r = -128;
+    // Software reference: clamp(round_half_even(acc*scale + zp), -128, 127), clamping
+    // first as the kernel does. The kernel forms y in FP32 with one rounding (fmadd);
+    // set 0 keeps y away from .5 and set 1 is exact, so a double y gives the same integer.
+    function automatic int req_ref(input int set, input int acc);
+        real y, f; int r;
+        y = real'(acc) * scale_r(set) + zp_r(set);
+        if (y >  127.0) y =  127.0;
+        if (y < -128.0) y = -128.0;
+        f = $floor(y);
+        r = int'(f);
+        if ((y - f > 0.5) || ((y - f == 0.5) && (r % 2 != 0))) r = r + 1;
         return r;
     endfunction
 
-    task automatic preload();
+    task automatic preload(input int set);
         for (int i = 0; i < NUM_LANES; i++)
-            begin logic [31:0] v; v = acc_in(i); mem[widx(A_BASE)+i] = v; end           // int32 accumulators
-        mem[widx(B_BASE) + 0] = SCALE_F;
-        mem[widx(B_BASE) + 1] = ZP_F;
+            begin logic [31:0] v; v = acc_in(set, i); mem[widx(A_BASE)+i] = v; end      // int32 accumulators
+        mem[widx(B_BASE) + 0] = scale_f(set);
+        mem[widx(B_BASE) + 1] = zp_f(set);
     endtask
 
     task automatic run(input logic [31:0] n);
@@ -136,28 +156,30 @@ module tb_requant
         start = 0; n_threads = 0; kernel_pc = 0; base_a = 0; base_b = 0; base_c = 0;
         for (int w = 0; w < MEM_WORDS; w++) mem[w] = 32'd0;
         load_kernel();
-        preload();
         rst = 1; repeat (3) @(posedge clk); rst = 0;
 
         $display("=============================================================================");
         $display("SIMTiX INT32->INT8 requantize golden test  (LANES=%0d WARPS=%0d)",
                  NUM_LANES, NUM_WARPS);
 
-        run(NUM_LANES);
-
-        for (int l = 0; l < NUM_LANES; l++) begin
-            logic [7:0] gb; int got, exp;
-            gb  = mem[widx(C_BASE) + l/4][(l%4)*8 +: 8];   // packed signed byte
-            got = int'(signed'(gb));
-            exp = req_ref(acc_in(l));
-            if (got !== exp) begin
-                $display("  [FAIL] lane %0d: acc=%0d got=%0d exp=%0d", l, acc_in(l), got, exp);
-                errors++;
+        for (int set = 0; set < 2; set++) begin
+            preload(set);
+            run(NUM_LANES);
+            for (int l = 0; l < NUM_LANES; l++) begin
+                logic [7:0] gb; int got, exp;
+                gb  = mem[widx(C_BASE) + l/4][(l%4)*8 +: 8];   // packed signed byte
+                got = int'(signed'(gb));
+                exp = req_ref(set, acc_in(set, l));
+                if (got !== exp) begin
+                    $display("  [FAIL] set %0d lane %0d: acc=%0d got=%0d exp=%0d",
+                             set, l, acc_in(set, l), got, exp);
+                    errors++;
+                end
             end
         end
 
         if (errors == 0)
-            $display("  [PASS] all %0d requantized bytes bit-exact", NUM_LANES);
+            $display("  [PASS] all %0d requantized bytes bit-exact (2 sets)", 2 * NUM_LANES);
         $display("=============================================================================");
         if (errors != 0) begin $display("RESULT: FAIL (%0d errors)", errors); $fatal(1); end
         else              $display("RESULT: PASS");

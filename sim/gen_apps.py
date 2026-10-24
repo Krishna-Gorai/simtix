@@ -278,11 +278,10 @@ F127 = 0x42FE_0000                                # 127.0f
 
 
 def requant(acc, scale, zp):
-    """mlp.S mode 1: trunc(clamp(fmadd(float(acc), scale, zp), 0, 127)).
-    fcvt.w.s on the engine truncates; zp includes +0.5 for round-half-up."""
+    """mlp.S mode 1: rne(clamp(fmadd(float(acc), scale, zp), 0, 127))."""
     v = f2fr(fma(fr2f(Fraction(acc)), scale, zp))
     v = min(max(v, Fraction(0)), f2fr(F127))
-    return int(v)                                 # v >= 0: int() truncates
+    return round(v)                               # round half to even
 
 
 def pack8(vals):
@@ -295,7 +294,7 @@ def mlp(rng, batch, dims):
     """INT8 MLP, dims = [K0, N1, ..., NL]; ReLU between layers, INT32 logits."""
     c = Case(f'mlp_{"x".join(map(str, dims))}_b{batch}')
     scale = struct.unpack('<I', struct.pack('<f', 2.0 ** -10))[0]
-    zp = struct.unpack('<I', struct.pack('<f', 3.5))[0]
+    zp = struct.unpack('<I', struct.pack('<f', 3.0))[0]
     x = [[rng.randrange(128) for _ in range(dims[0])] for _ in range(batch)]
     k = dims[0]
     px = c.img.alloc(batch * k // 4, [w for img in x for w in pack8(img)])

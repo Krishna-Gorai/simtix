@@ -8,7 +8,7 @@
 //     fsgnj  fsgnjn  fsgnjx                      (sign inject)
 //     fmin  fmax                                 (IEEE minNum/maxNum)
 //     feq  flt  fle                              (compares  -> integer reg)
-//     fcvt.w / fcvt.wu  (float -> int, RTZ),  fcvt.w/wu -> float (RNE)
+//     fcvt.w / fcvt.wu  (float -> int, by rm),  fcvt.w/wu -> float (RNE)
 //     fcvt.s.h / fcvt.h.s                        (format convert, S<->H)
 //     fmv.x  fclass  (-> int),  fmv.*.x          (bit move int -> float)
 //     fmadd  fmsub  fnmsub  fnmadd               (fused multiply-add, 1 rounding)
@@ -41,7 +41,9 @@
 // narrow is again the only rounding. Sign-inject / min-max / fmv / fclass are done
 // natively at 16-bit.
 //
-// Rounding RNE for arithmetic and int->float; float->int truncates (RTZ).
+// Arithmetic and int->float round to nearest even whatever rm says. float->int
+// rounds by the instruction's rm (RNE, RTZ, RDN, RUP, RMM); dyn rounds to nearest
+// even, frm's reset value, as there is no FCSR.
 // Subnormals are FLUSHED TO ZERO (FTZ), both formats. NaN/inf/signed-zero per
 // IEEE-754; a mis-NaN-boxed FP16 operand reads as the canonical FP16 NaN.
 //
@@ -338,29 +340,35 @@ module simt_fpu
         endcase
     end
 
-    logic [31:0] s1_cvt_w_res;
+    // float -> int: the truncated magnitude, the first dropped bit (g) and the OR of the
+    // rest (st); stage 2 rounds by rm and applies the sign. A result that needs no
+    // rounding (NaN, inf, out of range, any negative unsigned) is final here (fin).
+    logic [31:0] s1_cvt_w_res;      // the final result, or the truncated magnitude
+    logic        s1_cvt_w_fin, s1_cvt_w_g, s1_cvt_w_st;
     always_comb begin
         logic               is_unsigned;
         logic signed [11:0] uexp;
-        logic [31:0]        mag, sig32;
+        logic [47:0]        ext;
+        logic [31:0]        mag;
         is_unsigned = cvt_unsigned;
-        sig32 = {8'd0, siga};
         uexp = $signed({4'd0, ea}) - 12'sd127;
-        if (uexp < 0)        mag = 32'd0;
-        else if (uexp >= 31) mag = 32'hffffffff;
-        else if (uexp >= 23) mag = sig32 << 5'(uexp - 12'sd23);
-        else                 mag = sig32 >> 5'(12'sd23 - uexp);
+        ext  = {siga, 24'd0} >> 5'(12'sd23 - uexp);    // uexp in [-1, 22]: shift 1..24
+        mag = 32'd0; s1_cvt_w_g = 1'b0; s1_cvt_w_st = 1'b0;
+        if (uexp < -1)       s1_cvt_w_st = |siga;       // 0 < |x| < 0.5 (0 if zero / FTZ)
+        else if (uexp < 23)  begin mag = {8'd0, ext[47:24]}; s1_cvt_w_g = ext[23]; s1_cvt_w_st = |ext[22:0]; end
+        else if (uexp < 32)  mag = {8'd0, siga} << 5'(uexp - 12'sd23);   // an integer
+        s1_cvt_w_fin = 1'b1;
         if (a_nan)              s1_cvt_w_res = is_unsigned ? 32'hffffffff : 32'h7fffffff;
         else if (is_unsigned) begin
-            if (sa && !a_zero)    s1_cvt_w_res = 32'd0;
+            if (sa && !a_zero)    s1_cvt_w_res = 32'd0;    // rounds to 0 or below in any mode
             else if (a_inf)       s1_cvt_w_res = 32'hffffffff;
             else if (uexp >= 32)  s1_cvt_w_res = 32'hffffffff;
-            else                  s1_cvt_w_res = mag;
+            else begin            s1_cvt_w_res = mag; s1_cvt_w_fin = 1'b0; end
         end else begin
             if (a_inf)                  s1_cvt_w_res = sa ? 32'h80000000 : 32'h7fffffff;
             else if (!sa && uexp >= 31) s1_cvt_w_res = 32'h7fffffff;
             else if ( sa && uexp >= 31) s1_cvt_w_res = 32'h80000000;
-            else                        s1_cvt_w_res = sa ? (~mag + 32'd1) : mag;
+            else begin                  s1_cvt_w_res = mag; s1_cvt_w_fin = 1'b0; end
         end
     end
 
@@ -470,6 +478,9 @@ module simt_fpu
         logic [15:0]        minmax_h;
         logic [31:0]        cmp;
         logic [31:0]        cvt_w;
+        logic               cvt_w_fin;
+        logic               cvt_w_g;
+        logic               cvt_w_st;
         logic [31:0]        cvt_s;
         logic [31:0]        cls;
         logic [9:0]         cls16;
@@ -510,6 +521,9 @@ module simt_fpu
         s0.minmax_h      = s1_minmax_res_h;
         s0.cmp           = s1_cmp_res;
         s0.cvt_w         = s1_cvt_w_res;
+        s0.cvt_w_fin     = s1_cvt_w_fin;
+        s0.cvt_w_g       = s1_cvt_w_g;
+        s0.cvt_w_st      = s1_cvt_w_st;
         s0.cvt_s         = s1_cvt_s_res;
         s0.cls           = s1_class_res;
         s0.cls16         = s1_class16;
@@ -587,6 +601,25 @@ module simt_fpu
         end
     end
 
+    // float -> int round + sign. rm is the instruction's: RNE, RTZ, RDN, RUP, RMM; dyn
+    // and the reserved codes round to nearest even (frm's reset value; there is no FCSR).
+    // A magnitude with dropped bits is below 2^23, so the increment never overflows.
+    logic [31:0] s2_cvt_w_res;
+    always_comb begin
+        logic        neg, g, st, inc;
+        logic [31:0] m;
+        neg = e[4].opa[31]; g = e[4].cvt_w_g; st = e[4].cvt_w_st; m = e[4].cvt_w;
+        unique case (e[4].rm)
+            3'b001:  inc = 1'b0;                 // RTZ
+            3'b010:  inc = neg && (g || st);     // RDN
+            3'b011:  inc = !neg && (g || st);    // RUP
+            3'b100:  inc = g;                    // RMM
+            default: inc = g && (st || m[0]);    // RNE
+        endcase
+        m = m + 32'(inc);
+        s2_cvt_w_res = e[4].cvt_w_fin ? e[4].cvt_w : (neg ? (~m + 32'd1) : m);
+    end
+
     // ════════════════════ Pipeline register 2 (stage 2 -> stage 3) ═════════════════════
     // Holds the FMA post-align magnitude and the MUL result; ADD and the shallow ops are
     // forwarded one more cycle (from e[4]) so they reach stage 3 together.
@@ -610,7 +643,7 @@ module simt_fpu
         r2_fma_eab <= s2_fma_eab; r2_fma_spec <= s2_fma_spec; r2_fma_specval <= s2_fma_specval;
         r2_sgnj_res <= e[4].sgnj; r2_sgnj_res_h <= e[4].sgnj_h;
         r2_minmax_res <= e[4].minmax; r2_minmax_res_h <= e[4].minmax_h;
-        r2_cmp_res <= e[4].cmp; r2_cvt_w_res <= e[4].cvt_w; r2_cvt_s_res <= e[4].cvt_s;
+        r2_cmp_res <= e[4].cmp; r2_cvt_w_res <= s2_cvt_w_res; r2_cvt_s_res <= e[4].cvt_s;
         r2_class_res <= e[4].cls; r2_class16 <= e[4].cls16;
         r2_a <= e[4].a; r2_xa <= e[4].xa; r2_opa <= e[4].opa;
         r2_funct5 <= e[4].funct5; r2_rm <= e[4].rm;

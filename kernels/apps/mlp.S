@@ -5,10 +5,9 @@
 #   x_b is image b's input, Kp words of packed INT8 at x + 4*Kp*b; W is pre-packed
 #   [Kp][Npad] words (W[kk][n] packs rows 4kk..4kk+3 of column n). Then
 #       mode 0:  out32[b*Npad + n] = acc                         (logits)
-#       mode 1:  out8 [b*Npad + n] = trunc(clamp(fmadd(float(acc), scale, zp), 0, 127))
-#   Mode 1 is requantization with a fused ReLU; its INT8 bytes, Npad per image,
-#   are the next layer's packed input with Kp = Npad/4. The engine's fcvt.w.s
-#   truncates (simt_fpu.sv), so zp carries the +0.5 of round-half-up.
+#       mode 1:  out8 [b*Npad + n] = rne(clamp(fmadd(float(acc), scale, zp), 0, 127))
+#   Mode 1 is requantization with a fused ReLU, rounding half to even; its INT8
+#   bytes, Npad per image, are the next layer's packed input with Kp = Npad/4.
 #
 #   a0 = tid   a1 = &P   a4 = batch*Npad
 #   P[0] = &x  P[1] = &W  P[2] = &out  P[3] = Kp  P[4] = log2Npad
@@ -58,7 +57,7 @@ _start:
     fmv.w.x f5, x0
     fmin.s  f3, f3, f4
     fmax.s  f3, f3, f5         # ReLU
-    fcvt.w.s t4, f3, rtz
+    fcvt.w.s t4, f3, rne
     add     t3, s2, a0
     sb      t4, 0(t3)          # out8[t]
     ecall
