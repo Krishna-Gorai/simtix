@@ -216,7 +216,12 @@ and is **split transaction and tagged**:
 
 A memory that answers in the request cycle ties `dmem_gnt = 1`,
 `dmem_rvalid = dmem_req`, `dmem_rtag = dmem_tag` (the testbenches and `shared_mem`
-do). Each cycle one context sends a request (rotating priority):
+do); this needs `MEM_BYP = 1`, the default, under which a context can finish in
+the cycle its last request is granted. A memory that never answers before the
+next cycle, such as the L1, allows `MEM_BYP = 0` (the board top sets it): a
+context then finishes from registered state and the cycle's responses alone, so
+the grant no longer reaches the warp resume. The cycle counts are the same under
+both settings. Each cycle one context sends a request (rotating priority):
 
 1. it picks the line of its lowest still-pending lane (`lead`);
 2. it gathers **every** pending lane sharing that line into one request;
@@ -252,16 +257,21 @@ global-atomic histogram needs 640 instead of 2176 memory requests:
 |---|---|---|---|
 | zero latency | 4004 | 1.79× | 2.76× |
 | 7 cycles | 11451 | 2.62× | 3.56× |
-| L1, 20-cycle memory | 5657 | 1.78× | 2.01× |
-| L1 + AXI master, 24-cycle memory | 6183 | 1.71× | 1.86× |
+| L1, 20-cycle memory | 6094 | 1.70× | 1.92× |
+| L1 + AXI master, 24-cycle memory | 6635 | 1.75× | 1.93× |
 
 `amo_contend`, where lanes of a warp collide on the same words and use the
-returned values, runs 1.6–3.3× (`APAR = 0`) and 1.6–4.1× (`APAR = 1`) faster.
+returned values, runs 1.6–3.3× (`APAR = 0`) and 1.7–4.1× (`APAR = 1`) faster.
+In the application suite (`tb_apps`, L1 + AXI, `sim/app_sweep.py`,
+`docs/apps_agg.csv`) k-means, which accumulates its centroids with AMOs, runs
+1.29× (`APAR = 0`) and 1.34× (`APAR = 1`) faster, and BFS 1.01×. The kernels
+without global AMOs change by under 0.2%: those that run after k-means and BFS
+start at another phase of the memory model's pseudo-random stalls.
 Out of context at 100 MHz (`fpga/impl_mem_engine.tcl`) the engine before these
 changes takes 10,705 LUT and 2,457 FF; `APAR = 0` takes 13,256 LUT and 2,601 FF
-(+3.40 ns slack) and `APAR = 1` 16,628 LUT (+1.73 ns). The parallel version's
-extra 3.4k LUT made the board build miss 100 MHz by 0.12 ns, so the board uses
-`APAR = 0`.
+(+3.40 ns slack) and `APAR = 1` 16,628 LUT (+1.73 ns). The board top uses
+`APAR = 0`, which meets 100 MHz there once the L1 registers its decisions
+(§4.7.2); `APAR = 1` has not been rebuilt for the board since.
 
 Cost = number of distinct lines touched: a contiguous warp access (`A[tid]`) → **1**
 request; a fully scattered one → up to 8. `dbg_mem_txns` counts accepted global
@@ -295,8 +305,9 @@ tagged line protocol of §4.7 (the memory side carries one more tag bit).
 | Parameter | Value |
 |---|---|
 | Capacity, ways, line | 16 KB, 4-way, 32 B (the engine's line), 128 sets |
-| Tags / valid bits | distributed RAM / flip-flops, read in the request cycle |
-| Data | one block-RAM bank per way; a hit returns its line one cycle later |
+| Input stage | input register + one skid entry; the engine's grant is a flip-flop |
+| Tags / valid bits | distributed RAM / flip-flops, read when the request leaves the input register |
+| Data | one block-RAM bank per way; a hit answers two cycles after its grant |
 | Write policy | write-through, no write-allocate; acknowledged after memory acknowledges |
 | Misses in flight | 4 miss registers (MSHRs); a later miss to the same line joins one |
 | Replacement | an invalid way, else round robin |
@@ -307,6 +318,26 @@ joins it is answered from the register once the line arrives, and the line is th
 written into the cache. A write to a line whose miss is still in flight waits, so
 a returning line never overwrites newer data. Memory-side tags are `{0, miss
 register}` for reads and `{1, engine tag}` for writes.
+
+Two registers keep the cache's decisions out of the memory engine's cycle. A
+request accepted from the engine first goes into the input register, so the tag
+lookup, the miss-register match and the block-RAM write of a request all start
+from flip-flops, and the grant the engine sees is the flip-flop "skid entry
+empty". Answers to waiting reads are chosen one cycle ahead (the lowest waiting
+tag of the lowest filled miss register, counting a line that arrives this cycle),
+so the response tag the engine receives also comes from flip-flops. The input
+register adds one cycle to every request. In `tb_sync` (L1, 20-cycle memory) and
+`tb_apps` (L1 + AXI, 24-cycle memory) the total cycle count rises 1.5–2.5%; most
+kernels change by −5% to +7%, and the AMO-bound histogram, which holds the port
+from the read to the write of each line, by +13% (+5% behind the AXI master).
+Without the two registers the board build missed 100 MHz by 2.5 ns
+(`fpga/reports_ps_apar0/`): the engine's
+request, formed from its pending-lane masks, went through the tag lookup to the
+block-RAM write port, and through the grant back into the warp resume, in one
+cycle. With them and `MEM_BYP = 0` (§4.7) it meets 100 MHz with +0.10 ns slack
+(81.1k LUT, 23.7k flip-flops, 72 DSP, 16 RAMB36, 4.21 W; `fpga/reports_ps/`).
+Its worst path now lies inside the warp pool: a branch's operand read and compare
+into the reconvergence stack, 79% of it wire.
 
 With a 20-cycle memory (`tb_sync`, N = 1024, AMOs one lane per read-modify-write
 as before aggregation), the cache speeds up the
@@ -325,10 +356,10 @@ per ID, since AXI4 lets beats of different IDs interleave. One read and one writ
 can wait in staging registers for their address channel. `err` is set on any
 `SLVERR`/`DECERR`.
 
-Out of context on xczu7ev the L1 alone uses 2.7k LUTs, 1.7k flip-flops and 16
-RAMB36 (4 ways × 4 BRAMs of 256-bit lines) and routes at 100 MHz with +3.97 ns
-slack (`fpga/impl_l1.tcl`, `fpga/reports_l1/`). `tb_sync` with `AXI = 1` runs the
-whole path, engine → L1 → AXI4 master → a behavioural AXI4 slave with 24-cycle,
+Out of context on xczu7ev the L1 alone uses 2.6k LUTs, 2.4k flip-flops (0.6k of
+them the input register and skid entry) and 16 RAMB36 (4 ways × 4 BRAMs of
+256-bit lines) and routes at 100 MHz with +3.84 ns slack (`fpga/impl_l1.tcl`,
+`fpga/reports_l1/`). `tb_sync` with `AXI = 1` runs the whole path, engine → L1 → AXI4 master → a behavioural AXI4 slave with 24-cycle,
 out-of-order responses and ready stalls.
 
 ### 4.8 The VRF write arbiter (M8)

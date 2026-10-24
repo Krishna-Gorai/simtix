@@ -1,7 +1,7 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 -------------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version     : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
-| Date             : Thu Oct 22 11:14:21 2026
+| Date             : Sat Oct 24 13:17:11 2026
 | Host             : Krishna_NITjsr running 64-bit major release  (build 9200)
 | Command          : report_power -file C:/work/SIMTiX-v2/fpga/reports_l1/post_route_power.rpt
 | Design           : l1_dcache
@@ -30,10 +30,10 @@ Table of Contents
 ----------
 
 +--------------------------+--------------+
-| Total On-Chip Power (W)  | 0.652        |
+| Total On-Chip Power (W)  | 0.654        |
 | Design Power Budget (W)  | Unspecified* |
 | Power Budget Margin (W)  | NA           |
-| Dynamic (W)              | 0.060        |
+| Dynamic (W)              | 0.062        |
 | Device Static (W)        | 0.592        |
 | Effective TJA (C/W)      | 1.0          |
 | Max Ambient (C)          | 99.4         |
@@ -52,18 +52,18 @@ Table of Contents
 +--------------------------+-----------+----------+-----------+-----------------+
 | On-Chip                  | Power (W) | Used     | Available | Utilization (%) |
 +--------------------------+-----------+----------+-----------+-----------------+
-| Clocks                   |     0.007 |        3 |       --- |             --- |
-| CLB Logic                |     0.004 |     4975 |       --- |             --- |
-|   LUT as Logic           |     0.003 |     2502 |    230400 |            1.09 |
+| Clocks                   |     0.009 |        3 |       --- |             --- |
+| CLB Logic                |     0.004 |     5647 |       --- |             --- |
+|   LUT as Logic           |     0.004 |     2436 |    230400 |            1.06 |
 |   LUT as Distributed RAM |    <0.001 |      192 |    101760 |            0.19 |
-|   Register               |    <0.001 |     1705 |    460800 |            0.37 |
+|   Register               |    <0.001 |     2369 |    460800 |            0.51 |
 |   CARRY8                 |    <0.001 |       12 |     28800 |            0.04 |
 |   Others                 |     0.000 |        4 |       --- |             --- |
-|   F7/F8 Muxes            |     0.000 |      451 |    230400 |            0.20 |
-| Signals                  |     0.006 |     4180 |       --- |             --- |
-| Block RAM                |     0.043 |       16 |       312 |            5.13 |
+|   F7/F8 Muxes            |     0.000 |      374 |    230400 |            0.16 |
+| Signals                  |     0.006 |     4658 |       --- |             --- |
+| Block RAM                |     0.042 |       16 |       312 |            5.13 |
 | Static Power             |     0.592 |          |           |                 |
-| Total                    |     0.652 |          |           |                 |
+| Total                    |     0.654 |          |           |                 |
 +--------------------------+-----------+----------+-----------+-----------------+
 
 
@@ -73,7 +73,7 @@ Table of Contents
 +------------------+-------------+-----------+-------------+------------+-------------+-------------+------------+
 | Source           | Voltage (V) | Total (A) | Dynamic (A) | Static (A) | Powerup (A) | Budget (A)  | Margin (A) |
 +------------------+-------------+-----------+-------------+------------+-------------+-------------+------------+
-| Vccint           |       0.850 |     0.203 |       0.068 |      0.136 |       NA    | Unspecified | NA         |
+| Vccint           |       0.850 |     0.206 |       0.070 |      0.136 |       NA    | Unspecified | NA         |
 | Vccint_io        |       0.850 |     0.070 |       0.000 |      0.070 |       NA    | Unspecified | NA         |
 | Vccbram          |       0.850 |     0.005 |       0.003 |      0.002 |       NA    | Unspecified | NA         |
 | Vccaux           |       1.800 |     0.148 |       0.000 |      0.148 |       NA    | Unspecified | NA         |
@@ -161,7 +161,7 @@ Table of Contents
 +-----------+-----------+
 | Name      | Power (W) |
 +-----------+-----------+
-| l1_dcache |     0.060 |
+| l1_dcache |     0.062 |
 +-----------+-----------+
 
 

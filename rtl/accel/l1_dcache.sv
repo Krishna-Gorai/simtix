@@ -6,10 +6,16 @@
 // mem_engine: a request is accepted when req && gnt; each request gets exactly
 // one response carrying its tag, in any order.
 //
+// Input stage: an accepted request first goes into an input register (with one
+// skid entry behind it), and the cache works on it in the next cycle. s_gnt is
+// therefore a flip-flop, and nothing the cache decides about a request reaches
+// back into the memory engine in the same cycle.
+//
 // Organisation: 16 KB, 4-way set associative, 32-byte lines (= the engine's
 // line), 128 sets. Tags live in distributed RAM and valid bits in flip-flops,
-// both read in the request cycle; the data of each way is a separate block-RAM
-// bank addressed by the set, so a hit returns its line one cycle later.
+// both read in the cycle the request leaves the input register; the data of
+// each way is a separate block-RAM bank addressed by the set, so a hit returns
+// its line one cycle after that (two cycles after s_req && s_gnt).
 //
 // Reads: a hit answers from the data bank. A miss allocates one of NMSHR miss
 // registers and requests the line downstream; a later miss to the same line
@@ -78,13 +84,47 @@ module l1_dcache
     localparam int TGW  = 32 - LINE_OFF - SW;    // address tag bits
     localparam int LA   = 32 - LINE_OFF;         // line address bits
 
+    // ── Input stage: input register i_*, skid entry k_* ──────────────────────────
+    // The cache takes the input register when i_gnt. A request accepted while the
+    // input register is held waits in the skid entry, and s_gnt drops until the
+    // skid entry has moved on.
+    typedef struct packed {
+        logic [UTW-1:0]       tag;
+        logic [LA-1:0]        line;
+        logic                 we;
+        logic [LINE_BITS-1:0] wdata;
+        logic [LINE_BE-1:0]   be;
+    } req_t;
+    req_t s_in, i_r, k_r;
+    logic i_v, k_v, i_gnt, s_acc;
+    assign s_in  = '{tag: s_tag, line: s_addr[31:LINE_OFF], we: s_we, wdata: s_wdata, be: s_be};
+    assign s_gnt = !k_v;
+    assign s_acc = s_req && s_gnt;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            i_v <= 1'b0;
+            k_v <= 1'b0;
+        end else if (!i_v || i_gnt) begin           // the input register frees up
+            if (k_v) begin
+                i_r <= k_r;
+                k_v <= 1'b0;
+            end else begin
+                i_v <= s_acc;
+                if (s_acc) i_r <= s_in;
+            end
+        end else if (s_acc) begin                   // held: park the new request
+            k_r <= s_in;
+            k_v <= 1'b1;
+        end
+    end
+
     // ── Request decode ───────────────────────────────────────────────────────────
     logic [SW-1:0]  r_set;
     logic [TGW-1:0] r_tg;
     logic [LA-1:0]  r_line;
-    assign r_set  = s_addr[LINE_OFF +: SW];
-    assign r_tg   = s_addr[31 -: TGW];
-    assign r_line = s_addr[31:LINE_OFF];
+    assign r_set  = i_r.line[SW-1:0];
+    assign r_tg   = i_r.line[LA-1 -: TGW];
+    assign r_line = i_r.line;
 
     // ── Tags (distributed RAM) and valid bits (flip-flops) ───────────────────────
     logic [NSET-1:0] valid [0:NWAY-1];
@@ -147,22 +187,22 @@ module l1_dcache
     //   write                : downstream write (+ cache update on a hit); waits
     //                          while a miss to the same line is in flight
     logic rd_hit, rd_join, rd_miss, wr_go;
-    assign rd_hit  = s_req && !s_we && hit;
-    assign rd_join = s_req && !s_we && !hit && q_any;
-    assign rd_miss = s_req && !s_we && !hit && !q_any && q_free;
-    assign wr_go   = s_req &&  s_we && !q_any;
+    assign rd_hit  = i_v && !i_r.we && hit;
+    assign rd_join = i_v && !i_r.we && !hit && q_any;
+    assign rd_miss = i_v && !i_r.we && !hit && !q_any && q_free;
+    assign wr_go   = i_v &&  i_r.we && !q_any;
 
     assign m_req   = rd_miss || wr_go;
-    assign m_tag   = wr_go ? {1'b1, s_tag} : {{(DTW-MW){1'b0}}, q_new};
-    assign m_addr  = {s_addr[31:LINE_OFF], {LINE_OFF{1'b0}}};
+    assign m_tag   = wr_go ? {1'b1, i_r.tag} : {{(DTW-MW){1'b0}}, q_new};
+    assign m_addr  = {i_r.line, {LINE_OFF{1'b0}}};
     assign m_we    = wr_go;
-    assign m_wdata = s_wdata;
-    assign m_be    = s_be;
+    assign m_wdata = i_r.wdata;
+    assign m_be    = i_r.be;
 
-    assign s_gnt   = rd_hit || rd_join || ((rd_miss || wr_go) && m_gnt);
+    assign i_gnt   = rd_hit || rd_join || ((rd_miss || wr_go) && m_gnt);
 
     logic acc, acc_rd_hit, acc_join, acc_miss, acc_wr;
-    assign acc        = s_req && s_gnt;
+    assign acc        = i_v && i_gnt;
     assign acc_rd_hit = acc && rd_hit;
     assign acc_join   = acc && rd_join;
     assign acc_miss   = acc && rd_miss;
@@ -182,8 +222,8 @@ module l1_dcache
     logic [LINE_BITS-1:0]  pb_d;
     logic [LINE_BE-1:0]    pb_be;
     assign pb_set = wr_hit ? r_set : f_set;
-    assign pb_d   = wr_hit ? s_wdata : q_data[fill_m];
-    assign pb_be  = wr_hit ? s_be : '1;
+    assign pb_d   = wr_hit ? i_r.wdata : q_data[fill_m];
+    assign pb_be  = wr_hit ? i_r.be : '1;
 
     generate
         for (gw = 0; gw < NWAY; gw++) begin : g_data
@@ -216,22 +256,51 @@ module l1_dcache
     end
     assign tag_we = fill_go;
 
+    // ── Downstream responses ─────────────────────────────────────────────────────
+    logic          m_isw;
+    logic [MW-1:0] m_rm;
+    assign m_isw = m_rtag[DTW-1];
+    assign m_rm  = m_rtag[MW-1:0];
+
     // ── Upstream responses: hit (fixed timing) > miss-register drain > write ack ──
     logic          b_v;                          // a read hit answers this cycle
     logic [UTW-1:0] b_tag;
     logic [WW-1:0] b_way;
     logic [NUT-1:0] wack;                        // write acks owed upstream
 
+    // Drains are chosen one cycle ahead: d_v/d_m/d_t, a flip-flop, names the
+    // waiting request (miss register d_m, upstream tag d_t) to answer this cycle
+    // if no hit does. The next choice is the lowest waiting tag of the lowest
+    // miss register whose line is in (or arrives this cycle), leaving out the
+    // request drained this cycle; requests that join this cycle wait for a later
+    // choice.
+    logic           d_v;
+    logic [MW-1:0]  d_m;
+    logic [UTW-1:0] d_t;
     logic          dr_go;                        // drain one waiting request
     logic [MW-1:0] dr_m;
     logic [UTW-1:0] dr_t;
+    assign dr_go = d_v && !b_v;
+    assign dr_m  = d_m;
+    assign dr_t  = d_t;
+
+    logic           nd_v;
+    logic [MW-1:0]  nd_m;
+    logic [UTW-1:0] nd_t;
+    logic [NUT-1:0] nd_wait [0:NMSHR-1];         // still waiting after this cycle's drain
     always_comb begin
-        dr_go = 1'b0;
-        dr_m  = '0;
-        dr_t  = '0;
-        for (int m = NMSHR-1; m >= 0; m--)
-            if (q_v[m] && q_fill[m] && (q_wait[m] != '0)) begin dr_go = !b_v; dr_m = MW'(m); end
-        for (int t = NUT-1; t >= 0; t--) if (q_wait[dr_m][t]) dr_t = UTW'(t);
+        nd_v = 1'b0;
+        nd_m = '0;
+        nd_t = '0;
+        for (int m = NMSHR-1; m >= 0; m--) begin
+            nd_wait[m] = q_wait[m] & ~((dr_go && (dr_m == MW'(m))) ? (NUT'(1) << dr_t) : '0);
+            if (q_v[m] && (q_fill[m] || (m_rvalid && !m_isw && (m_rm == MW'(m)))) &&
+                (nd_wait[m] != '0)) begin
+                nd_v = 1'b1;
+                nd_m = MW'(m);
+            end
+        end
+        for (int t = NUT-1; t >= 0; t--) if (nd_wait[nd_m][t]) nd_t = UTW'(t);
     end
 
     logic          wa_go;
@@ -246,23 +315,21 @@ module l1_dcache
     assign s_rtag   = b_v ? b_tag : (dr_go ? dr_t : wa_t);
     assign s_rdata  = b_v ? bank_q[b_way] : q_data[dr_m];
 
-    // ── Downstream responses ─────────────────────────────────────────────────────
-    logic          m_isw;
-    logic [MW-1:0] m_rm;
-    assign m_isw = m_rtag[DTW-1];
-    assign m_rm  = m_rtag[MW-1:0];
-
     // ── State ────────────────────────────────────────────────────────────────────
     always_ff @(posedge clk) begin
         if (rst) begin
             b_v    <= 1'b0;
+            d_v    <= 1'b0;
             wack   <= '0;
             rr_way <= '0;
             for (int w = 0; w < NWAY; w++) valid[w] <= '0;
         end else begin
             b_v   <= acc_rd_hit;
-            b_tag <= s_tag;
+            b_tag <= i_r.tag;
             b_way <= hit_way;
+            d_v   <= nd_v;
+            d_m   <= nd_m;
+            d_t   <= nd_t;
             if (inv)
                 for (int w = 0; w < NWAY; w++) valid[w] <= '0;
             else if (fill_go)
@@ -287,7 +354,7 @@ module l1_dcache
             always_comb begin
                 wait_n = q_wait[gm];
                 if (drain) wait_n[dr_t] = 1'b0;
-                if (join_) wait_n[s_tag] = 1'b1;
+                if (join_) wait_n[i_r.tag] = 1'b1;
             end
             always_ff @(posedge clk) begin
                 if (rst) begin
@@ -300,7 +367,7 @@ module l1_dcache
                     q_fill[gm]    <= arrive;         // a memory may answer at once
                     q_done[gm]    <= 1'b0;
                     q_line[gm]    <= r_line;
-                    q_wait[gm]    <= NUT'(1) << s_tag;
+                    q_wait[gm]    <= NUT'(1) << i_r.tag;
                     if (arrive) q_data[gm] <= m_rdata;
                 end else if (q_v[gm]) begin
                     q_wait[gm] <= wait_n;

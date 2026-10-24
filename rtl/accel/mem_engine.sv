@@ -14,7 +14,10 @@
 // arrives. Contexts take turns on the request port (rotating priority). A memory
 // that answers in the request cycle ties dmem_gnt = 1, dmem_rvalid = dmem_req,
 // dmem_rtag = dmem_tag; with NC = 1 the engine then reproduces the single
-// engine of v1 cycle for cycle.
+// engine of v1 cycle for cycle. Such a same-cycle answer needs BYP = 1. With
+// BYP = 0 (a memory that answers no request before the next cycle, such as the
+// L1) a context's completion no longer depends on this cycle's grant, which
+// removes the path from the grant to the warp resume; the timing is the same.
 //
 // A global AMO is a read-modify-write of one line. The read fetches the line of
 // the lead lane; with AGG = 1 it serves every pending lane whose word lies in that
@@ -41,6 +44,7 @@ module mem_engine
     parameter int MQD  = MEM_TAGS,    // outstanding global requests (tags)
     parameter bit AGG  = 1'b1,        // AMO: one read-modify-write per line (0: per lane)
     parameter bit APAR = 1'b0,        // AMO lanes per cycle: 1 = all on distinct words
+    parameter bit BYP  = 1'b1,        // memory may answer a request in its own cycle
     parameter int WIDXW = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1
 ) (
     input  logic                  clk,
@@ -308,7 +312,7 @@ module mem_engine
     logic [CW-1:0] rc;
     logic [NL-1:0] rmask;
     mkind_e        rkind;
-    assign rsp_byp = dmem_rvalid && !t_valid[dmem_rtag];
+    assign rsp_byp = BYP && dmem_rvalid && !t_valid[dmem_rtag];
     assign rc      = rsp_byp ? sel       : t_ctx[dmem_rtag];
     assign rmask   = rsp_byp ? mreq_mask : t_mask[dmem_rtag];
     assign rkind   = rsp_byp ? mreq_kind : t_kind[dmem_rtag];
@@ -448,23 +452,33 @@ module mem_engine
     // ── Completion: a context finishes when every lane is served and every one of
     //    its requests has been answered. It resumes its warp this cycle if it is the
     //    lowest-numbered finished context, else it holds (c_done) and tries again.
+    //    With BYP = 0 a request sent this cycle is answered in a later cycle, so a
+    //    context that sends cannot finish this cycle: it finishes when no lane is
+    //    left to send (registered) and this cycle answers its last request.
     logic [NC-1:0] c_fin;            // finished this cycle or earlier
     logic [NL-1:0] c_sent [0:NC-1];  // lanes that leave c_pend this cycle
     logic [TW:0]   c_cnt_n [0:NC-1];
     always_comb begin
         for (int c = 0; c < NC; c++) begin
             logic here, rhere;
+            logic [NL-1:0] sc_sent;  // the scratch lane served this cycle
             here  = mreq_fire && (sel == CW'(c));
             rhere = dmem_rvalid && (rc == CW'(c));
+            sc_sent = '0;
+            if (sc_step && (sc_c == CW'(c))) sc_sent[c_lead[c]] = 1'b1;
             c_sent[c] = '0;
-            if (c_scratch[c]) begin
-                if (sc_step && (sc_c == CW'(c))) c_sent[c][c_lead[c]] = 1'b1;
-            end else if (here && !(c_amo[c] && (c_ph[c] != AP_WR))) begin
+            if (c_scratch[c])
+                c_sent[c] = sc_sent;
+            else if (here && !(c_amo[c] && (c_ph[c] != AP_WR)))
                 c_sent[c] = mreq_mask;
-            end
             c_cnt_n[c] = c_cnt[c] + (TW+1)'(here && !rsp_byp) - (TW+1)'(rhere && !rsp_byp);
-            c_fin[c]   = c_busy[c] &&
-                         (c_done[c] || (((c_pend[c] & ~c_sent[c]) == '0) && (c_cnt_n[c] == '0)));
+            if (BYP)
+                c_fin[c] = c_busy[c] &&
+                           (c_done[c] || (((c_pend[c] & ~c_sent[c]) == '0) && (c_cnt_n[c] == '0)));
+            else
+                c_fin[c] = c_busy[c] &&
+                           (c_done[c] || (((c_pend[c] & ~sc_sent) == '0) &&
+                                          (c_cnt[c] == (TW+1)'(rhere))));
         end
     end
 
@@ -568,5 +582,13 @@ module mem_engine
                 rr <= (int'(sel) == NC-1) ? '0 : sel + 1'b1;
         end
     end
+
+`ifndef SYNTHESIS
+    // BYP = 0 is only valid if every response belongs to an earlier request.
+    always_ff @(posedge clk)
+        if (!rst && !BYP && dmem_rvalid && !t_valid[dmem_rtag])
+            $fatal(1, "mem_engine: response with tag %0d answers no outstanding request (BYP = 0)",
+                   dmem_rtag);
+`endif
 
 endmodule : mem_engine

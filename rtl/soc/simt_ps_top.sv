@@ -127,7 +127,8 @@ module simt_ps_top
     logic [LINE_BITS-1:0] a_wdata, a_rdata;
     logic [LINE_BE-1:0]   a_be;
 
-    simt_accel #(.AMO_AGG(AMO_AGG), .AMO_PAR(AMO_PAR)) u_accel (
+    // The L1 answers no request in its own cycle (MEM_BYP = 0).
+    simt_accel #(.AMO_AGG(AMO_AGG), .AMO_PAR(AMO_PAR), .MEM_BYP(1'b0)) u_accel (
         .clk        (clk),
         .rst        (rst),
         .sel        (wr_regs || (rd_fire && (rd_addr[15:8] == 8'h00))),

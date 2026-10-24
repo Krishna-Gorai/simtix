@@ -58,7 +58,9 @@ module tb_sync
     int unsigned errors = 0;
     int unsigned checks = 0;
 
-    warp_pool #(.AMO_AGG(AGG != 0), .AMO_PAR(APAR != 0)) dut (
+    // Only the MEM_LAT = 0 line memory answers a request in its own cycle.
+    warp_pool #(.AMO_AGG(AGG != 0), .AMO_PAR(APAR != 0),
+                .MEM_BYP((L1 == 0) && (MEM_LAT == 0))) dut (
         .clk(clk), .rst(rst), .start(start),
         .base_a(base_a), .base_b(base_b), .base_c(base_c),
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(block_log2),
