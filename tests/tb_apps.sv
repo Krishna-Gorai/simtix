@@ -73,7 +73,8 @@ module tb_apps
         .m_axi_rid(m_rid), .m_axi_rdata(m_rdata), .m_axi_rresp(m_rresp), .m_axi_rlast(m_rlast),
         .m_axi_rvalid(m_rvalid), .m_axi_rready(m_rready));
 
-    axi_mem_model #(.IDW(IDW), .DW(DW), .WORDS(WORDS), .LAT(MEM_LAT), .STALL(1), .OOO(1)) u_ddr (
+    axi_mem_model #(.IDW(IDW), .DW(DW), .WORDS(WORDS), .MAXB(LINE_BITS / DW), .LAT(MEM_LAT),
+                    .STALL(1), .OOO(1)) u_ddr (
         .clk(clk), .rst(rst),
         .awid(m_awid), .awaddr(m_awaddr), .awlen(m_awlen), .awsize(m_awsize),
         .awburst(m_awburst), .awcache(m_awcache), .awprot(m_awprot),
@@ -151,7 +152,8 @@ module tb_apps
             got = u_ddr.mem[idx];
             checks++;
             if (got !== exp) begin
-                if (bad < 8) $display("  [FAIL] %s word %0h: got=%08h exp=%08h", cname, idx, got, exp);
+                if (bad < 8 || $test$plusargs("SHOWALL"))
+                    $display("  [FAIL] %s word %0h: got=%08h exp=%08h", cname, idx, got, exp);
                 bad++;
             end
         end

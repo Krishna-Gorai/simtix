@@ -2,12 +2,13 @@
 # detached, with Vivado 2025.1 on Windows.
 #   Vortex, staged by gen_sources.sh:
 #     powershell -ExecutionPolicy Bypass -File run_syn.ps1 [-Name zcu104_1c4w8t] [-Mhz 100]
-#   SIMTiX's board top through the same flow:
+#   SIMTiX's board top through the same flow (-Lanes sets SIMTIX_NUM_LANES):
 #     powershell -ExecutionPolicy Bypass -File run_syn.ps1 -Name simtix_ps_top -Top simt_ps_top
+#     powershell -ExecutionPolicy Bypass -File run_syn.ps1 -Name simtix_ps_top_l16 -Top simt_ps_top -Lanes 16
 # Writes <Root>\<Name>\build.log, and the reports (timing.rpt, post_impl_util.rpt,
 # power_vectorless.rpt, synth_summary.csv) next to it.
 param([string]$Name = 'zcu104_1c4w8t', [int]$Mhz = 100, [string]$Root = 'C:\work\vortex_syn',
-      [string]$Top = 'Vortex')
+      [string]$Top = 'Vortex', [int]$Lanes = 0)
 $dir = Join-Path $Root $Name
 New-Item -ItemType Directory -Force $dir | Out-Null
 $env:NoDefaultCurrentDirectoryInExePath = $null
@@ -25,6 +26,11 @@ if ($Top -eq 'Vortex') {
     $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
     $env:SIMTIX_ROOT = $repo -replace '\\', '/'
     $sources = (Join-Path $PSScriptRoot 'simtix_sources.txt') -replace '\\', '/'
+    if ($Lanes -gt 0) {
+        $list = Join-Path $dir 'sources.txt'
+        @("+define+SIMTIX_NUM_LANES=$Lanes") + (Get-Content $sources) | Set-Content -Encoding ascii $list
+        $sources = $list -replace '\\', '/'
+    }
 }
 $vargs = @('-mode', 'batch', '-log', 'build.log', '-nojournal',
            '-source', "$fwd/dut/project.tcl",

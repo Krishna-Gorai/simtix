@@ -97,7 +97,7 @@ overlapped with other warps' compute.
 | State | Signal | Notes |
 |---|---|---|
 | lifecycle | `wstate[w]` | `W_EMPTY → W_RUN ⇄ W_MEM → W_DONE` |
-| reconvergence stack | `stk_npc[w][d]`, `stk_rpc[w][d]`, `stk_mask[w][d]`, `sp[w]` | depth `SDEPTH` (8) |
+| reconvergence stack | `stk_npc[w][d]`, `stk_rpc[w][d]`, `stk_mask[w][d]`, `sp[w]` | depth `SDEPTH` (= `NUM_LANES`) |
 | vector register file | per-lane LUTRAM banks (§4.6) | 32 RV32 regs × 8 lanes × 4 warps |
 | valid bits | `reg_written[w][lane][reg]` | "written this grid?" (§4.6) |
 | base thread id | `warp_base[w]` | seeds `tid` / `a0` |
@@ -160,7 +160,11 @@ A `BRANCH` is resolved against the active mask:
 
 The pushed frame pops at `do_pop` (§4.3) and the warp reconverges into the frame
 below, which already holds the union mask at `RPC`. The base frame's
-`rpc = RPC_BOTTOM (0xFFFF_FFFF)` so it never pops. Nesting works to `SDEPTH`.
+`rpc = RPC_BOTTOM (0xFFFF_FFFF)` so it never pops. A pushed frame's mask is a
+strict, non-empty subset of the mask below it, so no warp holds more than
+`NUM_LANES` frames, and `SDEPTH = NUM_LANES` covers every branch pattern. (With 16
+lanes and the old fixed depth of 8, SpMV overflowed it: a warp whose 16 rows have
+more than eight different lengths leaves its loop at more than eight trips.)
 `JAL`/`JALR` retarget the TOS PC; non-control instructions fall through to `pc+4`.
 
 > **Out of scope (by design):** general two-sided `if/else` where both arms are
@@ -304,7 +308,7 @@ tagged line protocol of §4.7 (the memory side carries one more tag bit).
 
 | Parameter | Value |
 |---|---|
-| Capacity, ways, line | 16 KB, 4-way, 32 B (the engine's line), 128 sets |
+| Capacity, ways, line | 16 KB, 4-way, 32 B (the engine's line), 128 sets; at other lane counts the line is `NUM_LANES` words and the set count keeps 16 KB |
 | Input stage | input register + one skid entry; the engine's grant is a flip-flop |
 | Tags / valid bits | distributed RAM / flip-flops, read when the request leaves the input register |
 | Data | one block-RAM bank per way; a hit answers two cycles after its grant |
@@ -421,7 +425,7 @@ finish in 49 cycles vs. 60 if serialized (~81% of the serial memory cost hidden)
 | `NUM_LANES` | 8 | physical SIMT lanes |
 | `WARP_SIZE` | 8 | threads per warp |
 | `NUM_WARPS` | 4 | resident warp slots (power of two) |
-| `SDEPTH` | 8 | reconvergence-stack depth |
+| `SDEPTH` | `NUM_LANES` | reconvergence-stack depth (enough for any program) |
 | `LINE_WORDS` | 8 | words per coalesced line (256-bit / 32-byte) |
 | `SCRATCH_WORDS` | 64 | scratchpad words per warp |
 | `MMIO_BASE` | `0x8000_0000` | command-register aperture |

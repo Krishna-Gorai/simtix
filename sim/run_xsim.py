@@ -82,17 +82,28 @@ def run(cmd, cwd, log):
         return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT, env=env).returncode
 
 
-def run_test(name):
+def run_test(name, defines=(), plusargs=()):
+    """defines: Verilog macros for every compile (e.g. 'SIMTIX_NUM_LANES=16');
+    plusargs: xsim -testplusarg values (e.g. 'MANIFEST=<path>')."""
     top, sv, v, dpi, *gen = TESTS[name]
     wd = os.path.join(BUILD, name)
     shutil.rmtree(wd, ignore_errors=True)
     os.makedirs(wd)
     ab = lambda ps: [os.path.join(ROOT, p) for p in ps]
+
+    def opts(fname, lines):
+        # Options files: cmd.exe splits a .bat argument at '='.
+        if not lines:
+            return []
+        with open(os.path.join(wd, fname), 'w') as fh:
+            fh.writelines(l + '\n' for l in lines)
+        return ['-f', fname]
+    dopt = opts('defines.opt', [f'-d "{d}"' for d in defines])
     steps = []
     if v:
-        steps.append(('xvlog_v', [tool('xvlog')] + ab(v)))
+        steps.append(('xvlog_v', [tool('xvlog')] + dopt + ab(v)))
     inc = sum((['-i', p] for p in ab(INCDIRS)), [])
-    steps.append(('xvlog_sv', [tool('xvlog'), '-sv'] + inc + ab(sv)))
+    steps.append(('xvlog_sv', [tool('xvlog'), '-sv'] + dopt + inc + ab(sv)))
     elab = [tool('xelab'), '-debug', 'off', top, '-s', 'sim']
     if gen:
         # Through an options file: cmd.exe splits a .bat argument at '='.
@@ -103,7 +114,8 @@ def run_test(name):
         steps.append(('xsc', [tool('xsc'), os.path.join(ROOT, 'tests', 'fpu_ref.c')]))
         elab += ['-sv_lib', 'dpi']
     steps.append(('xelab', elab))
-    steps.append(('xsim', [tool('xsim'), 'sim', '-R']))
+    steps.append(('xsim', [tool('xsim'), 'sim', '-R'] +
+                  opts('plusargs.opt', [f'-testplusarg "{p}"' for p in plusargs])))
     for tag, cmd in steps:
         if run(cmd, wd, os.path.join(wd, tag + '.log')) != 0:
             return False, f'{tag} failed (see build_xsim/{name}/{tag}.log)'

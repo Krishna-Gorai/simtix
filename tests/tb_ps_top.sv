@@ -66,7 +66,7 @@ module tb_ps_top
         .m_axi_rid(m_rid), .m_axi_rdata(m_rdata), .m_axi_rresp(m_rresp), .m_axi_rlast(m_rlast),
         .m_axi_rvalid(m_rvalid), .m_axi_rready(m_rready));
 
-    axi_mem_model #(.IDW(IDW), .DW(DW), .LAT(24), .STALL(1), .OOO(1)) u_ddr (
+    axi_mem_model #(.IDW(IDW), .DW(DW), .MAXB(LINE_BITS / DW), .LAT(24), .STALL(1), .OOO(1)) u_ddr (
         .clk(clk), .rst(rst),
         .awid(m_awid), .awaddr(m_awaddr), .awlen(m_awlen), .awsize(m_awsize),
         .awburst(m_awburst), .awcache(m_awcache), .awprot(m_awprot),

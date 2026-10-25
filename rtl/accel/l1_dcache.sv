@@ -11,8 +11,9 @@
 // therefore a flip-flop, and nothing the cache decides about a request reaches
 // back into the memory engine in the same cycle.
 //
-// Organisation: 16 KB, 4-way set associative, 32-byte lines (= the engine's
-// line), 128 sets. Tags live in distributed RAM and valid bits in flip-flops,
+// Organisation: 16 KB, 4-way set associative, lines of the engine's width
+// (NUM_LANES words: 32 bytes and 128 sets at 8 lanes; the set count keeps 16 KB at
+// other lane counts). Tags live in distributed RAM and valid bits in flip-flops,
 // both read in the cycle the request leaves the input register; the data of
 // each way is a separate block-RAM bank addressed by the set, so a hit returns
 // its line one cycle after that (two cycles after s_req && s_gnt).
@@ -38,7 +39,7 @@ module l1_dcache
   import simtix_pkg::*;
 #(
     parameter int NWAY  = 4,
-    parameter int NSET  = 128,
+    parameter int NSET  = 16384 / (NWAY * LINE_BITS / 8),
     parameter int NMSHR = 4,
     parameter int UTW   = MEM_TAGW,              // upstream tag width
     parameter int DTW   = MEM_TAGW + 1           // downstream tag width

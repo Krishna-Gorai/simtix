@@ -1,8 +1,8 @@
 # stencil.S  -  one sweep of a 5-point Jacobi stencil on an FP32 grid
 #
 #   The H x W interior (W a power of two) sits in a padded array: row stride S
-#   words, interior row i at row i+1, column j at word 8+j (8 words of padding on
-#   each side keep a warp's centre row line-aligned). Thread t updates interior
+#   words, interior row i at row i+1, column j at word LANES+j (a line of padding
+#   on each side keeps a warp's centre row line-aligned). Thread t updates interior
 #   point (i, j) = (t >> log2W, t & (W-1)) from IN into OUT (same layout):
 #       s   = (up + down) + (left + right)
 #       out = fmadd(c1, s, c0 * centre)
@@ -10,6 +10,7 @@
 #
 #   a0 = tid   a1 = &P   a4 = H*W
 #   P[0] = &IN   P[1] = &OUT   P[2] = log2W   P[3] = S   P[4] = c0   P[5] = c1
+#include "lanes.h"
 .section .text
 .globl _start
 _start:
@@ -27,7 +28,7 @@ _start:
     addi    t0, t0, 1
     mul     t0, t0, s3         # (i+1)*S
     add     t0, t0, t1
-    addi    t0, t0, 8          # word index of (i, j)
+    addi    t0, t0, LANES      # word index of (i, j)
     slli    t0, t0, 2          # byte offset
     slli    t2, s3, 2          # row stride (bytes)
     add     t3, s0, t0         # &IN(i, j)

@@ -1,7 +1,7 @@
 """
 gen_apps.py -- inputs and bit-exact expected outputs for tests/tb_apps.sv.
 
-    python sim/gen_apps.py [--size small|large] [--out DIR]
+    python sim/gen_apps.py [--size small|large] [--out DIR] [--lanes L --kdir KDIR]
 
 For every application case it writes, under DIR (default build_apps/):
     <case>.mem    $readmemh image of the DDR4 model (@<word index> lines)
@@ -12,6 +12,11 @@ and DIR/apps.manifest, which tb_apps reads:
     LAUNCH <tag> <slot> <param address> <threads> <block_log2>
 A kernel in slot s starts at PC 256*s. Each launch passes the address of its
 parameter block in a1 (REG_BASE_A) and the thread count in a4 (REG_N).
+
+--lanes L lays the data out for an L-lane accelerator (a line of stencil padding,
+scan blocks of 4*L threads); its kernels come from KDIR, as written by
+`kernels/apps/build.py --lanes L --out KDIR`. The default, 8 lanes, uses
+kernels/apps.
 
 FP32 results are computed exactly (fractions) and rounded to nearest even once
 per operation, so fmadd is a true fused multiply-add. Standard library only.
@@ -29,6 +34,7 @@ SLOTS = {'gemm': 0, 'spmv': 1, 'stencil': 2, 'kmeans': 3, 'bfs': 4, 'scan': 5, '
 DDR_BASE = 0x1000_0000
 WORDS = 1 << 20                     # axi_mem_model WORDS in tb_apps (4 MB)
 UNSEEN = 0xFFFF_FFFF
+LANES = 8                           # --lanes
 
 
 # ── FP32 with one correct rounding per operation ─────────────────────────────────
@@ -159,7 +165,7 @@ def spmv(rng, rows, cols, maxnnz):
 
 def stencil(rng, h, w, sweeps):
     c = Case(f'stencil_{h}x{w}x{sweeps}')
-    s = w + 16                                    # 8 words of padding each side
+    s = w + 2 * LANES                             # a line of padding each side
     grid = [rand_f32(rng) for _ in range((h + 2) * s)]
     c0 = struct.unpack('<I', struct.pack('<f', 0.5))[0]
     c1 = struct.unpack('<I', struct.pack('<f', 0.125))[0]
@@ -171,7 +177,7 @@ def stencil(rng, h, w, sweeps):
         nxt = list(cur)
         for i in range(h):
             for j in range(w):
-                p = (i + 1) * s + 8 + j
+                p = (i + 1) * s + LANES + j
                 sm = fadd(fadd(cur[p - s], cur[p + s]), fadd(cur[p - 1], cur[p + 1]))
                 nxt[p] = fma(c1, sm, fmul(c0, cur[p]))
         cur = nxt
@@ -248,19 +254,20 @@ def bfs(rng, nv, deg):
 
 def scan(rng, n):
     c = Case(f'scan_{n}')
-    assert n % 32 == 0
+    b = 4 * LANES                                 # threads per block (4 warps)
+    assert n % b == 0
     vals = [rng.randrange(1 << 16) for _ in range(n)]
     lvl = [0]
 
     def level(src, m):
-        # scan of m (a multiple of 32) words at src; returns the address of the result
+        # scan of m (a multiple of b) words at src; returns the address of the result
         out = c.img.alloc(m)
-        nb = m // 32
-        bs = c.img.alloc(-(-nb // 32) * 32)           # block totals, zero padded
+        nb = m // b
+        bs = c.img.alloc(-(-nb // b) * b)             # block totals, zero padded
         c.launch(f'scan{lvl[0]}', 'scan', [src, out, bs], m, blk=2)
         lvl[0] += 1
         if nb > 1:
-            bsc = level(bs, -(-nb // 32) * 32)
+            bsc = level(bs, -(-nb // b) * b)
             c.launch(f'add{lvl[0]}', 'scan_add', [out, bsc], m)
             lvl[0] += 1
         return out
@@ -335,7 +342,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--size', default='small', choices=SIZES)
     ap.add_argument('--out', default=os.path.join(ROOT, 'build_apps'))
+    ap.add_argument('--lanes', type=int, default=8, choices=(4, 8, 16))
+    ap.add_argument('--kdir', default=KDIR, help='kernel images built for --lanes')
     args = ap.parse_args()
+    global LANES
+    LANES = args.lanes
+    if LANES != 8 and os.path.abspath(args.kdir) == KDIR:
+        ap.error('--lanes other than 8 needs --kdir (kernels/apps/build.py --lanes L --out DIR)')
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     p = lambda f: os.path.join(out, f).replace('\\', '/')
@@ -343,7 +356,8 @@ def main():
     cases = SIZES[args.size](rng)
     with open(p('apps.manifest'), 'w', newline='\n') as man:
         for name, slot in SLOTS.items():
-            man.write(f'KERNEL {slot} {os.path.join(KDIR, name + ".hex")}\n'.replace('\\', '/'))
+            man.write(f'KERNEL {slot} {os.path.join(os.path.abspath(args.kdir), name + ".hex")}\n'
+                      .replace('\\', '/'))
         for c in cases:
             assert c.img.top - DDR_BASE <= 4 * WORDS, f'{c.name} exceeds the DDR model'
             c.img.write(p(c.name + '.mem'))
