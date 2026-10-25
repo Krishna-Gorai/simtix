@@ -76,3 +76,21 @@ at most per row), `stencil` (n x n, 4 sweeps), `kmeans` (points, 16 clusters),
 covers the first GO to the last DONE. The A53 baselines are ordinary sequential
 codes (a queue for BFS, a running sum for scan, i-k-j GEMM), and every accelerator
 output is compared exactly with them; the data lives in DDR4 at `0x1000_0000`.
+
+Last comes a power pass (`sw/ps_host/power.c`) over the DRAM-sized input of each
+application, if the board's monitors answer on the PS I2C1 bus: the INA226 on the
+12 V input (U183, 5 mΩ shunt) and the five outputs of each IRPS5401 PMIC (U175 at
+0x43, U180 at 0x44), behind the PCA9548 mux at 0x74. It first prints one
+`POWERRAIL,<rail>,<mV>,<mW>` line per rail it found (the output voltages identify
+the PMIC rails), then, per application, one row per phase and rail:
+
+```
+POWER,app,size,phase,rail,mV,mW,samples,reps,ms
+```
+
+Each phase is repeated for two seconds and sampled at most every 50 ms between
+repetitions (and while the A53 polls the accelerator): `idle` is the A53 polling
+the status register with the accelerator idle, `accel` the accelerator running
+the application, `a53` the A53 running its reference. `reps / ms` gives the time
+per repetition. Outputs are not checked in this pass. The program writes only the
+mux's channel byte, the PMBus PAGE command and the INA226 configuration register.

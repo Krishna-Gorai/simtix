@@ -13,6 +13,12 @@
  * Cycles and L1 counts are summed over the run's launches; accel us is the wall
  * time from the first GO to the last DONE, including host work between launches.
  *
+ * If the board's power monitors answer (power.c), a second pass repeats the
+ * DRAM-sized run of every application with power sampling: each phase (idle,
+ * accelerator, A53 reference) is repeated for PW_US and sampled between
+ * repetitions, and POWER rows replace the BOARD row. Outputs are not checked in
+ * that pass (repeated sweeps and accumulations move them on).
+ *
  * Buffers live in a 256 MB window of DDR4 at ARENA_BASE, outside the program
  * image; accelerator data must lie below 0x4000_0000 (simt_ps_top).
  */
@@ -27,6 +33,7 @@
 #include "xil_printf.h"
 #include "xiltimer.h"
 #include "kernels.h"
+#include "power.h"
 
 #define SIMT_BASE      0xA0000000u
 #define REG_KERNEL_PC  0x00u
@@ -60,6 +67,48 @@ static inline uint32_t rd(uint32_t off)         { return Xil_In32(SIMT_BASE + of
 static double us(XTime t0, XTime t1)
 {
     return (double)(t1 - t0) * 1e6 / (double)COUNTS_PER_SECOND;
+}
+
+/* ── Power pass ─────────────────────────────────────────────────────────────── */
+#define PW_US 2000000.0                 /* each phase is repeated for this long */
+static int pmode;                       /* 1 during the power pass */
+static uint32_t ph_reps[PW_PHASES];
+static double   ph_ms[PW_PHASES];
+static int      ph_cur;
+static uint32_t ph_r;
+static XTime    ph_t0;
+
+/* for (ph_begin(ph); ph_again(); ) <code>  runs the code once; in the power pass
+   it repeats it for PW_US, sampling the rails after every repetition, and keeps
+   the number of repetitions and the time they took. */
+static void ph_begin(int ph)
+{
+    ph_cur = ph;
+    ph_r = 0;
+    pw_phase(pmode ? ph : PW_NONE);
+    XTime_GetTime(&ph_t0);
+}
+
+static int ph_again(void)
+{
+    XTime t;
+    if (ph_r++ == 0) return 1;
+    if (!pmode) return 0;
+    pw_sample();
+    XTime_GetTime(&t);
+    if (us(ph_t0, t) < PW_US) return 1;
+    pw_phase(PW_NONE);
+    ph_reps[ph_cur] = ph_r - 1;
+    ph_ms[ph_cur] = us(ph_t0, t) / 1000.0;
+    return 0;
+}
+
+/* Idle reference for the power pass: the A53 polls the status register, as it
+   does while the accelerator runs, and the accelerator is idle. */
+static void idle_phase(void)
+{
+    if (!pmode) return;
+    for (ph_begin(PW_IDLE); ph_again(); ) (void)Xil_In32(SIMT_BASE + REG_STATUS);
 }
 
 /* ── DDR4 arena ─────────────────────────────────────────────────────────────── */
@@ -109,7 +158,8 @@ static void launch(uint32_t pc, const uint32_t *params, uint32_t n, uint32_t blk
     wr(REG_N, n);
     wr(REG_BLOCK, blk);
     wr(REG_CTRL, 1);
-    while (!(rd(REG_STATUS) & 1u)) ;
+    while (!(rd(REG_STATUS) & 1u))
+        if (pmode) pw_sample();
     run_cycles += rd(REG_CYCLES);
     run_hits   += rd(REG_L1_HITS);
     run_miss   += rd(REG_L1_MISSES);
@@ -119,6 +169,7 @@ static uint32_t *params(unsigned n) { return alloc_u32(n); }
 
 static void report(const char *app, uint32_t size, double acc_us, double cpu_us, unsigned errs)
 {
+    if (pmode) { pw_report(app, size, ph_reps, ph_ms); return; }
     unsigned a10 = (unsigned)(acc_us * 10.0 + 0.5), c10 = (unsigned)(cpu_us * 10.0 + 0.5);
     xil_printf("BOARD,%s,%u,%u,%u.%u,%u.%u,%u,%u,%u\r\n", app, size, run_cycles,
                a10 / 10, a10 % 10, c10 / 10, c10 % 10, run_hits, run_miss, errs);
@@ -143,21 +194,24 @@ static unsigned app_gemm(uint32_t n)
     uint32_t *p = params(5);
     p[0] = addr(a); p[1] = addr(b); p[2] = addr(c); p[3] = n; p[4] = lg;
     clean_all();
+    idle_phase();
     XTime_GetTime(&t0);
-    launch(PC_GEMM, p, n * n, 0);
+    for (ph_begin(PW_ACCEL); ph_again(); )
+        launch(PC_GEMM, p, n * n, 0);
     XTime_GetTime(&t1);
     invalidate_all();
 
     XTime_GetTime(&t2);
-    for (uint32_t i = 0; i < n; i++) {
-        float *cr = ref + i * n;
-        for (uint32_t j = 0; j < n; j++) cr[j] = 0.0f;
-        for (uint32_t k = 0; k < n; k++) {
-            float av = a[i * n + k];
-            const float *br = b + k * n;
-            for (uint32_t j = 0; j < n; j++) cr[j] = fmaf(av, br[j], cr[j]);
+    for (ph_begin(PW_A53); ph_again(); )
+        for (uint32_t i = 0; i < n; i++) {
+            float *cr = ref + i * n;
+            for (uint32_t j = 0; j < n; j++) cr[j] = 0.0f;
+            for (uint32_t k = 0; k < n; k++) {
+                float av = a[i * n + k];
+                const float *br = b + k * n;
+                for (uint32_t j = 0; j < n; j++) cr[j] = fmaf(av, br[j], cr[j]);
+            }
         }
-    }
     XTime_GetTime(&t3);
     unsigned e = diff((uint32_t *)c, (uint32_t *)ref, n * n);
     report("gemm", n, us(t0, t1), us(t2, t3), e);
@@ -183,17 +237,20 @@ static unsigned app_spmv(uint32_t rows, uint32_t maxnnz)
     uint32_t *p = params(5);
     p[0] = addr(rowptr); p[1] = addr(col); p[2] = addr(val); p[3] = addr(x); p[4] = addr(y);
     clean_all();
+    idle_phase();
     XTime_GetTime(&t0);
-    launch(PC_SPMV, p, rows, 0);
+    for (ph_begin(PW_ACCEL); ph_again(); )
+        launch(PC_SPMV, p, rows, 0);
     XTime_GetTime(&t1);
     invalidate_all();
 
     XTime_GetTime(&t2);
-    for (uint32_t r = 0; r < rows; r++) {
-        float acc = 0.0f;
-        for (uint32_t j = rowptr[r]; j < rowptr[r + 1]; j++) acc = fmaf(val[j], x[col[j]], acc);
-        ref[r] = acc;
-    }
+    for (ph_begin(PW_A53); ph_again(); )
+        for (uint32_t r = 0; r < rows; r++) {
+            float acc = 0.0f;
+            for (uint32_t j = rowptr[r]; j < rowptr[r + 1]; j++) acc = fmaf(val[j], x[col[j]], acc);
+            ref[r] = acc;
+        }
     XTime_GetTime(&t3);
     unsigned e = diff((uint32_t *)y, (uint32_t *)ref, rows);
     report("spmv", rows, us(t0, t1), us(t2, t3), e);
@@ -227,14 +284,17 @@ static unsigned app_stencil(uint32_t n, uint32_t sweeps)
         p[t][2] = lg; p[t][3] = s; p[t][4] = f2u(c0); p[t][5] = f2u(c1);
     }
     clean_all();
+    idle_phase();
     XTime_GetTime(&t0);
-    for (uint32_t t = 0; t < sweeps && t < 16; t++) launch(PC_STENCIL, p[t], n * n, 0);
+    for (ph_begin(PW_ACCEL); ph_again(); )
+        for (uint32_t t = 0; t < sweeps && t < 16; t++) launch(PC_STENCIL, p[t], n * n, 0);
     XTime_GetTime(&t1);
     invalidate_all();
 
     XTime_GetTime(&t2);
-    for (uint32_t t = 0; t < sweeps && t < 16; t++)
-        stencil_ref(r[t % 2], r[(t + 1) % 2], n, s, c0, c1);
+    for (ph_begin(PW_A53); ph_again(); )
+        for (uint32_t t = 0; t < sweeps && t < 16; t++)
+            stencil_ref(r[t % 2], r[(t + 1) % 2], n, s, c0, c1);
     XTime_GetTime(&t3);
     unsigned e = diff((uint32_t *)g[sweeps % 2], (uint32_t *)r[sweeps % 2], words);
     report("stencil", n, us(t0, t1), us(t2, t3), e);
@@ -258,22 +318,26 @@ static unsigned app_kmeans(uint32_t npts, uint32_t k)
     p[0] = addr(px); p[1] = addr(py); p[2] = addr(cx); p[3] = addr(cy); p[4] = k;
     p[5] = addr(as); p[6] = addr(sx); p[7] = addr(sy); p[8] = addr(cn);
     clean_all();
+    idle_phase();
     XTime_GetTime(&t0);
-    launch(PC_KMEANS, p, npts, 0);
+    for (ph_begin(PW_ACCEL); ph_again(); )
+        launch(PC_KMEANS, p, npts, 0);
     XTime_GetTime(&t1);
     invalidate_all();
 
     XTime_GetTime(&t2);
-    for (uint32_t j = 0; j < k; j++) rsx[j] = rsy[j] = rcn[j] = 0;
-    for (uint32_t i = 0; i < npts; i++) {
-        int32_t x = (int32_t)px[i], y = (int32_t)py[i];
-        uint32_t best = 0x7FFFFFFFu, bk = 0;
-        for (uint32_t j = 0; j < k; j++) {
-            int32_t dx = x - (int32_t)cx[j], dy = y - (int32_t)cy[j];
-            uint32_t d = (uint32_t)(dx * dx + dy * dy);
-            if (d < best) { best = d; bk = j; }
+    for (ph_begin(PW_A53); ph_again(); ) {
+        for (uint32_t j = 0; j < k; j++) rsx[j] = rsy[j] = rcn[j] = 0;
+        for (uint32_t i = 0; i < npts; i++) {
+            int32_t x = (int32_t)px[i], y = (int32_t)py[i];
+            uint32_t best = 0x7FFFFFFFu, bk = 0;
+            for (uint32_t j = 0; j < k; j++) {
+                int32_t dx = x - (int32_t)cx[j], dy = y - (int32_t)cy[j];
+                uint32_t d = (uint32_t)(dx * dx + dy * dy);
+                if (d < best) { best = d; bk = j; }
+            }
+            ras[i] = bk; rsx[bk] += (uint32_t)x; rsy[bk] += (uint32_t)y; rcn[bk]++;
         }
-        ras[i] = bk; rsx[bk] += (uint32_t)x; rsy[bk] += (uint32_t)y; rcn[bk]++;
     }
     XTime_GetTime(&t3);
     unsigned e = diff(as, ras, npts) + diff(sx, rsx, k) + diff(sy, rsy, k) + diff(cn, rcn, k);
@@ -315,24 +379,28 @@ static unsigned app_bfs(uint32_t nv, uint32_t deg)
         p[L][3] = L; p[L][4] = addr(flag[L]);
     }
     clean_all();
+    idle_phase();
     XTime_GetTime(&t0);
-    for (uint32_t L = 0; L < 64; L++) {
-        launch(PC_BFS, p[L], nv, 0);
-        Xil_DCacheInvalidateRange((INTPTR)flag[L], 32);
-        if (!flag[L][0]) break;
-    }
+    for (ph_begin(PW_ACCEL); ph_again(); )
+        for (uint32_t L = 0; L < 64; L++) {
+            launch(PC_BFS, p[L], nv, 0);
+            Xil_DCacheInvalidateRange((INTPTR)flag[L], 32);
+            if (!flag[L][0]) break;
+        }
     XTime_GetTime(&t1);
     invalidate_all();
 
     XTime_GetTime(&t2);
-    for (uint32_t v = 0; v < nv; v++) rlev[v] = UNSEEN;
-    uint32_t head = 0, tail = 0;
-    rlev[0] = 0; queue[tail++] = 0;
-    while (head < tail) {
-        uint32_t v = queue[head++];
-        for (uint32_t j = rowptr[v]; j < rowptr[v + 1]; j++) {
-            uint32_t u = col[j];
-            if (rlev[u] == UNSEEN) { rlev[u] = rlev[v] + 1; queue[tail++] = u; }
+    for (ph_begin(PW_A53); ph_again(); ) {
+        for (uint32_t v = 0; v < nv; v++) rlev[v] = UNSEEN;
+        uint32_t head = 0, tail = 0;
+        rlev[0] = 0; queue[tail++] = 0;
+        while (head < tail) {
+            uint32_t v = queue[head++];
+            for (uint32_t j = rowptr[v]; j < rowptr[v + 1]; j++) {
+                uint32_t u = col[j];
+                if (rlev[u] == UNSEEN) { rlev[u] = rlev[v] + 1; queue[tail++] = u; }
+            }
         }
     }
     XTime_GetTime(&t3);
@@ -373,14 +441,18 @@ static unsigned app_scan(uint32_t n)
     nplan = 0;
     uint32_t *out = scan_level(in, n);
     clean_all();
+    idle_phase();
     XTime_GetTime(&t0);
-    for (unsigned s = 0; s < nplan; s++) launch(plan[s].pc, plan[s].p, plan[s].n, plan[s].blk);
+    for (ph_begin(PW_ACCEL); ph_again(); )
+        for (unsigned s = 0; s < nplan; s++) launch(plan[s].pc, plan[s].p, plan[s].n, plan[s].blk);
     XTime_GetTime(&t1);
     invalidate_all();
 
     XTime_GetTime(&t2);
-    uint32_t acc = 0;
-    for (uint32_t i = 0; i < n; i++) { acc += in[i]; ref[i] = acc; }
+    for (ph_begin(PW_A53); ph_again(); ) {
+        uint32_t acc = 0;
+        for (uint32_t i = 0; i < n; i++) { acc += in[i]; ref[i] = acc; }
+    }
     XTime_GetTime(&t3);
     unsigned e = diff(out, ref, n);
     report("scan", n, us(t0, t1), us(t2, t3), e);
@@ -435,8 +507,10 @@ static unsigned app_mlp(uint32_t batch)
         if (!last) k[l + 1] = npad[l];
     }
     clean_all();
+    idle_phase();
     XTime_GetTime(&t0);
-    for (unsigned l = 0; l < nl; l++) launch(PC_MLP, p[l], batch * npad[l], 0);
+    for (ph_begin(PW_ACCEL); ph_again(); )
+        for (unsigned l = 0; l < nl; l++) launch(PC_MLP, p[l], batch * npad[l], 0);
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -444,26 +518,28 @@ static unsigned app_mlp(uint32_t batch)
     uint8_t *act = alloc(batch * 256), *nxt = alloc(batch * 256);
     int32_t *logit = alloc(4u * batch * npad[nl - 1]);
     XTime_GetTime(&t2);
-    const uint8_t *src = x0;
-    for (unsigned l = 0; l < nl; l++) {
-        int last = (l == nl - 1);
-        for (uint32_t b = 0; b < batch; b++)
-            for (uint32_t n = 0; n < npad[l]; n++) {
-                int32_t acc = 0;
-                for (uint32_t kk = 0; kk < k[l]; kk++)
-                    acc += (int32_t)(int8_t)src[b * k[l] + kk] *
-                           w[l][((kk / 4) * npad[l] + n) * 4 + kk % 4];
-                if (last) {
-                    logit[b * npad[l] + n] = acc;
-                } else {
-                    float v = fmaf((float)acc, scale, zp);
-                    v = v > 127.0f ? 127.0f : (v < 0.0f ? 0.0f : v);
-                    nxt[b * npad[l] + n] = rne_u8(v);
+    for (ph_begin(PW_A53); ph_again(); ) {
+        const uint8_t *src = x0;
+        for (unsigned l = 0; l < nl; l++) {
+            int last = (l == nl - 1);
+            for (uint32_t b = 0; b < batch; b++)
+                for (uint32_t n = 0; n < npad[l]; n++) {
+                    int32_t acc = 0;
+                    for (uint32_t kk = 0; kk < k[l]; kk++)
+                        acc += (int32_t)(int8_t)src[b * k[l] + kk] *
+                               w[l][((kk / 4) * npad[l] + n) * 4 + kk % 4];
+                    if (last) {
+                        logit[b * npad[l] + n] = acc;
+                    } else {
+                        float v = fmaf((float)acc, scale, zp);
+                        v = v > 127.0f ? 127.0f : (v < 0.0f ? 0.0f : v);
+                        nxt[b * npad[l] + n] = rne_u8(v);
+                    }
                 }
+            if (!last) {
+                for (uint32_t i = 0; i < batch * npad[l]; i++) act[i] = nxt[i];
+                src = act;
             }
-        if (!last) {
-            for (uint32_t i = 0; i < batch * npad[l]; i++) act[i] = nxt[i];
-            src = act;
         }
     }
     XTime_GetTime(&t3);
@@ -479,6 +555,7 @@ static void load(uint32_t pc, const uint32_t *w, unsigned n)
 }
 
 #define RUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = 0; errs += (call); } while (0)
+#define PRUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = 0; (void)(call); } while (0)
 
 unsigned run_apps(void)
 {
@@ -499,5 +576,19 @@ unsigned run_apps(void)
     RUN(app_bfs(16384, 8));     RUN(app_bfs(262144, 8));
     RUN(app_scan(65536));       RUN(app_scan(1u << 20));
     RUN(app_mlp(16));           RUN(app_mlp(256));
+
+    /* Power pass on the DRAM-sized inputs */
+    if (pw_init() > 0) {
+        xil_printf("POWER,app,size,phase,rail,mV,mW,samples,reps,ms\r\n");
+        pmode = 1;
+        PRUN(app_gemm(256));
+        PRUN(app_spmv(65536, 16));
+        PRUN(app_stencil(512, 4));
+        PRUN(app_kmeans(262144, 16));
+        PRUN(app_bfs(262144, 8));
+        PRUN(app_scan(1u << 20));
+        PRUN(app_mlp(256));
+        pmode = 0;
+    }
     return errs;
 }
