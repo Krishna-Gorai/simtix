@@ -95,3 +95,43 @@ single die.
 `run_syn.ps1 -Name simtix_ps_top -Top simt_ps_top` puts SIMTiX's board top
 (`simtix_sources.txt`) through the same script and strategy, so both designs are
 built the same way.
+
+    python sim/vortex_syn.py simtix=simtix_ps_top w4_bus128_ip=zcu104_1c4w8t \
+        w8_bus128_ip=zcu104_1c8w8t w16_bus128_ip=zcu104_1c16w8t
+
+collects each build's `synth_summary.csv` and `power_vectorless.rpt` into
+`docs/vortex_syn.csv` (a build that has not finished is skipped) and pairs each
+Vortex build with the run of `docs/vortex_apps.csv` it is named after.
+
+## Results
+
+Post-route, out of context, 10 ns constraint. Power is Vivado's vectorless estimate
+(toggle rate 12.5%, static probability 0.5) at 100 MHz.
+
+| | SIMTiX (`simt_ps_top`) | Vortex, 4 warps | Vortex, 8 warps | Vortex, 16 warps |
+|---|---|---|---|---|
+| LUT | 84,443 | 80,119 | 91,831 | 110,158 |
+| of which LUTRAM and SRL | 5,924 | 5,128 | 5,450 | 5,996 |
+| FF | 31,959 | 78,613 | 86,452 | 98,570 |
+| RAMB36 | 16 | 46 | 62 | 95.5 |
+| DSP | 72 | 48 | 48 | 48 |
+| WNS, Fmax | +0.162 ns, 101.6 MHz | +2.899 ns, 140.8 MHz | +2.641 ns, 135.9 MHz | +2.537 ns, 134.0 MHz |
+| Power, total (dynamic + static) | 1.096 W (0.501 + 0.594) | 1.701 W (1.103 + 0.598) | 1.851 W (1.252 + 0.599) | 2.075 W (1.475 + 0.600) |
+
+`simt_ps_top` also holds SIMTiX's AXI-Lite registers and AXI4 master (570 LUT); the
+`Vortex` top has no AXI or host adapter.
+
+Vortex / SIMTiX on the suite (`vx_bus128_ip` and its warp-count runs, `-b 32`); above
+1 favours SIMTiX. Run time takes each design at its own Fmax; energy is power ×
+cycles × 10 ns. 4w, 8w and 16w are Vortex's warp counts.
+
+| Case | Cycles 4w | 8w | 16w | Run time 4w | 8w | 16w | Energy 4w | 8w | 16w |
+|---|---|---|---|---|---|---|---|---|---|
+| GEMM | 2.01 | 1.23 | 1.16 | 1.45 | 0.92 | 0.88 | 3.12 | 2.09 | 2.19 |
+| SpMV | 1.66 | 1.10 | 1.06 | 1.19 | 0.82 | 0.80 | 2.57 | 1.85 | 2.00 |
+| Stencil | 2.99 | 1.76 | 1.42 | 2.16 | 1.32 | 1.08 | 4.64 | 2.97 | 2.70 |
+| k-means | 1.97 | 1.42 | 1.43 | 1.42 | 1.06 | 1.09 | 3.05 | 2.41 | 2.71 |
+| BFS | 4.99 | 2.60 | 1.90 | 3.60 | 1.94 | 1.44 | 7.74 | 4.39 | 3.59 |
+| Scan | 3.36 | 1.92 | 1.48 | 2.42 | 1.43 | 1.12 | 5.21 | 3.24 | 2.81 |
+| MLP | 3.92 | 3.58 | 3.58 | 2.83 | 2.68 | 2.71 | 6.09 | 6.05 | 6.77 |
+| Geometric mean | 2.78 | 1.80 | 1.58 | 2.01 | 1.34 | 1.20 | 4.32 | 3.04 | 3.00 |
