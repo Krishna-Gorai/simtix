@@ -1,0 +1,838 @@
+%==============================================================================
+% SIMTiX v2 --- IEEE Transactions on VLSI Systems manuscript (journal format).
+% Build:  pdflatex simtix_tvlsi && pdflatex simtix_tvlsi
+% Figures: docs/plot_vortex.py, docs/plot_lanes.py (into docs/figs/).
+% \tbd{...} marks numbers still to be measured (lane builds, board run).
+%==============================================================================
+\documentclass[journal]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,fit,backgrounds,arrows.meta,calc}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{../figs/}}
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.08}
+\newcommand{\Fmax}{$F_{\max}$}
+\newcommand{\tbd}[1]{\textcolor{red}{[#1]}}
+
+\begin{document}
+
+\title{SIMTiX: A Compact RISC-V SIMT Accelerator With Line-Aggregated Atomic
+Operations for FPGA Systems-on-Chip}
+
+\author{Krishna~Gorai and Bikram~Paul%
+\thanks{K. Gorai and B. Paul are with the School of Computing and Electrical
+Engineering, Indian Institute of Technology Mandi, Mandi 175075, India (e-mail:
+kg05112001@gmail.com; bikram@iitmandi.ac.in).}}
+
+\markboth{IEEE Transactions on Very Large Scale Integration (VLSI) Systems}%
+{Gorai and Paul: SIMTiX: A Compact RISC-V SIMT Accelerator}
+
+\maketitle
+
+\begin{abstract}
+Soft single-instruction multiple-thread (SIMT) accelerators give FPGA
+systems-on-chip a programmable data-parallel engine beside the host processor,
+but open designs either lack the memory system that real applications need or
+are large, and they are rarely compared on the same device. This paper presents
+SIMTiX, a RISC-V SIMT accelerator with eight lanes and four warps, a pipelined
+FP32/FP16 datapath, warp shuffles, block barriers, RV32A atomic memory operations
+(AMOs), and a non-blocking 16~KB L1 data cache that reaches DDR4 through the
+AXI4 port of a Zynq UltraScale+ processing system. Its memory engine executes the
+AMOs of a warp line by line: all lanes whose words lie in one cache line are
+applied to a buffered copy of the line, read once and written back once, and
+every lane receives the value that serial execution in lane order returns. Line
+aggregation reduces the memory requests of a histogram from 2,176 to 640 and its
+run time by $1.7\times$ behind the L1, and that of k-means by $1.29\times$, for
+2,551 lookup tables (LUTs). The complete board design meets 100~MHz on the ZCU104.
+Built with the same Vivado flow on the same device as Vortex with four warps of
+eight threads, SIMTiX runs seven applications in $2.78\times$ fewer cycles
+(geometric mean), $2.01\times$ less time at each design's maximum frequency, and
+$4.3\times$ less estimated energy, with 5\% more LUTs and 59\% fewer flip-flops.
+Vortex needs 16 warps and 30\% more LUTs to come within $1.20\times$ of SIMTiX's
+run time, and is then faster on dense GEMM and SpMV. A sweep from four to 16 lanes
+and measurements on the board against the Cortex-A53 complete the evaluation.
+\tbd{one sentence with the board result}. The RTL and scripts are open source.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Atomic memory operations, FPGA, general-purpose GPU (GPGPU), RISC-V,
+single-instruction multiple-thread (SIMT), soft processor.
+\end{IEEEkeywords}
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+\IEEEPARstart{F}{PGA} systems-on-chip such as the AMD Zynq UltraScale+ combine
+hard processor cores with programmable logic. A data-parallel engine in the logic
+can offload work from the processors, and an engine that is programmed in
+software, rather than synthesized for one kernel, serves many kernels without a
+new bitstream. Graphics processing units (GPUs) provide such an engine through
+the single-instruction multiple-thread (SIMT) model: scalar threads are grouped
+into \emph{warps} that execute one instruction stream on a vector of
+\emph{lanes}, and the hardware switches between warps to hide memory
+latency~\cite{tesla,aamodt}.
+
+Several open SIMT and GPGPU designs target FPGAs. Vortex~\cite{vortex} and
+Ventus~\cite{ventus25} are complete RISC-V GPGPUs with caches and OpenCL
+support, and one Ventus streaming multiprocessor occupies 329k LUTs. eGPU
+reaches more than 770~MHz in a small footprint on an Intel Agilex
+device~\cite{egpu}. Earlier designs such as FlexGrip~\cite{flexgrip} and
+FGPU~\cite{fgpu} established the approach. Two gaps remain for an engine
+intended to sit beside a host processor in a mid-size device. First, compact
+designs omit the memory system (caches, atomic operations and barriers) that
+irregular applications such as graph traversal and clustering require, while the
+designs that include it are large. Second, the designs are evaluated on different
+devices, with different tools and benchmarks, and often with frequencies taken
+before placement, so their costs and performance cannot be compared directly.
+
+Atomic memory operations (AMOs) deserve particular attention in a SIMT machine.
+One AMO instruction of a warp of $L$ lanes is $L$ read-modify-write operations,
+and in histogramming, clustering and graph kernels many of them fall in the same
+cache line or on the same word. A memory system that performs them one lane at a
+time spends a read and a write per lane, which makes the atomics the bottleneck
+of these kernels.
+
+This paper presents SIMTiX, a RISC-V SIMT accelerator of eight lanes and four
+warps for the ZCU104 board, and makes the following contributions.
+\begin{enumerate}
+\item A compact SIMT architecture with the memory system real applications need:
+a non-blocking L1 data cache with miss registers, a memory engine with one
+context per warp and a tagged split-transaction port, an AXI4 master into the
+DDR4 memory of the processing system, warp shuffles, block barriers, RV32A AMOs,
+and a pipelined FP32/FP16 datapath (Section~\ref{sec:arch}).
+\item Line-aggregated AMOs, which apply all the lanes of an AMO that fall in one
+line with one read and one masked write while returning the values of serial
+execution in lane order, in a one-lane-per-cycle and a parallel variant, with
+their measured cost and benefit (Sections~\ref{sec:amo} and~\ref{sec:evalamo}).
+\item An implementation of the complete board design, processing system
+included, that meets 100~MHz, and the timing-closure steps for the
+floating-point datapath and the memory path that it required
+(Section~\ref{sec:impl}).
+\item A comparison with Vortex~3.0 on the same device, with the same Vivado
+implementation flow and the same seven applications, at 4, 8 and 16 Vortex warps,
+which separates instruction count, instructions per cycle (IPC), area, frequency
+and power (Section~\ref{sec:evalvortex}).
+\item A lane sweep from four to 16 lanes, with a bound on the depth of the
+reconvergence stack that the sweep exposed, and measurements on the board against
+the Cortex-A53 (Sections~\ref{sec:evallanes} and~\ref{sec:evalboard}).
+\end{enumerate}
+The RTL, kernels, testbenches, Vortex port and scripts are available at
+\url{https://github.com/Krishna-Gorai/simtix}.
+
+Section~\ref{sec:related} reviews SIMT execution, open SIMT designs and hardware
+support for atomics. Sections~\ref{sec:arch} to~\ref{sec:impl} describe the
+architecture, the aggregated AMOs and the implementation, Section~\ref{sec:eval}
+evaluates them, and Section~\ref{sec:disc} discusses limitations.
+
+%==============================================================================
+\section{Background and Related Work}\label{sec:related}
+%==============================================================================
+\subsection{SIMT Execution}
+A SIMT kernel is launched for $N$ threads. The threads are grouped into warps of
+$L$ threads, one per lane, and up to $W$ warps are resident in the accelerator at
+a time. All threads of a warp share one program counter (PC) and execute one
+instruction per issue. When the lanes of a warp disagree at a conditional branch,
+the branch \emph{diverges}: the warp executes the two paths one after the other,
+each with an \emph{active mask} of the lanes on that path, and the paths
+\emph{reconverge} at a common PC. A reconvergence stack per warp holds these
+paths as frames of a PC, a mask and the reconvergence PC~\cite{fung,aamodt}. When
+the active lanes of a load or store access addresses in the same cache line, the
+memory system serves them with one request; this is \emph{coalescing}. Threads of
+the same \emph{block}, a group of warps, can synchronize at a \emph{barrier} and
+share an on-chip scratchpad; a \emph{shuffle} reads a register of another lane of
+the same warp.
+
+\subsection{Open SIMT Designs on FPGAs}
+FlexGrip~\cite{flexgrip} executes CUDA binaries on an FPGA, and FGPU~\cite{fgpu}
+is an OpenCL-programmed SIMT processor written in VHDL. MIAOW~\cite{miaow}
+implements the AMD Southern Islands compute unit in RTL but models its memory
+hierarchy in software. Nyami~\cite{nyuzi} is a synthesizable GPU model, and
+Simty~\cite{simty} executes the RISC-V ISA with a generalized SIMT front end.
+eGPU~\cite{egpu} places 16 scalar processors and 512 threads in 5,600 Agilex
+logic modules and 24 DSP blocks and closes above 770~MHz. Vortex~\cite{vortex} extends RISC-V with a small set of instructions for
+warp control, divergence and barriers, and provides a configurable multi-core
+GPGPU with L1 and L2 caches, local memory and an OpenCL stack.
+Ventus~\cite{ventus25} builds a GPGPU on the RISC-V vector extension; one
+streaming multiprocessor without its tensor core uses 329k LUTs, 80.4k
+flip-flops and 108 block RAMs on a VCU128 board, and its vector register file is
+54\% of its area.
+
+SIMTiX is closest to Vortex: both execute one scalar RISC-V thread per lane with
+a few custom instructions, and Vortex can be configured with the same warp and
+lane counts. Vortex is therefore the baseline of Section~\ref{sec:evalvortex},
+built from its release~3.0 sources for the same device.
+
+\subsection{Atomic Operations in SIMT Machines}
+GPUs execute global atomics in atomic units at the L2 cache~\cite{fermi}, and in
+the GPU model of~\cite{dab} the atomics of a warp that fall in one cache sector
+form one transaction. Franey and Lipasti studied hardware support for GPU
+atomics~\cite{franey}. PHI buffers and coalesces commutative updates in the
+cache hierarchy of a multicore~\cite{phi}, and DAB buffers GPU atomics to make
+them deterministic~\cite{dab}. In software, warp-aggregated atomics combine the
+same-address increments of a warp with shuffles and let one elected lane perform
+a single atomic~\cite{warpagg}; this requires a commutative operation on one
+address and changes the kernel. Vortex~3.0 sends the AMO of each lane as a
+separate request to a bank of its last-level cache, which reads, modifies and
+writes one word per request (from its RTL). SIMTiX aggregates in the
+memory engine of the core, ahead of the L1. Its aggregation covers lanes on
+different words of one line and lanes on the same word, applies to every RV32A
+AMO including swap and minimum or maximum, returns the per-lane old values, and
+needs no change to the kernel.
+
+%==============================================================================
+\section{Architecture}\label{sec:arch}
+%==============================================================================
+\begin{figure*}[t]
+\centering
+\resizebox{0.94\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\footnotesize,
+  box/.style={draw,rounded corners=1.5pt,align=center,fill=gray!10,inner sep=3pt,minimum height=7mm},
+  hl/.style ={draw,rounded corners=1.5pt,align=center,fill=blue!14,inner sep=3pt,minimum height=7mm},
+  mem/.style={draw,rounded corners=1.5pt,align=center,fill=gray!26,inner sep=3pt,minimum height=7mm},
+  tag/.style={font=\scriptsize\itshape,fill=white,inner sep=1.5pt},
+  >=Latex]
+% processing system
+\node[box,minimum width=2.6cm] (a53) at (0,4.2) {Cortex-A53 host\\1.2~GHz};
+\node[mem,minimum width=2.6cm] (ddr) at (0,0.2) {DDR4};
+\node[box,minimum width=2.6cm] (hp0) at (0,1.5) {S\_AXI\_HP0\\(128 bit)};
+\node[box,minimum width=2.6cm] (smc) at (0,2.85) {AXI SmartConnect};
+% accelerator
+\node[box,minimum width=2.6cm] (regs) at (3.6,4.2) {Command registers\\GO / DONE, counters};
+\node[mem,minimum width=2.6cm] (iram) at (3.6,2.85) {Kernel instruction\\RAM (4~KB)};
+\node[box,minimum width=3.4cm] (pool) at (7.3,4.2) {Warp pool: 4 warps\\scheduler, F/X pipeline};
+\node[mem,minimum width=3.4cm] (stk) at (7.3,2.85) {Reconvergence stacks\\(depth = lanes)};
+\node[mem,minimum width=3.4cm] (rf) at (7.3,1.5) {Integer and FP register\\files (LUTRAM)};
+\node[box,minimum width=3.0cm] (lanes) at (11.0,4.2) {8 lanes: ALU, mul,\\INT8 dot, shuffle};
+\node[box,minimum width=3.0cm] (fpu) at (11.0,2.85) {8 FP32/FP16 units\\(5-stage FMA)};
+\node[box,minimum width=3.0cm] (sfu) at (11.0,1.5) {Shared div/sqrt\\unit};
+\node[hl,minimum width=3.4cm] (me) at (7.3,0.2) {Memory engine: 4 contexts,\\coalescing, \textbf{line-aggregated AMOs}};
+\node[mem,minimum width=2.4cm] (spad) at (11.0,0.2) {Scratchpad\\(per warp, per block)};
+\node[box,minimum width=2.6cm] (l1) at (3.6,0.2) {L1: 16~KB, 4-way\\4 MSHRs, write-through};
+\node[box,minimum width=2.6cm] (axi) at (3.6,1.5) {AXI4 master\\INCR bursts, ID = tag};
+\begin{scope}[on background layer]
+  \node[fit=(a53)(ddr)(hp0)(smc),draw,dashed,rounded corners,inner sep=2.4mm,fill=gray!4] (ps) {};
+  \node[fit=(regs)(iram)(pool)(stk)(rf)(lanes)(fpu)(sfu)(me)(spad)(l1)(axi),draw,rounded corners,inner sep=2.4mm,fill=blue!3] (acc) {};
+\end{scope}
+\node[tag,anchor=west] at ($(ps.north west)+(3mm,0)$) {Processing system};
+\node[tag,anchor=west] at ($(acc.north west)+(3mm,0)$) {SIMTiX (\texttt{simt\_ps\_top}), programmable logic, 100~MHz};
+\draw[->] (a53) -- (smc);
+\draw[->] (smc.east) -- node[tag,above] {AXI4-Lite} (iram.west);
+\draw[->] (smc.north east) -- (regs.south west);
+\draw[->] (regs) -- (pool);
+\draw[->] (iram.east) -- (pool.south west);
+\draw[<->] (pool) -- (lanes);
+\draw[<->] (rf.east) -- (sfu.west);
+\draw[<->] (rf.north east) -- (fpu.south west);
+\draw[<->] (me) -- (spad);
+\draw[<->] (rf) -- (me);
+\draw[<->] (me) -- (l1);
+\draw[<->] (l1) -- (axi);
+\draw[<->] (axi) -- (hp0);
+\draw[<->] (hp0) -- (ddr);
+\end{tikzpicture}}
+\caption{SIMTiX on the ZCU104. The Cortex-A53 writes the kernel and the launch
+parameters over AXI4-Lite and polls for completion; the accelerator reaches DDR4
+through its L1 data cache and an AXI4 master on the processing system's
+high-performance port.}
+\label{fig:arch}
+\end{figure*}
+
+\subsection{System Organization}
+Fig.~\ref{fig:arch} shows the board system. The accelerator (\texttt{simt\_ps\_top})
+is a peripheral of the Zynq UltraScale+ processing system and runs at 100~MHz.
+The Cortex-A53 runs a bare-metal host program. Through an AXI4-Lite window it
+writes the kernel into a 4~KB instruction RAM and the launch parameters into
+command registers: the kernel PC, a pointer to the kernel's parameter block, the
+thread count $N$ and the block size, and then sets GO and polls DONE. The
+accelerator counts the cycles of each launch and the hits and misses of its L1.
+Kernel data lives in DDR4. The accelerator reads and writes it through its L1
+data cache and an AXI4 master connected to the 128-bit high-performance port
+S\_AXI\_HP0, which is not coherent with the A53 caches. The host therefore cleans
+its data cache before GO and invalidates it after DONE. Writing GO invalidates
+the L1, and because the L1 writes through, DDR4 holds every result at DONE.
+
+On GO the accelerator spawns $\lceil N/L\rceil$ warps into its $W=4$ warp slots
+and refills a slot when its warp finishes. A register sets the block size to
+$2^b$ warps; a block is spawned whole into a group of $2^b$ slots, so the warps of
+a block are always resident together.
+
+\subsection{Warp Pool and Pipeline}
+The four warp slots share one two-stage pipeline. The fetch (F) stage reads the
+instruction at the PC of the warp chosen by a round-robin scheduler; the execute
+(X) stage reads the operands, executes, and writes the result back. An
+instruction that takes more than one cycle (a memory access, a floating-point
+operation, a divide or square root, an integer multiply, an INT8 dot product or a
+shuffle) parks its warp in a wait state, and the scheduler issues other warps
+until the result returns. The integer and floating-point register files hold 32
+registers per thread in distributed RAM (LUTRAM), one bank per lane addressed by
+warp and register. A register file built from flip-flops needs a 128-to-1
+multiplexer per lane and read port; moving it to LUTRAM reduced the LUTs of the
+integer accelerator from 170,868 to 30,088.
+
+Each warp has a reconvergence stack of frames with a next PC, a reconvergence PC
+and a mask. A divergent forward branch pushes the not-taken lanes with the branch
+target as reconvergence PC, and a divergent backward branch (a loop) pushes the
+lanes that stay in the loop with the fall-through PC as reconvergence PC; a frame
+is popped when its PC reaches its reconvergence PC. Every pushed frame holds a
+strict, non-empty subset of the lanes of the frame below it, so a warp never holds
+more than $L$ frames, and the stack depth is set to $L$. Section~\ref{sec:evallanes}
+returns to this bound.
+
+The instruction set is RV32I with the RV32M multiply (\texttt{mul}), RV32A AMOs
+without load-reserved and store-conditional, and the single-precision and
+half-precision floating-point instructions, plus custom instructions in the
+\emph{custom-0} opcode space: \texttt{pdot8} (a dot product of four signed or
+unsigned INT8 pairs), \texttt{shfl.\{idx,up,down,xor\}}, and \texttt{bar}.
+
+\subsection{Floating-Point Datapath}
+Each lane has an FP32/FP16 unit for addition, multiplication, the four fused
+multiply-add (FMA) variants, comparisons, minimum and maximum, sign injection,
+conversions and classification. The unit is pipelined over five stages; the
+48-bit significand product of multiplication and FMA is formed on a shared
+$24\times24$ DSP cascade. FP16 operations widen their operands to FP32, use the
+FP32 datapath and round the result to FP16. For addition, multiplication and
+conversions this double rounding is innocuous because $24\ge2\cdot11+2$
+\cite{figueroa}; the FMA is not covered by that bound, so its FP32 intermediate is
+rounded to odd, which makes the final rounding to FP16 correct. Arithmetic
+rounds to nearest even, and conversions to integer use the rounding mode of the
+instruction. Divide and square root use one shared digit-recurrence unit, through
+which the lanes of a warp are sequenced while other warps issue. The units were
+checked bit-exactly against an IEEE-754 reference~\cite{ieee754} on 116,089
+arithmetic vectors and 100,884 conversion vectors that cover every rounding mode.
+
+\subsection{Synchronization Instructions}
+A shuffle reads a register of another lane of the same warp, selected by an
+index, an offset up or down, or an XOR with the lane number, and writes it to
+every active lane in one instruction; shuffles implement log-step reductions and
+scans within a warp. \texttt{bar} parks a warp until every live warp of its block
+has arrived. Two scratchpad apertures are served from on-chip LUTRAM: 64 words
+per warp, and a region shared by the warps of a block. The RV32A AMOs (add, swap,
+and, or, xor, signed and unsigned minimum and maximum) operate on global and
+scratchpad addresses.
+
+\subsection{Memory Engine}
+The memory engine accepts a load, store or AMO instruction of a warp when one of
+its four contexts, one per warp, is free; the context holds the instruction's
+lane addresses, store data and a mask of the lanes still pending. Each cycle one
+context, chosen in rotating order, sends a request for the lowest pending lane
+and every other pending lane whose address lies in the same line, which
+coalesces the access. Requests carry a tag and up to eight are outstanding;
+responses return in any order, and a load response writes the data of its lanes
+into the register file. A warp resumes when its context has no pending lane and
+no outstanding request. An AMO is a read followed by a write, and its context
+holds the request port from the read to the write so that no other request
+reaches the line in between.
+
+\subsection{L1 Data Cache and AXI4 Master}
+The L1 holds 16~KB in four ways. Its line is the memory engine's line, $L$ words
+or 32 bytes at eight lanes, so the cache has 128 sets. Tags are in LUTRAM and
+valid bits in flip-flops; the data of each way is one block-RAM bank. A request
+first enters an input register with one skid entry, so the grant to the engine is
+a flip-flop, and a hit answers two cycles after the grant. A miss allocates one of
+four miss-status holding registers (MSHRs), one per warp; a later miss to the same
+line joins the register, and the returning line answers all of its requests. The
+cache writes through without allocating on a write miss, acknowledges a write
+after memory has acknowledged it, and holds a write to a line with a miss in
+flight. The AXI4 master turns a line request into an incrementing burst of
+$32L/128$ beats whose AXI ID is the request tag, collects read beats per ID, and
+reports error responses.
+
+%==============================================================================
+\section{Line-Aggregated Atomic Memory Operations}\label{sec:amo}
+%==============================================================================
+\subsection{Cost of Per-Lane AMOs}
+With one read-modify-write per lane, an AMO whose $k$ active lanes all fall in one
+line costs $k$ reads and $k$ writes. Behind a write-through L1 every write also
+travels to DDR4, and each read-modify-write holds the request port for a read
+round trip. A histogram of 1,024 values into 16 bins, where each warp's eight
+lanes hit at most two lines, therefore makes 2,176 memory requests.
+
+\subsection{Mechanism}
+Let $P$ be the pending lanes of an AMO context, $a_i$ the address of lane $i$,
+and $\ell=\min P$ the lead lane. The engine forms the group
+$G=\{i\in P:\mathrm{line}(a_i)=\mathrm{line}(a_\ell)\}$ and
+\begin{enumerate}
+\item reads the line once into a line buffer;
+\item applies the lanes of $G$ to the buffer in \emph{rounds}: a round applies
+every remaining lane $i\in G$ for which no lower remaining lane of $G$ addresses
+the same word; an applied lane receives the old word as its result and the buffer
+word is replaced by the AMO's new value;
+\item writes the line back with one request whose byte enables cover the words
+that changed; and
+\item removes $G$ from $P$ and repeats while $P$ is not empty.
+\end{enumerate}
+The context holds the request port from the read to the write, as for a single
+AMO. Within a round all lanes address different words and are independent; across
+rounds the lanes on one word are applied in ascending lane order. The final
+memory contents and every returned value are therefore those of executing the
+lanes one at a time in ascending lane order, which is what the per-lane engine
+does. A group needs as many rounds as the largest number of its lanes on one
+word. Fig.~\ref{fig:amo} shows an example.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\scriptsize, x=6.6mm, y=4.4mm,
+  c/.style={draw,minimum width=6.6mm,minimum height=4.4mm,inner sep=0pt}]
+\node[anchor=east] at (-0.6,0) {lane};
+\node[anchor=east] at (-0.6,-1) {word};
+\node[anchor=east] at (-0.6,-2) {round};
+\foreach \l/\w/\r in {0/3/1,1/3/2,2/5/1,3/0/1,4/3/3,5/5/2,6/7/1,7/1/1}{
+  \node[c] at (\l,0) {\l};
+  \node[c] at (\l,-1) {\w};
+  \ifnum\r=1 \node[c,fill=blue!12] at (\l,-2) {\r};\fi
+  \ifnum\r=2 \node[c,fill=blue!28] at (\l,-2) {\r};\fi
+  \ifnum\r=3 \node[c,fill=blue!45] at (\l,-2) {\r};\fi
+}
+\end{tikzpicture}
+\caption{An AMO whose eight lanes address words of one line. One read and one
+write serve the line; the lanes on word~3 (lanes 0, 1 and 4) and on word~5 (2 and
+5) are applied in lane order in successive rounds. With one AMO ALU the eight
+lanes take eight cycles; with one ALU per lane the three rounds take three.}
+\label{fig:amo}
+\end{figure}
+
+\subsection{Two Datapaths}
+The serial variant (\emph{ser}) has one AMO arithmetic unit and applies one lane
+per cycle in round order. The parallel variant (\emph{par}) has one unit per lane
+and applies a whole round per cycle. Both return the same values. Out of context
+at 100~MHz the memory engine without aggregation uses 10,705 LUTs, the serial
+variant 13,256 (2,551 more) and the parallel variant 16,628 (5,923 more). In the
+board design the parallel variant missed 100~MHz by 0.119~ns while the serial one
+met it, so the serial variant is the default and the parallel one a build
+parameter.
+
+\subsection{Verification}
+A dedicated kernel issues colliding \texttt{amoadd}, \texttt{amomax} and
+\texttt{amoswap} instructions and checks every returned value and the final memory
+against a serial model; it and the histogram run with and without aggregation
+under seven memory configurations, from a zero-latency memory to the L1 with only
+two sets, which forces evictions, and the L1 behind the AXI4 master with an
+out-of-order memory model.
+
+%==============================================================================
+\section{Implementation and Timing Closure}\label{sec:impl}
+%==============================================================================
+\subsection{Flow and Verification}
+SIMTiX is written in SystemVerilog. Twenty-one self-checking testbenches, in 28
+configurations of memory latency, ordering and cache, run under Vivado's
+simulator and under Verilator~5.020 in continuous integration.
+All implementations use Vivado~2025.1 and the XCZU7EV-2 device of the ZCU104 board
+(230,400 LUTs, 460,800 flip-flops, 312 block RAMs and 1,728 DSP blocks). The board
+design is a block design of the processing system, an AXI SmartConnect and the
+accelerator, implemented in context into the bitstream that runs on the board.
+
+\subsection{Floating-Point Datapath}
+The floating-point datapath is 2.5 times the area of the integer engine and,
+placed, is limited by routing rather than logic depth. With a two-stage FMA the
+eight-lane engine closed at 78~MHz out of context, its worst path in the first
+FMA stage with 58\% of the delay in routing. Sharing one divide and square-root
+unit among the lanes removed 3.7k LUTs from the lanes and raised this to 84~MHz
+with the FMA logic unchanged. A four-lane build reached only 79.7~MHz, which
+showed that the limit lay within one lane's FMA rather than in the total area,
+and a three-stage FMA then closed 100.7~MHz and moved the worst path to the
+register-file read. In the deployed unit the significand product is fully
+pipelined on DSP blocks, which makes the unit five stages deep.
+
+\subsection{Memory Path}
+Adding the L1 and the aggregated AMOs to the board design first missed 100~MHz by
+2.478~ns with 16,301 failing endpoints. The worst path was a single-cycle loop of
+30 logic levels, 76\% of it routing: from the pending-lane masks of a memory
+context through port arbitration and address selection into the L1 tag compare,
+the hit, the completion of the context and the warp's resume into the PC of its
+reconvergence stack. Four changes closed it. The L1 registers its input, with one
+skid entry, so the lookup starts from flip-flops and its grant is a flip-flop. A
+context completes from registered state and the cycle's responses, which is valid
+for a memory that never answers in the request cycle. The L1 chooses one cycle
+ahead which waiting read it answers next. A post-route physical optimization pass
+was added. The input register costs 1.5--2.5\% of the total cycles of the
+applications. The final board design meets 100~MHz with $+0.098$~ns of slack
+(101.0~MHz); its worst path is the stage-0 addition of a lane FPU.
+
+\begin{table}[t]
+\caption{Implementation Results on the XCZU7EV-2 at a 100~MHz Constraint}
+\label{tab:impl}
+\centering\footnotesize
+\setlength{\tabcolsep}{2.6pt}
+\begin{tabular}{lrrrrrr}
+\toprule
+Design & LUT & FF & BRAM & DSP & \Fmax & Power\\
+ & & & & & (MHz) & (W)\\
+\midrule
+Board design$^a$       & 81,060 & 23,910 & 16 & 72 & 101.0 & 4.19\\
+SIMTiX, 8 lanes$^b$    & 84,443 & 31,959 & 16 & 72 & 101.6 & 1.10\\
+SIMTiX, 4 lanes$^b$    & 43,119 & 17,555 & 8  & 36 & 113.5 & 0.94\\
+SIMTiX, 16 lanes$^b$   & \tbd{} & \tbd{} & \tbd{} & \tbd{} & \tbd{} & \tbd{}\\
+L1 data cache$^c$      & 2,628  & 2,369  & 16 & 0  & 162.2 & ---\\
+Mem. engine, base$^c$  & 10,705 & --- & 0 & 0 & --- & ---\\
+Mem. engine, \emph{ser}$^c$ & 13,256 & --- & 0 & 0 & --- & ---\\
+Mem. engine, \emph{par}$^c$ & 16,628 & --- & 0 & 0 & --- & ---\\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\begin{minipage}{\columnwidth}\footnotesize
+$^a$In context with the processing system; whole-device power, of which the
+processing system 2.64~W and the accelerator 0.83~W dynamic.
+$^b$\texttt{simt\_ps\_top} out of context through the flow of
+Section~\ref{sec:evalvortex}; vectorless power.
+$^c$Out of context; base is the engine without aggregation. BRAM counts RAMB36
+tiles.
+\end{minipage}
+\end{table}
+
+Table~\ref{tab:impl} lists the results. In the board design the accelerator uses
+35\% of the device's LUTs and 0.83~W of dynamic power, against 2.64~W for the
+processing system.
+
+%==============================================================================
+\section{Evaluation}\label{sec:eval}
+%==============================================================================
+\subsection{Methodology}
+\textbf{Applications.} Table~\ref{tab:apps} lists the seven applications, which
+are written in RISC-V assembly with one thread per output: FP32 matrix
+multiplication (GEMM), sparse matrix-vector product in compressed sparse row
+format (SpMV), two sweeps of a five-point Jacobi stencil, the assignment step of
+k-means with AMO accumulation of the cluster sums, level-synchronous breadth-first
+search (BFS) with one launch per level and an \texttt{amoor} flag, an inclusive
+prefix sum (scan) built from a block scan with shuffles, block-shared memory and a
+barrier and a second pass that adds the block totals, and a two-layer INT8
+multilayer perceptron (MLP) with \texttt{pdot8}, requantization and ReLU. The
+generator computes FP32 references with one exact rounding per operation, and
+every output word is compared bit-exactly.
+
+\textbf{SIMTiX.} The board top runs in simulation, driven over AXI4-Lite as the
+A53 drives it, with an AXI4 memory model of 24 cycles of latency, out-of-order
+responses and random ready stalls. Cycles come from the accelerator's counter, and
+instructions are the warp instructions issued.
+
+\textbf{Vortex.} Vortex~3.0 is configured with one core of four warps of eight
+threads, RV32IMAF with the A extension, and its defaults otherwise: 16~KB 4-way
+instruction and data caches with 64-byte lines, a write-back data cache, local
+memory, and the Xilinx floating-point IP cores. The applications are ported to
+its \texttt{vx\_spawn2} interface with the same algorithms, one thread per output
+and the same order of floating-point operations, compiled by its LLVM at
+\texttt{-O3}, and checked against the same references. They run in Vortex's RTL
+simulator with its memory behind a 128-bit bus, the width of the HP port, and
+with the FMA, divide and square-root latencies of the IP cores in the netlist (16,
+28 and 28 cycles). Vortex counts its retired warp instructions, including its
+divergence and predicate instructions.
+
+\textbf{Implementation.} Both designs are implemented out of context with
+Vortex's own Vivado script and strategy (performance-optimized synthesis with
+retiming, extra timing optimization and aggressive physical optimization before
+and after routing) at a 100~MHz constraint, and their power is estimated
+vectorless with a toggle rate of 12.5\%. Run time is cycles divided by each
+design's \Fmax, and energy is the power at 100~MHz times the cycles times 10~ns.
+
+\textbf{Board.} The board runs the applications on DRAM-sized inputs
+(Table~\ref{tab:apps}), times them on the accelerator and with ordinary sequential
+code on one A53 core, and reads the board's power monitors
+(Section~\ref{sec:evalboard}).
+
+\begin{table}[t]
+\caption{Applications, Inputs and Results on SIMTiX (8 Lanes, Simulation)}
+\label{tab:apps}
+\centering\footnotesize
+\setlength{\tabcolsep}{2.6pt}
+\begin{tabular}{llrrrl}
+\toprule
+App. & Simulated input & Cycles & IPC & L1 hit & Board input\\
+\midrule
+GEMM    & $32^3$               & 45,902  & 0.69 & 93\% & $256^3$\\
+SpMV    & $512^2$, $\le$16/row & 26,295  & 0.43 & 88\% & $65{,}536^2$\\
+Stencil & $32^2$, 2 sweeps     & 17,529  & 0.48 & 88\% & $512^2$, 4\\
+k-means & 1,024, $k=8$         & 36,935  & 0.66 & 93\% & $2^{18}$, 16\\
+BFS     & 1,024, degree 6      & 71,151  & 0.56 & 84\% & $2^{18}$, 8\\
+Scan    & 2,048                & 34,468  & 0.50 & 73\% & $2^{20}$\\
+MLP     & 784-128-10, 8        & 433,626 & 0.48 & 50\% & 784-256-128-10, 256\\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\begin{minipage}{\columnwidth}\footnotesize
+Sizes: GEMM $n^3$; SpMV rows and nonzeros per row; stencil grid and sweeps;
+k-means points and clusters; BFS vertices and degree; scan elements; MLP layers
+and batch. IPC: warp instructions issued per cycle. L1 hit: read hits over read
+accesses.
+\end{minipage}
+\end{table}
+
+\subsection{Memory System}
+The L1 and the memory contexts were measured as they were added, with a
+self-checking set of synchronization kernels and a memory model of fixed latency.
+With a 20-cycle memory, the L1 makes a 16-bin histogram $5.6\times$ faster, its
+block-shared form $2.4\times$ and a whole-array sum (a shuffle butterfly and one
+AMO per warp) $1.5\times$, while reductions that read each line once change by
+less than 5\%. With a 7-cycle memory, four memory contexts instead of one reduce
+the cycles of the whole-array sum by 15\% and of the histogram by 14\%, because a warp waiting for memory no longer blocks the
+memory accesses of the other warps.
+
+\subsection{Synchronization and Reduction}
+In the earlier design without shuffles, a reduction of 1,024 values to one sum
+per warp took 6,023 cycles through the scratchpad, 1.38 times the 4,363 cycles
+of the same computation on the five-stage RV32I host core of the stand-alone
+SIMTiX chip at the same clock and with single-cycle memory. With a butterfly of
+three \texttt{shfl.xor} steps, which leaves the sum in every lane, the reduction
+takes 2,911 cycles, 1.50 times faster than that core, and 3,908 cycles
+behind the L1 and the AXI4 memory model. The scan of Table~\ref{tab:apps} combines
+shuffles, block-shared memory and a barrier.
+
+\subsection{Line-Aggregated AMOs}\label{sec:evalamo}
+\begin{table}[t]
+\caption{Cycles Without (Base) and With Line-Aggregated AMOs}
+\label{tab:amo}
+\centering\footnotesize
+\begin{tabular}{llrrrr}
+\toprule
+Kernel & Memory & Base & \emph{ser} & \emph{par} & Requests\\
+\midrule
+\multirow{4}{*}{Histogram} & zero latency & 4,004 & 2,234 & 1,452 & \multirow{4}{*}{2,176 / 640}\\
+ & 7 cycles     & 11,451 & 4,365 & 3,219 & \\
+ & L1           & 6,094  & 3,590 & 3,177 & \\
+ & L1 + AXI4    & 6,635  & 3,802 & 3,441 & \\
+\midrule
+\multirow{2}{*}{Contention} & L1        & 1,921 & 1,175 & 1,015 & \multirow{2}{*}{488 / 152}\\
+ & L1 + AXI4    & 2,305  & 1,470 & 1,342 & \\
+\midrule
+k-means & L1 + AXI4 & 47,611 & 36,935 & 35,652 & ---\\
+BFS     & L1 + AXI4 & 71,567 & 71,151 & 70,859 & ---\\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\begin{minipage}{\columnwidth}\footnotesize
+Histogram: 1,024 values into 16 bins. Contention: 64 threads of colliding
+\texttt{amoadd}, \texttt{amomax} and \texttt{amoswap}. Requests: global memory
+requests without and with aggregation. k-means and BFS: Table~\ref{tab:apps}.
+\end{minipage}
+\end{table}
+
+Table~\ref{tab:amo} gives the cycles of AMO-heavy kernels with and without
+aggregation. The histogram's eight lanes per warp touch at most two lines of
+bins, so aggregation cuts its memory requests from 2,176 to 640 and its cycles by
+$1.79\times$ (\emph{ser}) and $2.76\times$ (\emph{par}) at zero memory latency.
+The gain is largest with a 7-cycle memory ($2.62\times$ and $3.56\times$), where
+every request saved also saves a round trip, and smaller behind the L1
+($1.70\times$ and $1.92\times$), where reads hit. In k-means each thread adds its
+point to the $x$ sum, the $y$ sum and the count of its nearest cluster with three
+AMOs, and aggregation speeds up the application by $1.29\times$ (\emph{ser}). BFS uses an AMO only for its per-level flag and gains
+less than 1\%.
+
+Aggregation also changes a standard optimization. Privatizing the histogram in
+block-shared memory, with one global AMO per bin and block at the end, takes 7,134
+cycles behind the L1, while the plain global histogram with aggregation takes
+3,590. With aggregated global AMOs, privatization no longer pays at this bin
+count.
+
+\subsection{Comparison With Vortex}\label{sec:evalvortex}
+\begin{table}[t]
+\caption{SIMTiX and Vortex, Same Device and Flow (Out of Context, 100~MHz)}
+\label{tab:vortex}
+\centering\footnotesize
+\begin{tabular}{lrrrr}
+\toprule
+ & SIMTiX & \multicolumn{3}{c}{Vortex, warps of 8 threads}\\
+\cmidrule(lr){3-5}
+ & 4 warps & 4 warps & 8 warps & 16 warps\\
+\midrule
+LUT            & 84,443 & 80,119 & 91,831 & 110,158\\
+Flip-flops     & 31,959 & 78,613 & 86,452 & 98,570\\
+BRAM (RAMB36)  & 16 & 46 & 62 & 95.5\\
+DSP            & 72 & 48 & 48 & 48\\
+\Fmax\ (MHz)   & 101.6 & 140.8 & 135.9 & 134.0\\
+Power (W)      & 1.10 & 1.70 & 1.85 & 2.08\\
+\midrule
+\multicolumn{5}{l}{Vortex / SIMTiX, geometric mean over the seven applications}\\
+Warp instructions & --- & 1.72 & 1.72 & 1.73\\
+Cycles         & --- & 2.78 & 1.80 & 1.58\\
+Run time       & --- & 2.01 & 1.34 & 1.20\\
+Energy         & --- & 4.32 & 3.04 & 3.00\\
+\midrule
+\multicolumn{5}{l}{SIMTiX / Vortex, geometric mean}\\
+Performance per LUT  & --- & 1.90 & 1.46 & 1.57\\
+Performance per watt & --- & 4.32 & 3.04 & 3.00\\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\begin{minipage}{\columnwidth}\footnotesize
+Performance is the inverse of run time at each design's \Fmax; performance per
+watt is taken at 100~MHz, where it equals the energy ratio.
+\end{minipage}
+\end{table}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{vortex_ratio.pdf}
+\caption{Vortex run time (left) and energy (right) relative to SIMTiX for each
+application, with Vortex at 4, 8 and 16 warps of eight threads. Run time uses each
+design's \Fmax; energy uses the vectorless power at 100~MHz. Values above 1 favor
+SIMTiX.}
+\label{fig:vortex}
+\end{figure*}
+
+Table~\ref{tab:vortex} and Fig.~\ref{fig:vortex} compare the two designs. With
+four warps each, Vortex takes $1.66$ to $4.99\times$ the cycles of SIMTiX. The
+ratio is the product of two factors. Vortex executes 1.08 to 2.20 times the warp
+instructions, and 3.46 times for the MLP, which has no INT8 dot-product
+instruction on Vortex: its kernels carry divergence and predicate instructions
+and compiled loop code where SIMTiX runs hand-written assembly. Vortex also
+reaches a lower IPC, 0.25 to 0.43 against SIMTiX's 0.43 to 0.69, because four
+warps do not fill its longer pipeline; SIMTiX's two-stage pipeline needs two
+runnable warps. With 16 warps Vortex's IPC rises to 0.47--0.66, exceeds
+SIMTiX's on SpMV, the stencil, BFS and scan, and is within 4\% of it on GEMM, so
+most of its remaining cycle deficit comes from its instruction count.
+
+Vortex closes at 140.8~MHz, 39\% above SIMTiX's 101.6~MHz, and uses 5\% fewer
+LUTs but 2.5 times the flip-flops, 2.9 times the block RAM and 55\% more power.
+In run time, which includes the frequency difference, SIMTiX is $2.01\times$
+faster than four-warp Vortex in the geometric mean. Vortex at eight and 16 warps
+is faster than SIMTiX on GEMM (0.92 and 0.88) and SpMV (0.82 and 0.80), whose
+regular loops it executes with few extra instructions, while SIMTiX remains faster
+on BFS ($1.44\times$), scan ($1.12\times$) and the MLP ($2.71\times$) at 16 warps.
+Those 16 warps cost Vortex 30\% more LUTs than SIMTiX and 89\% more power. Per
+LUT, SIMTiX delivers 1.46 to 1.90 times the performance of Vortex, and per watt
+three to 4.3 times, at every Vortex warp count.
+
+The memory model matters little for these results: Vortex's cycles change by at
+most 9\% (the stencil) between its default 64-byte-per-cycle memory and the
+128-bit bus with the IP latencies. SIMTiX's frequency in this flow, 101.6~MHz, agrees with the
+board design's 101.0~MHz.
+
+\subsection{Scaling With the Lane Count}\label{sec:evallanes}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{lanes_speedup.pdf}
+\caption{Speedup of each application over a four-lane SIMTiX, with four warps
+and a 16~KB L1 whose line is one word per lane.}
+\label{fig:lanes}
+\end{figure}
+
+The lane count $L$ is a parameter: it sets the warp width, the line of the memory
+engine and the L1 (one word per lane, with the L1 kept at 16~KB) and the burst
+length of the AXI4 master. Fig.~\ref{fig:lanes} shows the speedup of the
+applications over four lanes, with four warps throughout, and
+Table~\ref{tab:impl} the cost. From eight to 16 lanes GEMM gains $2.03\times$, the
+MLP $1.95\times$, the stencil $1.88\times$ and k-means $1.86\times$, while scan
+gains $1.74\times$, SpMV $1.47\times$ and BFS $1.43\times$. SpMV and BFS diverge
+on their row and neighbor loops, and with 16 lanes per warp a warp waits for the
+longest of 16 rows instead of eight; their gathers also touch more lines per
+access. \tbd{area and \Fmax\ per lane count, cost per lane}.
+
+The 16-lane run exposed the stack bound of Section~\ref{sec:arch}. The stack had
+eight frames, which by the bound suffices for eight lanes. In SpMV at 16 lanes a
+warp whose rows have more than eight different lengths leaves its loop at more
+than eight different iterations, pushing a frame each time, and overflowed the
+stack. Sizing the stack by the lane count removed the failure; at eight lanes the
+design is unchanged.
+
+\subsection{Measurements on the Board}\label{sec:evalboard}
+\tbd{Board run: accelerator and A53 times for the DRAM-sized inputs of
+Table~\ref{tab:apps}; power of the 12~V input and the PL and PS rails from the
+INA226 and the two IRPS5401 controllers, idle, with the accelerator running and
+with the A53 running; energy per application. The host program and the procedure
+are in the repository.}
+
+%==============================================================================
+\section{Discussion and Limitations}\label{sec:disc}
+%==============================================================================
+SIMTiX trades frequency for IPC. Its two-stage pipeline keeps four warps busy,
+but it reads LUTRAM register files and decodes in the issue cycle, and its worst
+paths are the stage-0 addition of the FPU and the issue logic; Vortex's deeper
+pipeline closes at 39\% higher frequency and needs more warps to fill. The power
+of the Vortex comparison is a vectorless estimate for both designs; the board
+measurements cover SIMTiX and the A53 only. Both designs were evaluated as single
+cores; multi-core configurations were not. The L1 writes through, which favors
+simplicity and the coherence protocol with the host over write traffic. The AMOs
+exclude load-reserved and store-conditional. The simulated inputs are small, so
+the board runs cover the DRAM-sized inputs.
+
+%==============================================================================
+\section{Conclusion}
+%==============================================================================
+SIMTiX shows that a SIMT accelerator of eight lanes and four warps can include a
+non-blocking L1, a multi-context memory engine, AXI4 access to DDR4, shuffles,
+barriers, atomics and FP32/FP16 arithmetic in 81k LUTs of a mid-size device and
+meet 100~MHz with the processing system. Line-aggregated AMOs serve all lanes of
+an atomic that share a line with one read and one write while preserving the
+results of serial execution, which cuts the memory requests of a histogram by
+$3.4\times$ for 2,551 LUTs. On the same device and flow as Vortex with the same
+geometry, SIMTiX runs seven applications in $2.01\times$ less time and with
+$4.3\times$ less estimated energy; Vortex closes at a higher frequency and
+overtakes SIMTiX on regular kernels only with 16 warps and 30\% more LUTs.
+
+%==============================================================================
+\section*{Acknowledgment}
+%==============================================================================
+The authors used a large language model (Anthropic Claude) to assist with build
+and analysis scripting and with editing this manuscript. The design, the
+experiments and their interpretation are the authors' own, and the authors checked
+every reported result.
+
+%==============================================================================
+\begin{thebibliography}{99}
+\bibitem{tesla} E.~Lindholm, J.~Nickolls, S.~Oberman, and J.~Montrym,
+``NVIDIA Tesla: A unified graphics and computing architecture,''
+\emph{IEEE Micro}, vol.~28, no.~2, pp.~39--55, Mar. 2008.
+\bibitem{aamodt} T.~M.~Aamodt, W.~W.~L.~Fung, and T.~G.~Rogers,
+\emph{General-Purpose Graphics Processor Architectures}. San Rafael, CA, USA:
+Morgan \& Claypool, 2018.
+\bibitem{vortex} B.~Tine, K.~P.~Yalamarthy, F.~Elsabbagh, and H.~Kim,
+``Vortex: Extending the RISC-V ISA for GPGPU and 3D-graphics,'' in
+\emph{Proc. IEEE/ACM Int. Symp. Microarchitecture (MICRO)}, 2021, pp.~754--766.
+\bibitem{ventus25} J.~Li \emph{et al.}, ``RISC-V-based GPGPU with vector
+capabilities for high-performance computing,'' \emph{IEEE Trans. Very Large Scale
+Integr. (VLSI) Syst.}, vol.~33, no.~8, pp.~2239--2252, Aug. 2025.
+\bibitem{egpu} M.~Langhammer and G.~A.~Constantinides, ``eGPU: A 750 MHz class
+soft GPGPU for FPGA,'' in \emph{Proc. Int. Conf. Field-Programmable Logic Appl.
+(FPL)}, 2023.
+\bibitem{flexgrip} K.~Andryc, M.~Merchant, and R.~Tessier, ``FlexGrip: A soft
+GPGPU for FPGAs,'' in \emph{Proc. Int. Conf. Field-Programmable Technol. (FPT)},
+2013.
+\bibitem{fgpu} M.~Al~Kadi, B.~Janssen, and M.~H\"ubner, ``FGPU: An
+SIMT-architecture for FPGAs,'' in \emph{Proc. ACM/SIGDA Int. Symp.
+Field-Programmable Gate Arrays (FPGA)}, 2016, pp.~254--263.
+\bibitem{miaow} R.~Balasubramanian \emph{et al.}, ``Enabling GPGPU low-level
+hardware explorations with MIAOW: An open-source RTL implementation of a GPGPU,''
+\emph{ACM Trans. Archit. Code Optim.}, vol.~12, no.~2, 2015.
+\bibitem{nyuzi} J.~Bush, P.~Dexter, T.~N.~Miller, and A.~Carpenter, ``Nyami: A
+synthesizable GPU architectural model for general-purpose and graphics-specific
+workloads,'' in \emph{Proc. IEEE Int. Symp. Perform. Anal. Syst. Softw.
+(ISPASS)}, 2015.
+\bibitem{simty} S.~Collange, ``Simty: Generalized SIMT execution on RISC-V,'' in
+\emph{Proc. Workshop Comput. Archit. Res. RISC-V (CARRV)}, 2017.
+\bibitem{fung} W.~W.~L.~Fung, I.~Sham, G.~Yuan, and T.~M.~Aamodt, ``Dynamic warp
+formation and scheduling for efficient GPU control flow,'' in \emph{Proc. IEEE/ACM
+Int. Symp. Microarchitecture (MICRO)}, 2007, pp.~407--420.
+\bibitem{fermi} NVIDIA, ``NVIDIA's next generation CUDA compute architecture:
+Fermi,'' White Paper, 2009.
+\bibitem{dab} Y.~H.~Chou, C.~Ng, S.~Cattell, J.~Intan, M.~D.~Sinclair,
+J.~Devietti, T.~G.~Rogers, and T.~M.~Aamodt, ``Deterministic atomic buffering,''
+in \emph{Proc. IEEE/ACM Int. Symp. Microarchitecture (MICRO)}, 2020,
+pp.~981--995.
+\bibitem{franey} S.~Franey and M.~Lipasti, ``Accelerating atomic operations on
+GPGPUs,'' in \emph{Proc. IEEE/ACM Int. Symp. Networks-on-Chip (NOCS)}, 2013,
+pp.~1--8.
+\bibitem{phi} A.~Mukkara, N.~Beckmann, and D.~Sanchez, ``PHI: Architectural
+support for synchronization- and bandwidth-efficient commutative scatter
+updates,'' in \emph{Proc. IEEE/ACM Int. Symp. Microarchitecture (MICRO)}, 2019,
+pp.~1009--1022.
+\bibitem{warpagg} A.~Adinets, ``CUDA pro tip: Optimized filtering with
+warp-aggregated atomics,'' NVIDIA Developer Blog, Oct. 2014.
+\bibitem{figueroa} S.~A.~Figueroa, ``When is double rounding innocuous?''
+\emph{ACM SIGNUM Newsl.}, vol.~30, no.~3, pp.~21--26, 1995.
+\bibitem{ieee754} \emph{IEEE Standard for Floating-Point Arithmetic}, IEEE Std
+754-2019, 2019.
+\end{thebibliography}
+
+\end{document}
