@@ -38,7 +38,8 @@
 //   * backward branch (target<=pc): RPC = pc+4;     continue = taken lanes (loop).
 // The reconv frame holds the *union* mask at RPC; the pushed "continue" frame
 // runs its lanes until their PC reaches RPC, then pops — and the warp reconverges
-// with the full mask. Nesting works (stack depth SDEPTH). General two-sided
+// with the full mask. Nesting works (stack depth SDEPTH = NUM_LANES, which bounds
+// the frames any branch pattern can push). General two-sided
 // if/else (both arms non-empty before the join) is out of scope for M5 — write
 // it as two single-sided ifs. dbg_divergences counts divergent branch events.
 //
@@ -118,7 +119,11 @@ module warp_pool
     localparam int WIDXW  = (NW > 1) ? $clog2(NW) : 1;
     localparam int LIDXW  = $clog2(NL);
     localparam int LOGNW  = $clog2(NW);        // largest legal block_log2
-    localparam int SDEPTH = 8;                 // SIMT stack depth (nesting limit)
+    // SIMT stack depth. A divergent branch pushes a frame whose mask is a strict,
+    // non-empty subset of the mask below it, so no warp ever holds more than NL
+    // frames: NL is enough for any program (a loop whose lanes leave it at NL
+    // different trips uses all of them).
+    localparam int SDEPTH = NL;
     localparam int SPW    = $clog2(SDEPTH);
     // VRF address = {warp, reg5}. NW is a power of two, so depth = NW*32.
     localparam int VAW    = WIDXW + 5;
