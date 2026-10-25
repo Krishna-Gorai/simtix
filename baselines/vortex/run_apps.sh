@@ -5,10 +5,11 @@
 #
 # Copies simtix_apps/ into Vortex's regression tree, reconfigures the build so it
 # picks the folder up, and runs it through ci/blackbox.sh with the configuration the
-# xczu7ev synthesis uses (syn/): 1 core, 4 warps, 8 threads, RV32IMAF, one memory
-# bank. The manifest defaults to build_apps/apps.manifest from sim/gen_apps.py.
-# Output: the run log in build_vortex/<driver>.log, APPCSV lines in
-# build_vortex/<driver>.csv.
+# xczu7ev synthesis uses (syn/): 1 core, 4 warps (WARPS), 8 threads, RV32IMAF, one
+# memory bank. The manifest defaults to build_apps/apps.manifest from sim/gen_apps.py.
+# EXTRA_CONFIGS adds Vortex configuration defines, HOST_ARGS host options (-b <threads>
+# per block), and RUN_NAME names the outputs: build_vortex/<RUN_NAME>.log and the
+# APPCSV lines in build_vortex/<RUN_NAME>.csv (RUN_NAME defaults to the driver).
 set -eo pipefail
 
 DRIVER=${1:-rtlsim}
@@ -41,10 +42,14 @@ if [ ! -f "$VX/build/tests/regression/simtix_apps/Makefile" ]; then
   (cd "$VX/build" && ../configure --xlen=32 --tooldir="$HOME/v2/tools" \
      --osversion=ubuntu/focal --prefix="$VX/build/install")
 fi
+# configure copies the Makefile into the build tree once; the sources it names stay
+# in the source tree.
+cp "$HERE/simtix_apps/Makefile" "$VX/build/tests/regression/simtix_apps/Makefile"
 
-ARGS="-m $MANIFEST"
+ARGS="-m $MANIFEST ${HOST_ARGS:-}"
 [ -n "$CASE" ] && ARGS="$ARGS -c $CASE"
+RUN=${RUN_NAME:-$DRIVER}
 cd "$VX/build"
-./ci/blackbox.sh --driver="$DRIVER" --app=simtix_apps --cores=1 --warps=4 --threads=8 \
-  --args="$ARGS" 2>&1 | tee "$OUT/$DRIVER.log"
-grep '^APPCSV' "$OUT/$DRIVER.log" > "$OUT/$DRIVER.csv" || true
+./ci/blackbox.sh --driver="$DRIVER" --app=simtix_apps --cores=1 --warps="${WARPS:-4}" --threads=8 \
+  --args="$ARGS" 2>&1 | tee "$OUT/$RUN.log"
+grep '^APPCSV' "$OUT/$RUN.log" > "$OUT/$RUN.csv" || true

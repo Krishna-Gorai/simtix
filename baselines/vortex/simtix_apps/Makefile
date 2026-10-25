@@ -10,7 +10,8 @@ SRCS := $(SRC_DIR)/main.cpp
 VX_SRCS := $(SRC_DIR)/kernel.cpp
 
 # The kernels fix the order of every FP operation; keep the compiler from fusing others.
-VX_CFLAGS += -ffp-contract=off
+# Without -fno-math-errno, clang calls fmaf() instead of emitting fmadd.s.
+VX_CFLAGS += -ffp-contract=off -fno-math-errno
 
 KERNEL_LIB := vortex2
 

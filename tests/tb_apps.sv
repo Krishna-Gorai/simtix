@@ -11,7 +11,8 @@
 //   GOLD <file>                "<word index> <value>" pairs to compare
 //   END                        end of the case
 // A launch passes its parameter-block address in REG_BASE_A (a1). Each launch
-// prints APPCSV,<case>,<tag>,<threads>,<cycles>,<L1 hits>,<L1 misses>.
+// prints APPCSV,<case>,<tag>,<threads>,<cycles>,<L1 hits>,<L1 misses>,<instructions>,
+// the last being the warp instructions the pool issued (reconvergence pops excluded).
 // The manifest is +MANIFEST=<path>, else build_apps/apps.manifest found from
 // sim/ (Verilator) or build_xsim/<test>/ (xsim).
 // =============================================================================
@@ -111,7 +112,7 @@ module tb_apps
     /* verilator lint_off UNUSEDSIGNAL */   // only bit 0 of the status words is read
     task automatic launch(input string tag, input int slot, input logic [31:0] prm,
                           input int n, input int blk);
-        logic [31:0] st, cyc, hits, miss, err;
+        logic [31:0] st, cyc, hits, miss, err, insns;
         axil_wr(16'(REG_KERNEL_PC), 32'(256*slot));
         axil_wr(16'(REG_BASE_A), prm);
         axil_wr(16'(REG_BASE_B), 32'd0);
@@ -127,7 +128,8 @@ module tb_apps
         axil_rd(16'h0104, miss);
         axil_rd(16'h0108, err);
         if (err[0]) begin $display("  [FAIL] %s/%s AXI error", cname, tag); errors++; end
-        $display("APPCSV,%s,%s,%0d,%0d,%0d,%0d", cname, tag, n, cyc, hits, miss);
+        insns = dut.u_accel.pool_dbg_insns;     // warp instructions issued in this launch
+        $display("APPCSV,%s,%s,%0d,%0d,%0d,%0d,%0d", cname, tag, n, cyc, hits, miss, insns);
     endtask
     /* verilator lint_on UNUSEDSIGNAL */
 

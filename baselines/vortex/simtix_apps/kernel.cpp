@@ -27,8 +27,8 @@ static void gemm(const u32* p, u32 t) {
   const float* a = A + (t >> l2n) * K;
   const float* b = B + (t & (n - 1));
   float acc = 0.0f;
-  for (u32 k = 0; k < K; ++k)
-    acc = __builtin_fmaf(a[k], b[k * n], acc);
+  for (const float* e = a + K; a != e; ++a, b += n)    // B walks down its column
+    acc = __builtin_fmaf(*a, *b, acc);
   C[t] = acc;
 }
 
@@ -132,8 +132,8 @@ static void mlp(const u32* p, u32 t) {
   const u32* x = at<const u32>(p[0]) + (t >> l2) * Kp;
   const u32* w = at<const u32>(p[1]) + (t & (np - 1));
   int32_t acc = 0;
-  for (u32 kk = 0; kk < Kp; ++kk) {
-    u32 xa = x[kk], wa = w[kk * np];
+  for (const u32* e = x + Kp; x != e; ++x, w += np) {   // W walks down its column
+    u32 xa = *x, wa = *w;
     for (u32 i = 0; i < 32; i += 8)
       acc += (int32_t)(int8_t)(xa >> i) * (int32_t)(int8_t)(wa >> i);
   }

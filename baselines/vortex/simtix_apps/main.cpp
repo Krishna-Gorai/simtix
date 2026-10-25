@@ -1,17 +1,23 @@
 // SIMTiX application suite on Vortex: the host side.
 //
-//   simtix_apps -m <apps.manifest> [-c <case>] [-k kernel.vxbin]
+//   simtix_apps -m <apps.manifest> [-c <case>] [-b <threads>] [-k kernel.vxbin]
 //
 // Replays the cases sim/gen_apps.py writes for tests/tb_apps.sv: each case's DDR4
 // image is copied into one device buffer, the address fields of every parameter
 // block are moved from the image's base (0x1000_0000) to the buffer's, the case's
-// launches run in order with the block shape tb_apps uses (2^blk warps per block),
-// and every word of the .gold file is compared. One APPCSV line per launch gives
-// its cycles; a line per case gives the case total.
+// launches run in order, and every word of the .gold file is compared. One APPCSV
+// line per launch gives its cycles and retired (warp) instructions; a line per case
+// gives the case totals.
+//
+// Blocks have the shape tb_apps uses (2^blk warps) unless -b gives the threads per
+// block for the launches without a barrier (all but scan, whose 32-thread blocks
+// are part of the algorithm). A Vortex block holds at most the core's hardware
+// threads; at 4 warps, 8- and 32-thread blocks differ by under 1%.
 #include <vortex2.h>
 #include <VX_types.h>
 #include "common.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -53,6 +59,7 @@ struct Case   { std::string name, mem, gold; std::vector<Launch> launches; };
 const char* kernel_file = "kernel.vxbin";
 const char* manifest    = nullptr;
 const char* only_case   = nullptr;
+uint32_t    block_override = 0;     // -b: threads per block without a barrier
 
 // The manifest is written on Windows: C:/x/y -> /mnt/c/x/y.
 std::string host_path(std::string p) {
@@ -104,11 +111,14 @@ std::vector<uint32_t> read_image(const std::string& path) {
   return img;
 }
 
-uint64_t mcycle(vx_device_h dev) {
+uint64_t mpm(vx_device_h dev, uint32_t csr) {
   uint64_t v = 0;
-  CHECK(vx_device_mpm_query(dev, VX_DCR_MPM_CLASS_BASE, VX_CSR_MCYCLE, 0, &v));
+  CHECK(vx_device_mpm_query(dev, VX_DCR_MPM_CLASS_BASE, csr, 0, &v));
   return v;
 }
+
+// A counter's growth over a launch (it may also restart per launch).
+uint64_t delta(uint64_t before, uint64_t after) { return (after >= before) ? after - before : after; }
 
 int run_case(vx_device_h dev, vx_queue_h q, vx_kernel_h kern, uint32_t nt, const Case& c) {
   std::vector<uint32_t> img = read_image(c.mem);
@@ -129,9 +139,11 @@ int run_case(vx_device_h dev, vx_queue_h q, vx_kernel_h kern, uint32_t nt, const
   CHECK(vx_enqueue_write(q, buf, 0, img.data(), bytes, 0, nullptr, nullptr));
   CHECK(vx_queue_finish(q, VX_TIMEOUT_INFINITE));
 
-  uint64_t total = 0;
+  uint64_t total = 0, total_ins = 0;
   for (const auto& l : c.launches) {
-    const uint32_t block = nt << l.blk;
+    uint32_t block = nt << l.blk;
+    if (block_override && l.slot != APP_SCAN)
+      block = std::min(block_override, l.threads);
     if (l.threads % block) {
       std::fprintf(stderr, "%s: %u threads is not a whole number of %u-thread blocks\n",
                    l.tag.c_str(), l.threads, block);
@@ -148,16 +160,17 @@ int run_case(vx_device_h dev, vx_queue_h q, vx_kernel_h kern, uint32_t nt, const
     li.block_dim[0] = block;
     li.lmem_size    = (l.slot == APP_SCAN) ? (block / nt) * 4 : 0;
 
-    uint64_t c0 = mcycle(dev);
+    uint64_t c0 = mpm(dev, VX_CSR_MCYCLE), i0 = mpm(dev, VX_CSR_MINSTRET);
     vx_event_h ev = nullptr;
     CHECK(vx_enqueue_launch(q, &li, 0, nullptr, &ev));
     CHECK(vx_event_wait_value(ev, 1, VX_TIMEOUT_INFINITE));
     vx_event_release(ev);
-    uint64_t c1 = mcycle(dev);
-    uint64_t cyc = (c1 >= c0) ? c1 - c0 : c1;     // the counter may restart per launch
+    uint64_t cyc = delta(c0, mpm(dev, VX_CSR_MCYCLE));
+    uint64_t ins = delta(i0, mpm(dev, VX_CSR_MINSTRET));
     total += cyc;
-    std::printf("APPCSV,vortex,%s,%s,%u,%llu\n", c.name.c_str(), l.tag.c_str(), l.threads,
-                (unsigned long long)cyc);
+    total_ins += ins;
+    std::printf("APPCSV,vortex,%s,%s,%u,%llu,%llu\n", c.name.c_str(), l.tag.c_str(), l.threads,
+                (unsigned long long)cyc, (unsigned long long)ins);
   }
 
   std::vector<uint32_t> out(img.size());
@@ -180,8 +193,8 @@ int run_case(vx_device_h dev, vx_queue_h q, vx_kernel_h kern, uint32_t nt, const
       ++errors;
     }
   }
-  std::printf("APPCSV,vortex,%s,total,%d,%llu\n", c.name.c_str(), checked,
-              (unsigned long long)total);
+  std::printf("APPCSV,vortex,%s,total,%d,%llu,%llu\n", c.name.c_str(), checked,
+              (unsigned long long)total, (unsigned long long)total_ins);
   std::printf("%s %s: %d words checked, %d wrong, %llu cycles\n", errors ? "FAIL" : "PASS",
               c.name.c_str(), checked, errors, (unsigned long long)total);
   return errors;
@@ -191,13 +204,14 @@ int run_case(vx_device_h dev, vx_queue_h q, vx_kernel_h kern, uint32_t nt, const
 
 int main(int argc, char** argv) {
   int opt;
-  while ((opt = getopt(argc, argv, "m:c:k:h")) != -1) {
+  while ((opt = getopt(argc, argv, "m:c:b:k:h")) != -1) {
     switch (opt) {
       case 'm': manifest    = optarg; break;
       case 'c': only_case   = optarg; break;
+      case 'b': block_override = (uint32_t)std::atoi(optarg); break;
       case 'k': kernel_file = optarg; break;
       default:
-        std::printf("Usage: -m <apps.manifest> [-c <case>] [-k kernel.vxbin]\n");
+        std::printf("Usage: -m <apps.manifest> [-c <case>] [-b <threads>] [-k kernel.vxbin]\n");
         return opt == 'h' ? 0 : -1;
     }
   }

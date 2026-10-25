@@ -23,13 +23,21 @@ one thread per output as in the assembly versions, with the same order of FP
 operations. `main.cpp` replays the cases that `sim/gen_apps.py` writes for
 `tests/tb_apps.sv`: it copies each case's memory image into a device buffer, moves
 the address fields of each parameter block to that buffer, runs the launches in
-order with the same block shape (2^blk warps per block), checks every word of the
-`.gold` file and prints one `APPCSV` line per launch with its cycles.
+order, checks every word of the `.gold` file and prints one `APPCSV` line per launch
+with its cycles and retired warp instructions.
+
+Blocks have tb_apps' shape (2^blk warps) unless `-b <threads>` sets the block of the
+launches without a barrier (scan keeps its 32-thread blocks). A Vortex block cannot
+exceed the core's 32 hardware threads; 8- and 32-thread blocks differ by under 1%,
+and the runs use `-b 32`.
 
 Two differences come from the ISAs: Vortex has no packed INT8 dot product, so the
 MLP kernel multiplies the four bytes of each word separately where SIMTiX uses
 `pdot8`; and the kernels are compiled by Vortex's LLVM at `-O3` where the SIMTiX
-ones are hand-written assembly.
+ones are hand-written assembly. The kernels walk their arrays with pointer
+increments as the assembly does, and are built with `-fno-math-errno`, without which
+clang calls `fmaf()` instead of emitting `fmadd.s` (GEMM took 3.4x SIMTiX's cycles
+that way, 2.0x without).
 
 ## Running (WSL)
 
@@ -42,13 +50,31 @@ Vortex is built in `~/v2/vortex/build` (toolchain in `~/v2/tools`) with
 Then
 
     python sim/gen_apps.py                    # build_apps/apps.manifest
-    baselines/vortex/run_apps.sh rtlsim       # or simx
+    RUN_NAME=vx_default HOST_ARGS="-b 32" baselines/vortex/run_apps.sh rtlsim
 
-The log and the `APPCSV` lines go to `build_vortex/`. Vortex compiles its simulators
-with `-Werror`, and GCC 13 and later report a false `-Wdangling-reference` in the `fmt`
+The log and the `APPCSV` lines go to `build_vortex/<RUN_NAME>.{log,csv}`.
+`EXTRA_CONFIGS` adds Vortex defines; the three settings compared are
+
+| Run | `EXTRA_CONFIGS` | Memory, FPU |
+|---|---|---|
+| `vx_default` | (none) | HBM2 model clocked with the core, 64 B per cycle; DPI FPU, FMA latency 8 |
+| `vx_bus128` | `-DVX_CFG_PLATFORM_MEMORY_DATA_SIZE=16` | the same behind a 128-bit bus (Vortex's own width adapter), 16 B per cycle like the ZCU104's HP port |
+| `vx_bus128_ip` | the above and `-DVX_CFG_FMA_LATENCY=16 -DVX_CFG_FDIV_LATENCY=28 -DVX_CFG_FSQRT_LATENCY=28` | and the latencies of the Xilinx FP IPs in the synthesized netlist |
+
+`WARPS=8` or `WARPS=16` (with the `vx_bus128_ip` defines) gives the warp-count runs
+`vx_w8_bus128_ip` and `vx_w16_bus128_ip`; `syn/gen_sources.sh` takes the same
+`WARPS`.
+
+`python sim/vortex_compare.py NAME=build_vortex/RUN.csv ...` lines the runs up with
+SIMTiX's `docs/apps_agg.csv` (variant `ser`, which also carries SIMTiX's issued warp
+instructions) and writes `docs/vortex_apps.csv`.
+
+Vortex compiles its simulators with `-Werror`, and GCC 13 and later report a false `-Wdangling-reference` in the `fmt`
 library bundled with ramulator, so `run_apps.sh` puts `g++`/`c++` wrappers that add
-`-Wno-dangling-reference` first on the `PATH` (`~/v2/gccwrap`). On simx all seven
-cases of `gen_apps.py --size small` match their `.gold` files.
+`-Wno-dangling-reference` first on the `PATH` (`~/v2/gccwrap`). `configure` copies the
+app's `Makefile` into the build tree once, so `run_apps.sh` refreshes that copy too.
+On simx and rtlsim all seven cases of `gen_apps.py --size small` match their `.gold`
+files.
 
 Long runs from Windows go through `Start-Process wsl.exe ...`: the WSL VM stops
 when no `wsl.exe` is attached, which ends background jobs and clears `/tmp`.
@@ -68,4 +94,4 @@ single die.
 
 `run_syn.ps1 -Name simtix_ps_top -Top simt_ps_top` puts SIMTiX's board top
 (`simtix_sources.txt`) through the same script and strategy, so both designs are
-built the same way; that run has not been made yet.
+built the same way.
