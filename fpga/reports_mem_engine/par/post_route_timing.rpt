@@ -1,9 +1,9 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 --------------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version      : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
-| Date              : Fri Oct 23 13:11:39 2026
+| Date              : Tue Oct 27 09:38:23 2026
 | Host              : Krishna_NITjsr running 64-bit major release  (build 9200)
-| Command           : report_timing_summary -max_paths 10 -file C:/work/SIMTiX-v2/fpga/reports_mem_engine/agg1/post_route_timing.rpt
+| Command           : report_timing_summary -max_paths 10 -file C:/work/SIMTiX-v2/fpga/reports_mem_engine/par/post_route_timing.rpt
 | Design            : mem_engine
 | Device            : xczu7ev-ffvc1156
 | Speed File        : -2  PRODUCTION 1.30 05-15-2022
