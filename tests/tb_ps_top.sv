@@ -13,7 +13,13 @@
 `timescale 1ns/1ps
 module tb_ps_top
   import simtix_pkg::*;
-;
+#(
+    parameter int MEM_LAT  = 24,    // DDR4 model latency, see axi_mem_model
+    parameter int MEM_RJW  = 3,
+    parameter int MEM_BLAT = -1,
+    parameter int MEM_SEED = 32'hBEEF,
+    parameter int MEM_LATE = 0
+);
     localparam int DW  = 128;
     localparam int IDW = MEM_TAGW + 1;
 
@@ -66,7 +72,9 @@ module tb_ps_top
         .m_axi_rid(m_rid), .m_axi_rdata(m_rdata), .m_axi_rresp(m_rresp), .m_axi_rlast(m_rlast),
         .m_axi_rvalid(m_rvalid), .m_axi_rready(m_rready));
 
-    axi_mem_model #(.IDW(IDW), .DW(DW), .MAXB(LINE_BITS / DW), .LAT(24), .STALL(1), .OOO(1)) u_ddr (
+    axi_mem_model #(.IDW(IDW), .DW(DW), .MAXB(LINE_BITS / DW), .LAT(MEM_LAT), .STALL(1), .OOO(1),
+                    .RJW(MEM_RJW), .BLAT(MEM_BLAT), .SEED(16'(MEM_SEED)),
+                    .LATE(MEM_LATE)) u_ddr (
         .clk(clk), .rst(rst),
         .awid(m_awid), .awaddr(m_awaddr), .awlen(m_awlen), .awsize(m_awsize),
         .awburst(m_awburst), .awcache(m_awcache), .awprot(m_awprot),
@@ -133,6 +141,23 @@ module tb_ps_top
         axil_rd(16'h0108, err);
         if (err[0]) begin $display("  [FAIL] %s AXI error", tag); errors++; end
         $display("PSCSV,%s,%0d,%0d,%0d,%0d", tag, N, cyc, hits, miss);
+        dbgchk(tag);
+    endtask
+
+    // Debug window (0x0200): after a kernel nothing is in flight, so every warp slot
+    // is empty or done, no context, tag or miss register is in use, and the AXI port
+    // has answered every read and write it issued.
+    task automatic dbgchk(input string tag);
+        logic [31:0] w [0:63];
+        for (int i = 0; i < 64; i++) axil_rd(16'h0200 + 16'(4*i), w[i]);
+        checks++;
+        if (w[1][7:0] != 0 || w[2] != 0 || w[28][15:0] != 0 || w[29] != 0 || w[44] != 0 ||
+            w[48] != 0 || w[57] != 0 || w[58] != 0 || w[59] == 0 || w[61] == 0) begin
+            $display("  [FAIL] %s debug window: sleep %h loads %h ctx %h tags %h mshr %h wack %h axi %0d/%0d",
+                     tag, w[1], w[2], w[28], w[29], w[44], w[48], w[57], w[58]);
+            errors++;
+        end
+        $display("PSDBG,%s,warps=%h,AR=%0d,R=%0d,AW=%0d,B=%0d", tag, w[0], w[59], w[60], w[61], w[62]);
     endtask
 
     task automatic chk(input string tag, input logic [31:0] addr, input logic [31:0] exp);

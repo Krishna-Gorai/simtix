@@ -32,7 +32,7 @@ module tb_fp
     int unsigned errors = 0;
 
     warp_pool dut (
-        .clk(clk), .rst(rst),
+        /* verilator lint_off PINCONNECTEMPTY */ .dbg_state(), /* verilator lint_on PINCONNECTEMPTY */ .clk(clk), .rst(rst),
         .start(start),
         .base_a(base_a), .base_b(base_b), .base_c(base_c),
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(3'd0),

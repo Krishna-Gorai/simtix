@@ -8,7 +8,7 @@ assembles the kernels for L lanes (kernels/apps/build.py --lanes L; the 8-lane
 images are kernels/apps/*.hex), writes the cases (sim/gen_apps.py --lanes L) into
 build_apps_l<L>/, and runs tests/tb_apps.sv in xsim with SIMTIX_NUM_LANES = L.
 The L1 stays 16 KB and 4-way; its line is L words. Collects the APPCSV rows:
-    lanes,case,launch,threads,cycles,l1_hits,l1_misses,insns
+    lanes,case,launch,threads,cycles,l1_hits,l1_misses,insns,active
 RISC-V GCC: riscv-none-elf-gcc on PATH, or RISCV_GCC.
 """
 import argparse
@@ -67,7 +67,7 @@ def main():
     with open(OUT, 'w', newline='') as fh:
         w = csv.writer(fh, lineterminator='\n')
         w.writerow(['lanes', 'case', 'launch', 'threads', 'cycles', 'l1_hits', 'l1_misses',
-                    'insns'])
+                    'insns', 'active'])
         w.writerows(rows)
     print(f'wrote {OUT} ({len(rows)} rows)\n')
     tot = {}

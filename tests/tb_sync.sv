@@ -61,7 +61,7 @@ module tb_sync
     // Only the MEM_LAT = 0 line memory answers a request in its own cycle.
     warp_pool #(.AMO_AGG(AGG != 0), .AMO_PAR(APAR != 0),
                 .MEM_BYP((L1 == 0) && (MEM_LAT == 0))) dut (
-        .clk(clk), .rst(rst), .start(start),
+        /* verilator lint_off PINCONNECTEMPTY */ .dbg_state(), /* verilator lint_on PINCONNECTEMPTY */ .clk(clk), .rst(rst), .start(start),
         .base_a(base_a), .base_b(base_b), .base_c(base_c),
         .n_threads(n_threads), .kernel_pc(kernel_pc), .block_log2(block_log2),
         .imem_addr(imem_addr), .imem_data(imem_data),
@@ -105,6 +105,7 @@ module tb_sync
         end else begin : g_l1
             logic hit_ev, miss_ev;
             l1_dcache #(.NSET(L1_SETS)) u_l1 (
+                /* verilator lint_off PINCONNECTEMPTY */ .dbg_state(), /* verilator lint_on PINCONNECTEMPTY */
                 .clk(clk), .rst(rst), .inv(start),
                 .s_req(dmem_req), .s_gnt(dmem_gnt), .s_tag(dmem_tag), .s_addr(dmem_addr),
                 .s_we(dmem_we), .s_wdata(dmem_wdata), .s_be(dmem_be),

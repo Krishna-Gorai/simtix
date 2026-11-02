@@ -8,7 +8,7 @@ Generates the cases (sim/gen_apps.py), runs tests/tb_apps.sv in xsim with
     ser    AGG = 1, APAR = 0   one per line, one lane per cycle (default)
     par    AGG = 1, APAR = 1   one per line, lanes on distinct words in parallel
 and collects the APPCSV rows:
-    variant,case,launch,threads,cycles,l1_hits,l1_misses,insns
+    variant,case,launch,threads,cycles,l1_hits,l1_misses,insns,active
 """
 import argparse
 import concurrent.futures as cf
@@ -53,7 +53,7 @@ def main():
     with open(OUT, 'w', newline='') as fh:
         w = csv.writer(fh, lineterminator='\n')
         w.writerow(['variant', 'case', 'launch', 'threads', 'cycles', 'l1_hits', 'l1_misses',
-                    'insns'])
+                    'insns', 'active'])
         w.writerows(rows)
     print(f'wrote {OUT} ({len(rows)} rows)\n')
     tot = {}

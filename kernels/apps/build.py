@@ -13,7 +13,8 @@ import argparse, os, struct, subprocess
 HERE = os.path.dirname(os.path.abspath(__file__))
 GCC = os.environ.get('RISCV_GCC', 'riscv-none-elf-gcc')
 OBJCOPY = GCC.replace('gcc', 'objcopy')
-KERNELS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add', 'mlp']
+KERNELS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add', 'mlp', 'gemm_rb',
+           'scan_seg', 'scan_segadd']
 
 
 def build(name, lanes, out):

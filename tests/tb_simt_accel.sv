@@ -42,7 +42,7 @@ module tb_simt_accel
     int unsigned errors = 0;
 
     simt_accel dut (
-        .clk(clk), .rst(rst),
+        /* verilator lint_off PINCONNECTEMPTY */ .dbg_state(), /* verilator lint_on PINCONNECTEMPTY */ .clk(clk), .rst(rst),
         .sel(sel), .we(we), .offset(offset), .wdata(wdata), .rdata(rdata),
         .imem_addr(imem_addr), .imem_data(imem_data),
         .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata),

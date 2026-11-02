@@ -20,6 +20,24 @@
 `ifndef SIMTIX_NUM_WARPS
   `define SIMTIX_NUM_WARPS 4
 `endif
+// v3: memory contexts per warp (loads in flight per warp; default 2), and for the
+// B4 memory-hierarchy sweep global request tags (outstanding requests), L1 size in KB
+// and L1 miss registers (NMSHR <= MEM_TAGS). The B4 defaults are those of v2.
+`ifndef SIMTIX_MEM_CTX_PER_WARP
+  `define SIMTIX_MEM_CTX_PER_WARP 2
+`endif
+`ifndef SIMTIX_MEM_TAGS
+  `define SIMTIX_MEM_TAGS 8
+`endif
+`ifndef SIMTIX_L1_KB
+  `define SIMTIX_L1_KB 16
+`endif
+`ifndef SIMTIX_L1_MSHR
+  `define SIMTIX_L1_MSHR 4
+`endif
+`ifndef SIMTIX_L1_PF
+  `define SIMTIX_L1_PF 0
+`endif
 
 package simtix_pkg;
 
@@ -41,8 +59,15 @@ package simtix_pkg;
   parameter int LINE_WOFFW = $clog2(LINE_WORDS); // 3  : word index within a line
   parameter int LINE_OFF   = LINE_WOFFW + 2;     // 5  : byte offset within a line
   // v2: global requests carry a tag; a response returns it (any order).
-  parameter int MEM_TAGS   = 8;                  // outstanding global requests
+  parameter int MEM_TAGS   = `SIMTIX_MEM_TAGS;   // outstanding global requests (8)
+  parameter int L1_BYTES   = `SIMTIX_L1_KB * 1024; // L1 data cache size (16 KB)
+  parameter int L1_MSHR    = `SIMTIX_L1_MSHR;    // L1 miss registers (4)
+  parameter bit L1_PF      = `SIMTIX_L1_PF;      // L1 next-line prefetch (off)
   parameter int MEM_TAGW   = $clog2(MEM_TAGS);
+  // Board debug window (simt_ps_top, 0x0200): 32-bit state words per block.
+  parameter int DBG_ME     = 16;                 // memory engine
+  parameter int DBG_POOL   = 28 + DBG_ME;        // warp pool, then its memory engine
+  parameter int DBG_L1     = 12;                 // L1 data cache
 
   // ── Shared-memory scratchpad (M6) ────────────────────────────────────────────
   // A small, per-warp on-chip scratchpad. Kernel data accesses whose address

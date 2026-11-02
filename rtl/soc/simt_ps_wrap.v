@@ -4,13 +4,23 @@
 //
 // Port names follow the AXI conventions, so the block design infers
 //   s_axi : AXI4-Lite slave (ARM host: command registers + instruction RAM)
-//   m_axi : AXI4 master, 128-bit, 4-bit ID (DDR4 through S_AXI_HP0_FPD)
-// clocked by clk with the active-low reset aresetn.
+//   m_axi : AXI4 master, 128-bit, IDW-bit ID (DDR4 through S_AXI_HP0_FPD)
+// clocked by clk with the active-low reset aresetn. The ID carries the request tag
+// plus a read/write bit: IDW = log2(SIMTIX_MEM_TAGS) + 1, 4 bits for the default 8
+// tags (the HP port takes up to 6).
 // =============================================================================
 `timescale 1ns/1ps
-module simt_ps_wrap (
+`ifndef SIMTIX_MEM_TAGS
+  `define SIMTIX_MEM_TAGS 8
+`endif
+module simt_ps_wrap #(
+    parameter IDW = $clog2(`SIMTIX_MEM_TAGS) + 1
+) (
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK" *)
-    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi:m_axi, ASSOCIATED_RESET aresetn, FREQ_HZ 100000000" *)
+    // No FREQ_HZ here: the block design propagates the PS clock's real frequency
+    // (100 MHz on the ZCU104, 99.990005 MHz on the ZCU102, whose PS cannot make
+    // exactly 100 MHz from its 33.333 MHz reference).
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi:m_axi, ASSOCIATED_RESET aresetn" *)
     input  wire         clk,
     (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 aresetn RST" *)
     (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -36,7 +46,7 @@ module simt_ps_wrap (
     output wire         s_axi_rvalid,
     input  wire         s_axi_rready,
 
-    output wire [3:0]   m_axi_awid,
+    output wire [IDW-1:0]   m_axi_awid,
     output wire [31:0]  m_axi_awaddr,
     output wire [7:0]   m_axi_awlen,
     output wire [2:0]   m_axi_awsize,
@@ -50,11 +60,11 @@ module simt_ps_wrap (
     output wire         m_axi_wlast,
     output wire         m_axi_wvalid,
     input  wire         m_axi_wready,
-    input  wire [3:0]   m_axi_bid,
+    input  wire [IDW-1:0]   m_axi_bid,
     input  wire [1:0]   m_axi_bresp,
     input  wire         m_axi_bvalid,
     output wire         m_axi_bready,
-    output wire [3:0]   m_axi_arid,
+    output wire [IDW-1:0]   m_axi_arid,
     output wire [31:0]  m_axi_araddr,
     output wire [7:0]   m_axi_arlen,
     output wire [2:0]   m_axi_arsize,
@@ -63,7 +73,7 @@ module simt_ps_wrap (
     output wire [2:0]   m_axi_arprot,
     output wire         m_axi_arvalid,
     input  wire         m_axi_arready,
-    input  wire [3:0]   m_axi_rid,
+    input  wire [IDW-1:0]   m_axi_rid,
     input  wire [127:0] m_axi_rdata,
     input  wire [1:0]   m_axi_rresp,
     input  wire         m_axi_rlast,

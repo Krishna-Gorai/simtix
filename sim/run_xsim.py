@@ -66,7 +66,23 @@ TESTS = {
     'apps':      ('tb_apps', PS + ['tests/tb_apps.sv'], [], False),   # needs sim/gen_apps.py
     'sync_axi':  ('tb_sync', POOL + [A + 'l1_dcache.sv', A + 'axi_line_master.sv', 'tests/tb_sync.sv'],
                   [], False, ['MEM_LAT=24', 'MEM_STALL=1', 'MEM_OOO=1', 'L1=1', 'AXI=1']),
+    # v3: medium-size GEMM-RB with 8 hardware warps. The FP unit then fills, which
+    # exercises the scoreboard's unit-full sleep; it hung before the wake-up fix of
+    # 2026-10-29 (the small input set and 4 warps do not reach that state).
+    'apps_w8':   ('tb_apps', PS + ['tests/tb_apps.sv'], [], False),
 }
+# Verilog defines and xsim plusargs per test.
+DEFINES = {'apps_w8': ['SIMTIX_NUM_WARPS=8']}
+APPS_W8 = os.path.join(ROOT, 'build_apps_w8')
+PLUSARGS = {'apps_w8': [f'MANIFEST={APPS_W8}/apps.manifest'.replace('\\', '/')]}
+
+
+def prepare(name):
+    """Generate a test's input data if it is missing."""
+    if name == 'apps_w8' and not os.path.isfile(os.path.join(APPS_W8, 'apps.manifest')):
+        subprocess.run([sys.executable, os.path.join(ROOT, 'sim', 'gen_apps.py'), '--size', 'board',
+                        '--only', 'gemmrb', '--out', APPS_W8], check=True,
+                       stdout=subprocess.DEVNULL)
 # Include directories for `include in testbenches (kernel .svh images).
 INCDIRS = ['kernels/sync']
 
@@ -137,7 +153,8 @@ def main(argv):
     fails = 0
     for n in names:
         t0 = time.time()
-        ok, msg = run_test(n)
+        prepare(n)
+        ok, msg = run_test(n, defines=DEFINES.get(n, ()), plusargs=PLUSARGS.get(n, ()))
         fails += not ok
         print(f"{'PASS' if ok else 'FAIL'}  {n:10s} {time.time() - t0:6.1f}s  {msg}", flush=True)
     print(f"\n{len(names) - fails}/{len(names)} passed")

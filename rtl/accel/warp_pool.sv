@@ -54,7 +54,7 @@
 // always co-resident. `bar` parks a warp (W_BAR) until every live warp of its
 // group has arrived; the SHARED_BASE scratch aperture addresses the group's
 // scratch storage, shared by the block. b = 0 reproduces the earlier one-warp-
-// at-a-time spawning exactly. Warp shuffles run on a cross-lane engine (W_SHF)
+// at-a-time spawning exactly. Warp shuffles run on a cross-lane engine
 // and RV32A atomics run in the memory engine, which applies the lanes of a
 // global AMO that fall in one line with a single read-modify-write.
 // =============================================================================
@@ -63,7 +63,7 @@
 module warp_pool
   import simtix_pkg::*;
 #(
-    parameter int MEM_CTX = NUM_WARPS,  // memory ops in flight (1 = the v1 engine)
+    parameter int MEM_CTX = `SIMTIX_MEM_CTX_PER_WARP * NUM_WARPS, // memory ops in flight (1 = the v1 engine)
     parameter bit AMO_AGG = 1'b1,       // AMO lanes share one read-modify-write per line
     parameter bit AMO_PAR = 1'b0,       // AMO lanes per cycle: 1 = all on distinct words, 0 = one
     parameter bit MEM_BYP = 1'b1        // data port may answer in the request cycle (0: never)
@@ -109,8 +109,10 @@ module warp_pool
     // M7 energy study — divergence-aware lane clock-gating accounting.
     output logic [31:0] dbg_issued_insns, // datapath instructions issued (lane-slots
                                           // = NUM_LANES * this if never gated)
-    output logic [31:0] dbg_active_lanes  // Σ active lanes per issued instruction
+    output logic [31:0] dbg_active_lanes, // Σ active lanes per issued instruction
                                           // (lane-cycles a gated design actually clocks)
+    // State for the board's debug window (simt_ps_top, 0x0200): DBG_POOL words.
+    output logic [31:0] dbg_state [0:DBG_POOL-1]
 );
 
     localparam int NW     = NUM_WARPS;
@@ -132,14 +134,21 @@ module warp_pool
     localparam logic [31:0] RPC_BOTTOM = 32'hFFFF_FFFF;  // base frame never pops
 
     // ── Per-slot architectural state ──────────────────────────────────────────────
-    // W_SFU: parked on the multi-cycle divide/sqrt unit (M14.3). W_FPC: parked on the
-    // pipelined FP-compute unit (M15). W_MUL: parked on the pipelined integer-multiply
-    // unit (B1) — all mirror W_MEM's "park on a side engine while the scheduler keeps
-    // issuing other warps" pattern.
-    // W_BAR: waiting at a block barrier. W_SHF: parked on the cross-lane shuffle engine.
-    typedef enum logic [3:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_FPC, W_MUL, W_DOT, W_DONE,
-                               W_BAR, W_SHF } wstate_e;
+    // W_SFU: parked on the multi-cycle divide/sqrt unit (M14.3), mirroring W_MEM's "park
+    // on a side engine while the scheduler keeps issuing other warps" pattern. The FP,
+    // multiply, dot and shuffle units no longer park the warp (v3 B2: the register
+    // scoreboard tracks their pending results). W_BAR: waiting at a block barrier.
+    typedef enum logic [3:0] { W_EMPTY, W_RUN, W_MEM, W_SFU, W_DONE, W_BAR } wstate_e;
     wstate_e        wstate    [0:NW-1];
+    // v3 B2: a warp held back by the register scoreboard sleeps (is not fetched) until
+    // the event that can unblock it: one of its own results written back, or, when its
+    // unit was full, any unit writeback. Retrying every other cycle instead would take
+    // issue slots from the other warps.
+    logic [NW-1:0]  sb_wait;      // asleep after a scoreboard stall
+    logic [NW-1:0]  sb_wfull;     // ... because its unit was full (wake on any writeback)
+    logic [NW-1:0]  sb_wake;
+    logic [NW-1:0]  sb_own;       // a result of warp k is written / its load finished
+    logic           sb_any;       // any unit result is written
 
     // Vector register file — one independent distributed-RAM (LUTRAM) bank per lane,
     // each VDEPTH×32 addressed by {warp,reg}, with ONE synchronous write port and two
@@ -197,6 +206,8 @@ module warp_pool
     logic             me_rs_valid;               // a memory op finished: resume its warp
     logic [WIDXW-1:0] me_rs_w;
     logic [31:0]      me_rs_pc;
+    logic [4:0]       me_rs_rd;                  // v3: the finished op's destination,
+    logic             me_rs_fp, me_rs_ld;        // its file, and whether it was a load
     logic             me_busy, me_fp_busy, me_gtxn, me_stxn;
     logic [WIDXW-1:0] me_wb_w;                   // writeback destination warp / reg
     logic [4:0]       me_wb_rd;
@@ -232,7 +243,7 @@ module warp_pool
         for (int k = 0; k < NW; k++) begin
             logic [WIDXW-1:0] idx;
             idx = rr_ptr + k[WIDXW-1:0];          // wraps in WIDXW bits (NW is pow2)
-            if (!fetch_valid && (wstate[idx] == W_RUN) && !inflight[idx]) begin
+            if (!fetch_valid && (wstate[idx] == W_RUN) && !inflight[idx] && !sb_wait[idx]) begin
                 fetch_valid = 1'b1;
                 fetch_w     = idx;
             end
@@ -407,13 +418,13 @@ module warp_pool
     assign is_ecall = (opcode == OP_SYSTEM) && (funct3 == 3'b000);
     assign is_csr   = (opcode == OP_SYSTEM) && (funct3 != 3'b000);
     // B1: RV32M `mul` (low 32) — the only RV32M op this engine supports (funct3==000,
-    // funct7[0]=1). It no longer executes in the single-cycle ALU; it parks on the
-    // multi-cycle DSP-pipelined multiplier (W_MUL) so the DSP leaves the critical path.
+    // funct7[0]=1). It no longer executes in the single-cycle ALU; it runs in the
+    // multi-cycle DSP-pipelined multiplier so the DSP leaves the critical path.
     assign is_mul   = (opcode == OP_OP) && (funct3 == 3'b000) && funct7b0;
 
     // AI extension: INT8 packed dot-product `pdot8` (custom-0, funct7 = 0). Like `mul`
-    // it does not execute in the single-cycle ALU — it parks on the DSP-pipelined
-    // dot engine (W_DOT). funct3 carries the signedness variant (DOT8_SS/UU/SU).
+    // it does not execute in the single-cycle ALU — it runs in the DSP-pipelined
+    // dot engine. funct3 carries the signedness variant (DOT8_SS/UU/SU).
     logic       is_dot;
     logic [2:0] dot_mode;
     assign is_dot   = (opcode == OP_CUSTOM0) && (instr[31:25] == F7_DOT);
@@ -550,12 +561,11 @@ module warp_pool
     // + scheduler decode are lifted OUT of the multiply cone. Costs one extra FP-compute
     // latency cycle (absorbed by an added FPC_W2 scoreboard state); results are bit-exact.
     logic [31:0] q_frv1 [0:NL-1], q_frv2 [0:NL-1], q_frv3 [0:NL-1], q_rv1 [0:NL-1];
-    // B1: integer-multiply operand hold registers (captured at issue, held while the
-    // warp is parked on W_MUL so the DSP pipeline streams one constant pair to result).
+    // B1: integer-multiply operand registers (captured at issue; the DSP pipeline takes
+    // a new pair every cycle).
     logic [31:0] q_mul_a [0:NL-1], q_mul_b [0:NL-1];
-    // AI: INT8-dot operand hold registers (captured at issue, held while the warp is
-    // parked on W_DOT; the per-lane DSP MAC streams the 4 byte-products into its P
-    // accumulator). q_dot_mode holds the signedness variant for the whole op.
+    // AI: INT8-dot operand registers (captured at issue; the per-lane DSP pipeline takes
+    // a new op every cycle). q_dot_mode is the op's signedness variant.
     logic [31:0] q_dot_a [0:NL-1], q_dot_b [0:NL-1];
     logic [2:0]  q_dot_mode;
     logic [4:0]  q_fp_funct5;
@@ -590,7 +600,7 @@ module warp_pool
     // DSP48 directly in the fetch→execute→writeback combinational cloud (the placed
     // critical path) and — being un-pipelined — emitting DPIP/DPOP DRC advisories. We
     // pull it into this background engine: operands are captured at issue (q_mul_a/b),
-    // the warp parks on W_MUL, the product streams through a fully-pipelined DSP tree,
+    // the product streams through a fully-pipelined DSP tree,
     // and writes back when the integer VRF port is free.
     //
     // To make EVERY inferred DSP fully pipelined (AREG/BREG + MREG + PREG → 0 DRC
@@ -600,7 +610,7 @@ module warp_pool
     // unsigned sub-products are bit-correct for `mul`. Each 16×16 is one DSP that packs
     // cleanly (validated 0-warning in tests/dsp_pack_probe.sv). Latency = 6 internal
     // stages (split → DSP-in → MREG → PREG → cross-add → final-add); with the issue-cycle
-    // q-capture that is 7 cycles issue→result, awaited by the MUL scoreboard countdown.
+    // q-capture that is 7 cycles issue→result (MUL_LAT, sampled by the result queue).
     genvar gm;
     generate
         for (gm = 0; gm < NL; gm++) begin : g_imul
@@ -630,18 +640,16 @@ module warp_pool
     endgenerate
 
     // ── AI: per-lane INT8 dot-product engine (4 parallel DSP products + pipe tree) ────
-    // Mirrors the W_MUL streaming style: operands are captured at issue and HELD constant
-    // in q_dot_a/b while the warp is parked on W_DOT, so this is a fixed-latency pipeline
-    // whose output `dot_res` is valid once the pipe fills (and then stays stable, since
-    // the inputs no longer change — the scoreboard captures it a cycle later, robustly).
+    // Mirrors the multiplier's streaming style: operands are captured at issue in q_dot_a/b and
+    // stream through a fixed-latency pipeline; a new pdot8 may enter every cycle, so the
+    // result queue samples `dot_res` exactly DOT_LAT cycles after issue.
     // Each lane forms the four signed byte-products a_i*b_i in parallel (one DSP each,
     // AREG/BREG + MREG + PREG → clean DSP pack) and reduces them through a registered
     // adder tree. Per-operand signedness (sa/sb) is set by the funct3 variant (DOT8_*):
     //   SS: both signed   UU: both unsigned   SU: rs1 signed, rs2 unsigned (weight×act).
     // An unsigned byte extends with a 0 sign bit; a signed byte sign-extends — so a single
     // signed 9×9 multiply serves every variant. Sum of 4 products ≤ ±260 100 → fits 32b.
-    // Latency: q-capture(1) + A/B reg(1) + M(1) + P(1) + add(1) + add(1) = 6; the W_DOT
-    // countdown (DOT_CNT_INIT) captures at +7, one safe cycle after it settles.
+    // Latency: q-capture(1) + A/B reg(1) + M(1) + P(1) + add(1) + add(1) = 6 = DOT_LAT.
     genvar gd;
     generate
         for (gd = 0; gd < NL; gd++) begin : g_idot
@@ -739,82 +747,86 @@ module warp_pool
     // The FPU multiply/FMA cone was the longest path; simt_fpu is now a 5-STAGE pipeline
     // (operands in cycle T -> result `fpu_res` in cycle T+5), the depth set by making the
     // significand multiply a fully-pipelined DSP (clean DRC, B2). To consume the late
-    // result correctly the issuing warp parks on a single-slot scoreboard (W_FPC) exactly
-    // like the SFU: at issue the warp parks and the operands are captured (held constant);
-    // FPC_WAIT counts the latency down, the result is captured into the held `fpc_data`,
-    // then written back when the destination port is free (it YIELDS the f-file/VRF port to
-    // the memory and SFU engines). Only one FP-compute op is in flight at a time.
+    // result correctly, at issue the operands are captured and the op's tag enters a
+    // delay line; at its end the result is queued, then written back when the destination
+    // port is free (it YIELDS the f-file/VRF port to the memory and SFU engines). The
+    // register scoreboard (v3 B2) stops later instructions from using it too early.
     logic        do_fp;             // issue is an FP-compute op (not div/sqrt, not mem)
-    logic        do_mul;            // issue is an RV32M `mul` (parks on W_MUL)
-    logic        do_dot;            // issue is a `pdot8` INT8 dot (parks on W_DOT)
-    // B2: simt_fpu is now a 5-stage pipeline (operands at T -> result at T+5), so the FPC
-    // scoreboard waits the latency with a countdown (fpc_cnt) before capturing the result:
-    // IDLE -> WAIT(cnt) -> WB. The +3-cycle deepening came from making the significand
-    // multiply a fully-pipelined DSP (clean DRC). FPC_CNT_INIT = the FPU latency (5).
-    typedef enum logic [1:0] { FPC_IDLE, FPC_WAIT, FPC_WB } fpc_st_e;
-    fpc_st_e          fpc_state;
+    logic        sb_stall;          // v3 B2: X-stage instr held back by the scoreboard
+    logic        do_mul;            // issue is an RV32M `mul` (integer-multiply unit)
+    logic        do_dot;            // issue is a `pdot8` INT8 dot (dot unit)
+    // v3 B2: the FPC unit is PIPELINED. simt_fpu carries its control down its own delay
+    // line, so a new FP-compute warp instruction may enter every cycle. A result queue
+    // (wp_resq, end of this file) carries the op's tag in step with the FPU and queues the
+    // result; its head writes back when its port is free. The issuing warp does not wait:
+    // its PC advances at issue and the register scoreboard (pend_x/pend_f, below) holds
+    // back any later instruction that reads or rewrites the pending register. The
+    // multiply, dot and shuffle units below use the same scheme.
+    typedef struct packed {
+        logic [WIDXW-1:0] w;
+        logic [4:0]       rd;
+        logic             isfp;       // 1: result -> f-file; 0: -> integer VRF
+        logic [NL-1:0]    we;         // per-lane writeback enable (mask + x0 guard)
+    } mc_tag_t;
+    localparam int    RQ_DEPTH = 8;   // ops in flight per unit (pipe + result queue)
+    localparam int    FPC_LAT = 6;    // issue -> fpu_res: q-capture (1) + FPU stages (5)
+    mc_tag_t          fpc_hd;         // result-queue head
+    logic             fpc_vld;        // result queue not empty
+    logic             fpc_rdy;        // unit can take another op
     logic [WIDXW-1:0] fpc_w;
     logic [4:0]       fpc_rd;
-    logic             fpc_isfp;       // 1: result -> f-file; 0: -> integer VRF
-    logic [NL-1:0]    fpc_we;         // per-lane writeback enable (mask + x0 guard)
-    logic [31:0]      fpc_resume_pc;
+    logic             fpc_isfp;
+    logic [NL-1:0]    fpc_we;
     logic [31:0]      fpc_data [0:NL-1];
-    logic [3:0]       fpc_cnt;        // FPU pipeline-latency countdown
-    logic             fpc_wb_fire;    // held FP-compute result drives its port this cycle
-    localparam logic [3:0] FPC_CNT_INIT = 4'd5;   // res valid 5 cycles after operands (q+5)
+    logic             fpc_wb_fire;    // queue head drives its port this cycle
 
-    // ── B1: pipelined integer-multiply scoreboard (W_MUL) ────────────────────────────
-    // Mirrors W_FPC: one mul in flight, operands captured at issue (q_mul_a/b), the warp
-    // parked while the decomposed DSP tree computes (mul_cnt counts the pipeline
-    // latency), then the per-lane products are written back to the INTEGER VRF when the
-    // port is free (yields to the memory + FPC engines). mul is always integer-dest.
-    typedef enum logic [1:0] { MUL_IDLE, MUL_RUN, MUL_WB } mul_st_e;
-    mul_st_e          mul_state;
+    // ── B1: pipelined integer multiply ───────────────────────────────────────────────
+    // Mirrors the FPC unit: operands captured at issue (q_mul_a/b), the decomposed DSP
+    // tree computes, then the per-lane products are queued and written
+    // back to the INTEGER VRF when the port is free (yields to the memory + FPC
+    // engines). mul is always integer-dest. A new mul may enter every cycle (v3 B2).
+    localparam int    MUL_LAT = 7;    // issue -> mul_res: q-capture (1) + 6 stages
+    mc_tag_t          mul_hd;
+    logic             mul_vld, mul_rdy;
     logic [WIDXW-1:0] mul_w;
     logic [4:0]       mul_rd;
     logic [NL-1:0]    mul_we;         // per-lane writeback enable (mask + x0 guard)
-    logic [31:0]      mul_resume_pc;
     logic [31:0]      mul_data [0:NL-1];
-    logic [3:0]       mul_cnt;        // DSP-tree latency countdown
-    logic             mul_wb_fire;    // held mul result drives the integer VRF this cycle
-    localparam logic [3:0] MUL_CNT_INIT = 4'd6;   // 7 cycles issue→result (q-capture + 6 stages)
+    logic             mul_wb_fire;    // queue head drives the integer VRF this cycle
 
-    // ── AI: pipelined INT8 dot-product scoreboard (W_DOT) ─────────────────────────────
-    // Mirrors W_MUL exactly: one dot in flight, operands captured at issue (q_dot_a/b),
-    // the warp parked while each lane's single DSP serially accumulates the four INT8
-    // byte-products into its 48-bit P register (dot_cnt counts the latency), then the
-    // per-lane dot results write back to the INTEGER VRF when the port is free (yields
-    // to the memory + FPC + MUL engines). pdot8 is always integer-dest.
-    typedef enum logic [1:0] { DOT_IDLE, DOT_RUN, DOT_WB } dot_st_e;
-    dot_st_e          dot_state;
+    // ── AI: pipelined INT8 dot product ────────────────────────────────────────────────
+    // Mirrors the multiply unit: operands captured at issue (q_dot_a/b), each lane's
+    // four DSP byte-products and adder tree compute, then the per-lane
+    // dot results are queued and written back to the INTEGER VRF when the port is free
+    // (yields to the memory + FPC + MUL engines). pdot8 is always integer-dest.
+    // Latency: q-capture (1) + byte extend (1) + M (1) + P (1) + two adds (2) = 6.
+    localparam int    DOT_LAT = 6;
+    mc_tag_t          dot_hd;
+    logic             dot_vld, dot_rdy;
     logic [WIDXW-1:0] dot_w;
     logic [4:0]       dot_rd;
     logic [NL-1:0]    dot_we;         // per-lane writeback enable (mask + x0 guard)
-    logic [31:0]      dot_resume_pc;
     logic [31:0]      dot_data [0:NL-1];
-    logic [3:0]       dot_cnt;        // DSP-MAC latency countdown
-    logic             dot_wb_fire;    // held dot result drives the integer VRF this cycle
-    // Latency = q-capture (1) + input reg (1) + 4 serial MAC accumulate cycles + P reg
-    // drain (1) = 7 cycles issue→result. dot_cnt counts 6..0 like MUL_CNT_INIT.
-    localparam logic [3:0] DOT_CNT_INIT = 4'd6;
+    logic             dot_wb_fire;    // queue head drives the integer VRF this cycle
 
-    // ── v2: cross-lane shuffle engine (W_SHF) ───────────────────────────────────────
-    // Same park-and-resume shape as W_MUL. At issue each lane's source index is
+    // ── v2: cross-lane shuffle engine ───────────────────────────────────────────────
+    // Same shape as the multiply unit. At issue each lane's source index is
     // computed from its rs2 and captured with every lane's rs1, so the 8:1 lane
-    // crossbar reads registers and stays off the VRF-read critical path. RUN drives
-    // the crossbar into shf_data; WB writes the integer VRF when the port is free.
-    typedef enum logic [1:0] { SHF_IDLE, SHF_RUN, SHF_WB } shf_st_e;
-    shf_st_e          shf_state;
+    // crossbar reads registers and stays off the VRF-read critical path. The cycle
+    // after issue the crossbar output is queued; the head writes the integer VRF when
+    // the port is free.
+    localparam int    SHF_LAT = 1;
+    mc_tag_t          shf_hd;
+    logic             shf_vld, shf_rdy;
     logic [WIDXW-1:0] shf_w;
     logic [4:0]       shf_rd;
     logic [NL-1:0]    shf_we;         // per-lane writeback enable (mask + x0 guard)
-    logic [31:0]      shf_resume_pc;
     logic [31:0]      q_shf_val [0:NL-1];   // captured rs1 of every lane
     logic [LIDXW-1:0] q_shf_src [0:NL-1];   // captured source lane per lane
     logic [NL-1:0]    q_shf_ok;             // source in range (else keep own value)
     logic [31:0]      shf_data  [0:NL-1];
     logic             shf_wb_fire;
-    logic             do_shf;         // issue is a warp shuffle (parks on W_SHF)
+    logic             do_shf;         // issue is a warp shuffle (shuffle unit)
     logic             do_bar;         // issue is a block barrier (parks on W_BAR)
 
     logic [LIDXW-1:0] shf_src [0:NL-1];
@@ -873,7 +885,7 @@ module warp_pool
                 ALU_SRL:  y = a >> b[4:0];
                 ALU_SRA:  y = $signed(a) >>> b[4:0];
                 ALU_PASSB:y = b;
-                ALU_MUL:  y = 32'd0;            // B1: `mul` executes in the W_MUL DSP engine
+                ALU_MUL:  y = 32'd0;            // B1: `mul` executes in the DSP multiply unit
                 default:  y = 32'd0;
             endcase
 
@@ -884,7 +896,7 @@ module warp_pool
     // Integer-VRF writeback value/enable for the single-cycle INTEGER compute ops
     // (ALU, jal/jalr link, csr tid). FP-compute results no longer commit here in the
     // issue cycle — they are registered and written back through the FPC pipeline
-    // (W_FPC), so this block is integer-only. Kept SEPARATE from the operand reads
+    // (u_fpc_q), so this block is integer-only. Kept SEPARATE from the operand reads
     // above to avoid a false UNOPTFLAT loop (fpu_res depends on rv1).
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -951,13 +963,16 @@ module warp_pool
     assign issue_is_shared  = issue_is_scratch && addr[first_l][29];   // SHARED_BASE
 
 // ── Memory engine ───────────────────────────────────────────────────────────────
-    // A memory op is handed over when the X stage resolves it; the warp parks in
-    // W_MEM until the engine resumes it. See mem_engine.sv.
-    assign me_in_valid = issue_valid && !do_pop && !is_ecall && is_mem;
+    // A memory op is handed over when the X stage resolves it. For a store or AMO the
+    // warp parks in W_MEM until the engine resumes it; for a load (v3) it goes on and
+    // the load's rd stays pending until the engine reports the load finished (rs_ld).
+    // See mem_engine.sv.
+    assign me_in_valid = issue_valid && !do_pop && !sb_stall && !is_ecall && is_mem;
     always_comb
         for (int l = 0; l < NL; l++)
             me_sdata[l] = is_store_fp ? frv2[l] : rv2[l];   // fsw stores an f-register
 
+    logic [31:0] me_dbg [0:DBG_ME-1];          // its debug-window words
     mem_engine #(.NC(MEM_CTX), .AGG(AMO_AGG), .APAR(AMO_PAR), .BYP(MEM_BYP)) u_mem (
         .clk        (clk),
         .rst        (rst),
@@ -985,6 +1000,9 @@ module warp_pool
         .rs_valid   (me_rs_valid),
         .rs_w       (me_rs_w),
         .rs_pc      (me_rs_pc),
+        .rs_rd      (me_rs_rd),
+        .rs_fp      (me_rs_fp),
+        .rs_ld      (me_rs_ld),
         .busy       (me_busy),
         .fp_busy    (me_fp_busy),
         .dmem_req   (dmem_req),
@@ -998,7 +1016,8 @@ module warp_pool
         .dmem_rtag  (dmem_rtag),
         .dmem_rdata (dmem_rdata),
         .gtxn       (me_gtxn),
-        .stxn       (me_stxn)
+        .stxn       (me_stxn),
+        .dbg_state  (me_dbg)
     );
 
     // ── "Anything still running?" (combinational over current state) ────────────────
@@ -1006,10 +1025,10 @@ module warp_pool
     always_comb begin
         any_busy = (next_wid != total_warps);   // warps still to spawn
         for (int k = 0; k < NW; k++)
+            // A warp reaches W_DONE only with nothing pending (ecall waits), so the
+            // unit queues are empty once every warp is done.
             if ((wstate[k] == W_RUN) || (wstate[k] == W_MEM) ||
-                (wstate[k] == W_SFU) || (wstate[k] == W_FPC) ||
-                (wstate[k] == W_MUL) || (wstate[k] == W_DOT) ||
-                (wstate[k] == W_BAR) || (wstate[k] == W_SHF)) any_busy = 1'b1;
+                (wstate[k] == W_SFU) || (wstate[k] == W_BAR)) any_busy = 1'b1;
         if (me_busy) any_busy = 1'b1;             // a memory op still in flight
     end
 
@@ -1039,24 +1058,98 @@ module warp_pool
     logic [4:0]       fv_wr [0:NL-1];
 
     assign mem_wb_act     = |mem_wb_lane;
+
+    // ── v3 B2 step 2: register scoreboard ──────────────────────────────────────────
+    // pend_x / pend_f mark, per warp, the integer / FP registers whose value is still in
+    // the FP, multiply, dot or shuffle unit or its result queue: set at issue, cleared
+    // at writeback. The X-stage instruction is held back (sb_stall: the warp re-enters
+    // the fetch pool and retries, like a busy memory engine) when a register it reads
+    // or writes is pending, when its unit is full, or when it is an ecall with results
+    // still outstanding (they must land before the warp slot can be reused). Only the
+    // registers the opcode really reads are checked: an immediate field that happens to
+    // name a pending register must not stall.
+    logic [31:0] pend_x [0:NW-1];
+    logic [31:0] pend_f [0:NW-1];
+    logic        use_x1, use_x2, use_f1, use_f2, use_f3, def_x, def_f;
+    logic        cls_fp, cls_mul, cls_dot, cls_shf;   // unit the instruction goes to
+    logic        fp_src_x;                            // OP-FP whose rs1 is an x-reg
+    assign fp_src_x = is_fp_op && ((fp_funct5 == FP_CVT_S) || (fp_funct5 == FP_FMVWX));
+    assign use_x1 = (opcode == OP_OP)     || (opcode == OP_OPIMM)   || (opcode == OP_JALR)  ||
+                    (opcode == OP_BRANCH) || (opcode == OP_LOAD)    || (opcode == OP_STORE) ||
+                    (opcode == OP_LOADFP) || (opcode == OP_STOREFP) || (opcode == OP_AMO)   ||
+                    (opcode == OP_CUSTOM0) || is_csr || fp_src_x;
+    assign use_x2 = (opcode == OP_OP)     || (opcode == OP_BRANCH)  || (opcode == OP_STORE) ||
+                    (opcode == OP_AMO)    || (opcode == OP_CUSTOM0);
+    assign use_f1 = (is_fp_op && !fp_src_x) || is_fma_op;
+    assign use_f2 = (is_fp_op && ((fp_funct5 == FP_ADD)  || (fp_funct5 == FP_SUB)    ||
+                                  (fp_funct5 == FP_MUL)  || (fp_funct5 == FP_DIV)    ||
+                                  (fp_funct5 == FP_SGNJ) || (fp_funct5 == FP_MINMAX) ||
+                                  (fp_funct5 == FP_CMP))) ||
+                    is_fma_op || (opcode == OP_STOREFP);
+    assign use_f3 = is_fma_op;
+    assign def_x  = (opcode == OP_OP)  || (opcode == OP_OPIMM) || (opcode == OP_LUI)  ||
+                    (opcode == OP_AUIPC) || (opcode == OP_JAL) || (opcode == OP_JALR) ||
+                    (opcode == OP_LOAD) || (opcode == OP_AMO)  ||
+                    ((opcode == OP_CUSTOM0) && !is_bar) || is_csr || fp_int_dest;
+    assign def_f  = (opcode == OP_LOADFP) || is_fma_op || (is_fp_op && !fp_int_dest);
+    assign cls_fp  = !is_mem && ((is_fp_op && !is_sfu_op) || is_fma_op);
+    assign cls_mul = !is_mem && !is_sfu_op && is_mul;
+    assign cls_dot = !is_mem && !is_sfu_op && is_dot;
+    assign cls_shf = !is_mem && !is_sfu_op && is_shfl;
+    logic sb_haz, sb_full;            // a register is pending / the unit is full
+    // v3: loads in flight per warp. A warp may have LD_MAX loads outstanding; a store,
+    // AMO, barrier or ecall waits until it has none, so a warp's own memory accesses
+    // keep their order where it matters (a store never overtakes an earlier load of
+    // the same warp, and a barrier orders loads before it against stores after it).
+    localparam int LD_MAX = (MEM_CTX / NW > 0) ? MEM_CTX / NW : 1;
+    logic [3:0]  ld_out [0:NW-1];
+    logic        ld_inc;              // a load is handed to the memory engine this cycle
+    assign ld_inc = me_in_valid && me_in_ready && is_load;
+    assign sb_haz =
+        (use_x1 && pend_x[issue_w][rs1]) || (use_x2 && pend_x[issue_w][rs2]) ||
+        (use_f1 && pend_f[issue_w][rs1]) || (use_f2 && pend_f[issue_w][rs2]) ||
+        (use_f3 && pend_f[issue_w][rs3]) ||
+        (def_x && pend_x[issue_w][rd])   || (def_f && pend_f[issue_w][rd])   ||
+        (is_ecall && ((pend_x[issue_w] != '0) || (pend_f[issue_w] != '0))) ||
+        (is_load && (ld_out[issue_w] >= 4'(LD_MAX))) ||
+        ((is_store || is_amo || is_bar || is_ecall) && (ld_out[issue_w] != '0));
+    assign sb_full =
+        (cls_fp && !fpc_rdy) || (cls_mul && !mul_rdy) ||
+        (cls_dot && !dot_rdy) || (cls_shf && !shf_rdy);
+    assign sb_stall = sb_haz || sb_full;
+    // Wake-up: a register-hazard sleeper waits for a pending result of its own (one
+    // exists, or it would not have stalled); a unit-full sleeper for any writeback.
+    // sb_wfull holds the reason of the CURRENT sleep, so sb_wake is only used for warps
+    // already asleep; a warp that stalls this cycle is judged by this cycle's reason
+    // (sb_haz) in the issue step. (Using the stored reason there missed the wake-up of a
+    // load-hazard stall whose last sleep was unit-full: 8-warp GEMM-RB hung.)
+    always_comb begin
+        sb_any = fpc_wb_fire || mul_wb_fire || dot_wb_fire || shf_wb_fire;
+        for (int k = 0; k < NW; k++) begin
+            sb_own[k]  = (fpc_wb_fire && (fpc_w == WIDXW'(k))) || (mul_wb_fire && (mul_w == WIDXW'(k))) ||
+                         (dot_wb_fire && (dot_w == WIDXW'(k))) || (shf_wb_fire && (shf_w == WIDXW'(k))) ||
+                         (me_rs_valid && me_rs_ld && (me_rs_w == WIDXW'(k)));
+            sb_wake[k] = sb_wfull[k] ? sb_any : sb_own[k];
+        end
+    end
     // An FP-compute op (add/sub/mul/FMA/sgnj/min/max/cmp/cvt/fmv/fclass — NOT div/
-    // sqrt, NOT a load/store): retires through the pipelined FPC unit (W_FPC).
-    assign do_fp          = issue_valid && !do_pop && !is_ecall && !is_mem &&
+    // sqrt, NOT a load/store): retires through the pipelined FPC unit (u_fpc_q).
+    assign do_fp          = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             ((is_fp_op && !is_sfu_op) || is_fma_op);
-    // B1: an RV32M `mul` — retires through the pipelined integer-multiply engine (W_MUL).
-    assign do_mul         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+    // B1: an RV32M `mul` — retires through the pipelined integer-multiply engine.
+    assign do_mul         = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             !is_sfu_op && is_mul;
-    // AI: a `pdot8` — retires through the pipelined INT8 dot engine (W_DOT).
-    assign do_dot         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+    // AI: a `pdot8` — retires through the pipelined INT8 dot engine.
+    assign do_dot         = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             !is_sfu_op && is_dot;
     // A single-cycle INTEGER compute: not a pop/ecall/memory/divide-sqrt/FP-compute/
     // mul/dot.
-    // v2: a warp shuffle (W_SHF) and a block barrier (W_BAR).
-    assign do_shf         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+    // v2: a warp shuffle and a block barrier (W_BAR).
+    assign do_shf         = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             !is_sfu_op && is_shfl;
-    assign do_bar         = issue_valid && !do_pop && !is_ecall && !is_mem &&
+    assign do_bar         = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             !is_sfu_op && is_bar;
-    assign do_compute     = issue_valid && !do_pop && !is_ecall && !is_mem &&
+    assign do_compute     = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             !is_sfu_op && !do_fp && !do_mul && !do_dot &&
                             !do_shf && !do_bar;
 
@@ -1066,24 +1159,24 @@ module warp_pool
 
     // The held FP-compute result drives its destination port when ready. It YIELDS to
     // the (non-deferrable) memory engine on the relevant port, and to the SFU on the
-    // f-file — so it never collides; if blocked, it simply waits (the warp stays
-    // parked and the result is held in fpc_data).
-    assign fpc_wb_fire = (fpc_state == FPC_WB) &&
+    // f-file — so it never collides; if blocked, the result simply waits at the head of
+    // its queue (its register stays pending).
+    assign fpc_wb_fire = fpc_vld &&
                          ( fpc_isfp ? !((mem_wb_act && me_wb_fp) || sfu_wb_fire)
                                     : !(mem_wb_act && !me_wb_fp) );
 
     // B1: the held integer-mul result drives the integer VRF when the unit is in
     // writeback and that port is free. It is deferrable like FPC: it yields to the
     // (non-deferrable) integer memory writeback and to the integer-dest FPC writeback,
-    // so it never collides; if blocked it waits (the warp stays parked in W_MUL).
-    assign mul_wb_fire = (mul_state == MUL_WB) &&
+    // so it never collides; if blocked it waits at the head of its result queue.
+    assign mul_wb_fire = mul_vld &&
                          !((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp));
 
     // AI: the held INT8-dot result drives the integer VRF when the unit is in writeback
     // and the port is free. Deferrable like MUL: it yields to the integer memory
     // writeback, the integer-dest FPC writeback, AND the integer-mul writeback (it sits
-    // one tier below mul in the same port); if blocked it waits (warp parked in W_DOT).
-    assign dot_wb_fire    = (dot_state == DOT_WB) &&
+    // one tier below mul in the same port); if blocked it waits at the queue head.
+    assign dot_wb_fire    = dot_vld &&
                          !((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp) ||
                            mul_wb_fire);
 
@@ -1091,13 +1184,57 @@ module warp_pool
     // its port is taken this cycle by an integer memory load, the integer-dest FPC
     // writeback, or the integer-mul writeback. It re-issues next cycle (idempotent).
     // v2: the shuffle result sits one tier below the dot result on the integer port.
-    assign shf_wb_fire    = (shf_state == SHF_WB) &&
+    assign shf_wb_fire    = shf_vld &&
                          !((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp) ||
                            mul_wb_fire || dot_wb_fire);
 
     assign squash_wb      = do_compute &&
                             ((mem_wb_act && !me_wb_fp) || (fpc_wb_fire && !fpc_isfp) ||
                              mul_wb_fire || dot_wb_fire || shf_wb_fire);
+
+    // v3 B2: one result queue per multi-cycle unit (wp_resq, end of this file). An op
+    // enters its unit in the issue cycle; its tag is formed from the issue signals.
+    logic [NL-1:0][31:0] fpc_res_p, mul_res_p, dot_res_p, shf_res_p;
+    logic [NL-1:0][31:0] fpc_hd_d, mul_hd_d, dot_hd_d, shf_hd_d;
+    mc_tag_t             fpc_in, int_in;
+    logic                q_clr;
+    always_comb
+        for (int l = 0; l < NL; l++) begin
+            fpc_res_p[l] = fpu_res[l];
+            mul_res_p[l] = mul_res[l];
+            dot_res_p[l] = dot_res[l];
+            shf_res_p[l] = q_shf_ok[l] ? q_shf_val[q_shf_src[l]] : q_shf_val[l];
+            fpc_data[l]  = fpc_hd_d[l];
+            mul_data[l]  = mul_hd_d[l];
+            dot_data[l]  = dot_hd_d[l];
+            shf_data[l]  = shf_hd_d[l];
+        end
+    // mul uses mwb_en, pdot8 and the shuffle dwb_en; both are the mask + rd != x0.
+    assign fpc_in = '{w: issue_w, rd: rd, isfp: wb_is_fp, we: fwb_en};
+    assign int_in = '{w: issue_w, rd: rd, isfp: 1'b0, we: do_mul ? mwb_en : dwb_en};
+    assign q_clr  = rst || start;
+    wp_resq #(.LAT(FPC_LAT), .NL(NL), .DEPTH(RQ_DEPTH), .TW($bits(mc_tag_t))) u_fpc_q (
+        .clk(clk), .clr(q_clr), .push(do_fp && running), .tag(fpc_in), .res(fpc_res_p),
+        .pop(fpc_wb_fire), .rdy(fpc_rdy), .vld(fpc_vld), .hd_tag(fpc_hd), .hd_data(fpc_hd_d));
+    wp_resq #(.LAT(MUL_LAT), .NL(NL), .DEPTH(RQ_DEPTH), .TW($bits(mc_tag_t))) u_mul_q (
+        .clk(clk), .clr(q_clr), .push(do_mul && running), .tag(int_in), .res(mul_res_p),
+        .pop(mul_wb_fire), .rdy(mul_rdy), .vld(mul_vld), .hd_tag(mul_hd), .hd_data(mul_hd_d));
+    wp_resq #(.LAT(DOT_LAT), .NL(NL), .DEPTH(RQ_DEPTH), .TW($bits(mc_tag_t))) u_dot_q (
+        .clk(clk), .clr(q_clr), .push(do_dot && running), .tag(int_in), .res(dot_res_p),
+        .pop(dot_wb_fire), .rdy(dot_rdy), .vld(dot_vld), .hd_tag(dot_hd), .hd_data(dot_hd_d));
+    wp_resq #(.LAT(SHF_LAT), .NL(NL), .DEPTH(RQ_DEPTH), .TW($bits(mc_tag_t))) u_shf_q (
+        .clk(clk), .clr(q_clr), .push(do_shf && running), .tag(int_in), .res(shf_res_p),
+        .pop(shf_wb_fire), .rdy(shf_rdy), .vld(shf_vld), .hd_tag(shf_hd), .hd_data(shf_hd_d));
+    assign fpc_w = fpc_hd.w;  assign fpc_rd = fpc_hd.rd;  assign fpc_isfp = fpc_hd.isfp;
+    assign fpc_we = fpc_hd.we;
+    assign mul_w = mul_hd.w;  assign mul_rd = mul_hd.rd;
+    assign mul_we = mul_hd.we;
+    assign dot_w = dot_hd.w;  assign dot_rd = dot_hd.rd;
+    assign dot_we = dot_hd.we;
+    assign shf_w = shf_hd.w;  assign shf_rd = shf_hd.rd;
+    assign shf_we = shf_hd.we;
+    logic unused_int_isfp;            // the integer units' tags carry isfp = 0
+    assign unused_int_isfp = mul_hd.isfp ^ dot_hd.isfp ^ shf_hd.isfp;
 
     always_comb begin
         for (int l = 0; l < NL; l++) begin
@@ -1220,10 +1357,11 @@ module warp_pool
             rr_ptr         <= '0;
             sfu_state      <= SFU_IDLE;
             sfu_core_start <= 1'b0;
-            fpc_state      <= FPC_IDLE;
-            mul_state      <= MUL_IDLE;
-            dot_state      <= DOT_IDLE;
-            shf_state      <= SHF_IDLE;
+            for (int k = 0; k < NW; k++) pend_x[k] <= '0;
+            for (int k = 0; k < NW; k++) pend_f[k] <= '0;
+            sb_wait        <= '0;
+            sb_wfull       <= '0;
+            for (int k = 0; k < NW; k++) ld_out[k] <= '0;
             blk_lg         <= '0;
             issue_valid    <= 1'b0;
             instr          <= 32'd0;
@@ -1259,9 +1397,11 @@ module warp_pool
                 rr_ptr         <= '0;
                 sfu_state      <= SFU_IDLE;
                 sfu_core_start <= 1'b0;
-                fpc_state      <= FPC_IDLE;
-                mul_state      <= MUL_IDLE;
-                shf_state      <= SHF_IDLE;
+                for (int k = 0; k < NW; k++) pend_x[k] <= '0;
+                for (int k = 0; k < NW; k++) pend_f[k] <= '0;
+                sb_wait        <= '0;
+                sb_wfull       <= '0;
+                for (int k = 0; k < NW; k++) ld_out[k] <= '0;
                 blk_lg         <= (block_log2 > 3'(LOGNW)) ? 3'(LOGNW) : block_log2;
                 issue_valid    <= 1'b0;
                 for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
@@ -1332,12 +1472,8 @@ module warp_pool
                     // n_active lanes under gating vs all NL lanes ungated. A pop is
                     // bookkeeping (no datapath); a memory op or an fdiv/fsqrt that
                     // finds its engine busy re-attempts later (don't count the stall).
-                    if (!do_pop && !(is_mem && !me_in_ready) && !squash_wb &&
-                        !(is_sfu_op && sfu_state != SFU_IDLE) &&
-                        !(do_fp && fpc_state != FPC_IDLE) &&
-                        !(do_mul && mul_state != MUL_IDLE) &&
-                        !(do_dot && dot_state != DOT_IDLE) &&
-                        !(do_shf && shf_state != SHF_IDLE)) begin
+                    if (!do_pop && !sb_stall && !(is_mem && !me_in_ready) && !squash_wb &&
+                        !(is_sfu_op && sfu_state != SFU_IDLE)) begin
                         dbg_issued_insns <= dbg_issued_insns + 32'd1;
                         dbg_active_lanes <= dbg_active_lanes +
                                             {{(31-LIDXW){1'b0}}, n_active};
@@ -1346,97 +1482,64 @@ module warp_pool
                         // Pushed frame reached its join: reconverge into the frame
                         // below (which already holds the union mask at this PC).
                         sp[issue_w] <= cur_sp - 1'b1;
+                    end else if (sb_stall) begin
+                        // v3 B2: a register it uses is pending, its unit is full, or an
+                        // ecall waits for results: nothing changes and the warp sleeps
+                        // until a writeback can unblock it (step 3d), then retries.
+                        sb_wait[issue_w]  <= !(sb_haz ? sb_own[issue_w] : sb_any);
+                        sb_wfull[issue_w] <= !sb_haz;
                     end else if (is_ecall) begin
                         wstate[issue_w] <= W_DONE;
                         dbg_retire_a0   <= warp_base[issue_w];
                     end else if (do_fp) begin
                         // FP-compute: capture the operands + control into the FPU input
                         // registers this cycle (A1); the registered operands then feed the
-                        // 5-stage FPU, so the result is valid five cycles later. Park the
-                        // warp on the single-slot FPC pipeline; FPC_WAIT counts the latency
-                        // down (fpc_cnt) and captures the result. If FPC busy, the warp waits.
-                        if (fpc_state == FPC_IDLE) begin
-                            fpc_w           <= issue_w;
-                            fpc_rd          <= rd;
-                            fpc_isfp        <= wb_is_fp;
-                            fpc_we          <= fwb_en;
-                            fpc_resume_pc   <= fallthru;
-                            wstate[issue_w] <= W_FPC;
-                            fpc_state       <= FPC_WAIT;
-                            fpc_cnt         <= FPC_CNT_INIT;
-                            // A1: latch this op's operands + control into the FPU input
-                            // registers, so stage-1 starts from a clean register boundary.
-                            for (int l = 0; l < NL; l++) begin
-                                q_frv1[l] <= frv1[l]; q_frv2[l] <= frv2[l];
-                                q_frv3[l] <= frv3[l]; q_rv1[l]  <= rv1[l];
-                            end
-                            q_fp_funct5       <= fp_funct5;
-                            q_fp_cvt_unsigned <= fp_cvt_unsigned;
-                            q_fp_cvt_src_h    <= fp_cvt_src_h;
-                            q_fp_rm           <= fp_rm;
-                            q_fp_fmt          <= fp_fmt;
-                            q_is_fma_op       <= is_fma_op;
-                            q_fma_np          <= fma_np;
-                            q_fma_nc          <= fma_nc;
+                        // 5-stage FPU, so the result is valid FPC_LAT cycles after issue.
+                        // The op's tag enters the result queue's delay line (u_fpc_q), rd
+                        // is marked pending (step 3d) and the warp moves on.
+                        stk_npc[issue_w][cur_sp] <= fallthru;
+                        // A1: latch this op's operands + control into the FPU input
+                        // registers, so stage-1 starts from a clean register boundary.
+                        for (int l = 0; l < NL; l++) begin
+                            q_frv1[l] <= frv1[l]; q_frv2[l] <= frv2[l];
+                            q_frv3[l] <= frv3[l]; q_rv1[l]  <= rv1[l];
                         end
-                        // else: FPC busy → warp waits.
+                        q_fp_funct5       <= fp_funct5;
+                        q_fp_cvt_unsigned <= fp_cvt_unsigned;
+                        q_fp_cvt_src_h    <= fp_cvt_src_h;
+                        q_fp_rm           <= fp_rm;
+                        q_fp_fmt          <= fp_fmt;
+                        q_is_fma_op       <= is_fma_op;
+                        q_fma_np          <= fma_np;
+                        q_fma_nc          <= fma_nc;
                     end else if (do_mul) begin
                         // B1: RV32M `mul` — capture the operands into the multiply
-                        // pipeline's hold registers, park the warp on the single-slot
-                        // W_MUL scoreboard, and arm the latency countdown. The scheduler
-                        // keeps issuing other warps while the DSP tree streams. If the
-                        // multiplier is busy with another warp, this warp waits (W_RUN).
-                        if (mul_state == MUL_IDLE) begin
-                            mul_w           <= issue_w;
-                            mul_rd          <= rd;
-                            mul_we          <= mwb_en;
-                            mul_resume_pc   <= fallthru;
-                            wstate[issue_w] <= W_MUL;
-                            mul_state       <= MUL_RUN;
-                            mul_cnt         <= MUL_CNT_INIT;
-                            for (int l = 0; l < NL; l++) begin
-                                q_mul_a[l] <= rv1[l];
-                                q_mul_b[l] <= rv2[l];
-                            end
+                        // pipeline's input registers; rd is pending until the product is
+                        // written (u_mul_q) and the warp moves on.
+                        stk_npc[issue_w][cur_sp] <= fallthru;
+                        for (int l = 0; l < NL; l++) begin
+                            q_mul_a[l] <= rv1[l];
+                            q_mul_b[l] <= rv2[l];
                         end
-                        // else: multiplier busy → warp waits.
                     end else if (do_dot) begin
                         // AI: `pdot8` — capture the packed-INT8 operands into the dot
-                        // engine's hold registers, park the warp on the single-slot W_DOT
-                        // scoreboard, and arm the latency countdown. The scheduler keeps
-                        // issuing other warps while the DSP MAC tree streams. If the dot
-                        // engine is busy with another warp, this warp waits (stays W_RUN).
-                        if (dot_state == DOT_IDLE) begin
-                            dot_w           <= issue_w;
-                            dot_rd          <= rd;
-                            dot_we          <= dwb_en;
-                            dot_resume_pc   <= fallthru;
-                            q_dot_mode      <= dot_mode;   // signedness variant for the op
-                            wstate[issue_w] <= W_DOT;
-                            dot_state       <= DOT_RUN;
-                            dot_cnt         <= DOT_CNT_INIT;
-                            for (int l = 0; l < NL; l++) begin
-                                q_dot_a[l] <= rv1[l];
-                                q_dot_b[l] <= rv2[l];
-                            end
+                        // engine's input registers; rd is pending until the result is
+                        // written (u_dot_q) and the warp moves on.
+                        q_dot_mode      <= dot_mode;   // signedness variant for the op
+                        stk_npc[issue_w][cur_sp] <= fallthru;
+                        for (int l = 0; l < NL; l++) begin
+                            q_dot_a[l] <= rv1[l];
+                            q_dot_b[l] <= rv2[l];
                         end
-                        // else: dot engine busy → warp waits.
                     end else if (do_shf) begin
                         // v2: warp shuffle — capture every lane's rs1 and source index,
-                        // park the warp on W_SHF. If the engine is busy, the warp waits.
-                        if (shf_state == SHF_IDLE) begin
-                            shf_w           <= issue_w;
-                            shf_rd          <= rd;
-                            shf_we          <= dwb_en;       // mask + rd != x0, as pdot8
-                            shf_resume_pc   <= fallthru;
-                            wstate[issue_w] <= W_SHF;
-                            shf_state       <= SHF_RUN;
-                            for (int l = 0; l < NL; l++) begin
-                                q_shf_val[l] <= rv1[l];
-                                q_shf_src[l] <= shf_src[l];
-                            end
-                            q_shf_ok        <= shf_ok;
+                        // rd is pending until the result is written (u_shf_q).
+                        stk_npc[issue_w][cur_sp] <= fallthru;
+                        for (int l = 0; l < NL; l++) begin
+                            q_shf_val[l] <= rv1[l];
+                            q_shf_src[l] <= shf_src[l];
                         end
+                        q_shf_ok        <= shf_ok;
                     end else if (do_bar) begin
                         // v2: block barrier — advance past `bar` now and wait in W_BAR;
                         // the release step returns the warp to W_RUN.
@@ -1468,7 +1571,10 @@ module warp_pool
                     end else if (is_mem) begin
                         // Hand the op to a free memory context (mem_engine captures
                         // its operands); if none is free the warp retries.
-                        if (me_in_ready) wstate[issue_w] <= W_MEM;
+                        if (me_in_ready) begin
+                            if (is_load) stk_npc[issue_w][cur_sp] <= fallthru;  // v3: goes on
+                            else         wstate[issue_w] <= W_MEM;
+                        end
                     end else if (!squash_wb) begin
                         // Compute commit. The register writeback is performed by the
                         // central VRF write arbiter below (a memory writeback this
@@ -1510,10 +1616,16 @@ module warp_pool
                     end
                 end
 
-                // 3) Memory engine: resume the warp whose memory op finished.
+                // 3) Memory engine: a finished load clears its rd's pending bit (v3);
+                //    a finished store or AMO resumes its parked warp.
                 if (me_rs_valid) begin
-                    stk_npc[me_rs_w][sp[me_rs_w]] <= me_rs_pc;
-                    wstate[me_rs_w]               <= W_RUN;
+                    if (me_rs_ld) begin
+                        if (me_rs_fp) pend_f[me_rs_w][me_rs_rd] <= 1'b0;
+                        else          pend_x[me_rs_w][me_rs_rd] <= 1'b0;
+                    end else begin
+                        stk_npc[me_rs_w][sp[me_rs_w]] <= me_rs_pc;
+                        wstate[me_rs_w]               <= W_RUN;
+                    end
                 end
                 if (me_gtxn) dbg_mem_txns     <= dbg_mem_txns + 32'd1;
                 if (me_stxn) dbg_scratch_txns <= dbg_scratch_txns + 32'd1;
@@ -1547,89 +1659,31 @@ module warp_pool
                     default: sfu_state <= SFU_IDLE;
                 endcase
 
-                // 3d) FPC (pipelined FP-compute) engine step. WAIT: count down the 5-stage
-                //     FPU latency (operands held constant in q_frv*/q_rv1 stream one result
-                //     through), and when the result is valid capture it. WB: drive it onto
-                //     the f-file/VRF when the port is free (yields to the memory + SFU
-                //     engines), then resume the parked warp after the FP op.
-                unique case (fpc_state)
-                    FPC_IDLE: ;   // launched in the issue step (sets FPC_WAIT)
-                    FPC_WAIT: begin
-                        if (fpc_cnt != 4'd0) fpc_cnt <= fpc_cnt - 4'd1;
-                        else begin
-                            for (int l = 0; l < NL; l++) fpc_data[l] <= fpu_res[l];
-                            fpc_state <= FPC_WB;
-                        end
-                    end
-                    FPC_WB: if (fpc_wb_fire) begin
-                        stk_npc[fpc_w][sp[fpc_w]] <= fpc_resume_pc;
-                        wstate[fpc_w]             <= W_RUN;
-                        fpc_state                 <= FPC_IDLE;
-                    end
-                    default: fpc_state <= FPC_IDLE;
-                endcase
-
-                // 3e) MUL (pipelined integer multiply) engine step. RUN: count down the
-                //     DSP-tree latency (operands held constant in q_mul_a/b stream one
-                //     product through), then capture the per-lane results. WB: drive them
-                //     onto the integer VRF when the port is free (yields to the memory +
-                //     FPC engines), then resume the parked warp after the mul.
-                unique case (mul_state)
-                    MUL_IDLE: ;   // armed in the issue step (sets MUL_RUN, captures operands)
-                    MUL_RUN: begin
-                        if (mul_cnt != 4'd0) mul_cnt <= mul_cnt - 4'd1;
-                        else begin
-                            for (int l = 0; l < NL; l++) mul_data[l] <= mul_res[l];
-                            mul_state <= MUL_WB;
-                        end
-                    end
-                    MUL_WB: if (mul_wb_fire) begin
-                        stk_npc[mul_w][sp[mul_w]] <= mul_resume_pc;
-                        wstate[mul_w]             <= W_RUN;
-                        mul_state                 <= MUL_IDLE;
-                    end
-                    default: mul_state <= MUL_IDLE;
-                endcase
-
-                // 3f) DOT (pipelined INT8 dot-product) engine step. Identical shape to
-                //     W_MUL: RUN counts the DSP-MAC latency down (operands held constant
-                //     in q_dot_a/b while the pipe fills), then captures the per-lane dot
-                //     results; WB drives them onto the integer VRF when the port is free
-                //     (yields to memory + FPC + MUL), then resumes the parked warp.
-                unique case (dot_state)
-                    DOT_IDLE: ;   // armed in the issue step (sets DOT_RUN, captures operands)
-                    DOT_RUN: begin
-                        if (dot_cnt != 4'd0) dot_cnt <= dot_cnt - 4'd1;
-                        else begin
-                            for (int l = 0; l < NL; l++) dot_data[l] <= dot_res[l];
-                            dot_state <= DOT_WB;
-                        end
-                    end
-                    DOT_WB: if (dot_wb_fire) begin
-                        stk_npc[dot_w][sp[dot_w]] <= dot_resume_pc;
-                        wstate[dot_w]             <= W_RUN;
-                        dot_state                 <= DOT_IDLE;
-                    end
-                    default: dot_state <= DOT_IDLE;
-                endcase
-
-                // 3g) SHF (warp shuffle) engine step. RUN: drive the lane crossbar from
-                //     the captured registers into shf_data. WB: write the integer VRF
-                //     when the port is free, then resume the parked warp.
-                unique case (shf_state)
-                    SHF_IDLE: ;   // armed in the issue step
-                    SHF_RUN: begin
-                        for (int l = 0; l < NL; l++)
-                            shf_data[l] <= q_shf_ok[l] ? q_shf_val[q_shf_src[l]] : q_shf_val[l];
-                        shf_state <= SHF_WB;
-                    end
-                    SHF_WB: if (shf_wb_fire) begin
-                        stk_npc[shf_w][sp[shf_w]] <= shf_resume_pc;
-                        wstate[shf_w]             <= W_RUN;
-                        shf_state                 <= SHF_IDLE;
-                    end
-                    default: shf_state <= SHF_IDLE;
-                endcase
+                // 3d) FPC, MUL, DOT and SHF writeback and scoreboard. Each unit's result
+                //     queue (wp_resq) holds finished results in order; when the head's port
+                //     is free (the *_wb_fire arbitration above) it is written and its
+                //     register stops being pending. Several units may retire in one cycle,
+                //     and never for the same register (a pending rd is not reissued). The
+                //     op issued this cycle marks its rd pending.
+                if (fpc_wb_fire) begin
+                    if (fpc_isfp) pend_f[fpc_w][fpc_rd] <= 1'b0;
+                    else          pend_x[fpc_w][fpc_rd] <= 1'b0;
+                end
+                if (mul_wb_fire) pend_x[mul_w][mul_rd] <= 1'b0;
+                if (dot_wb_fire) pend_x[dot_w][dot_rd] <= 1'b0;
+                if (shf_wb_fire) pend_x[shf_w][shf_rd] <= 1'b0;
+                if (do_fp && wb_is_fp)
+                    pend_f[issue_w][rd] <= 1'b1;
+                if (((do_fp && !wb_is_fp) || do_mul || do_dot || do_shf) && (rd != 5'd0))
+                    pend_x[issue_w][rd] <= 1'b1;
+                if (ld_inc && is_load_fp)                      pend_f[issue_w][rd] <= 1'b1;
+                if (ld_inc && !is_load_fp && (rd != 5'd0))     pend_x[issue_w][rd] <= 1'b1;
+                for (int k = 0; k < NW; k++)
+                    ld_out[k] <= ld_out[k] + 4'(ld_inc && (issue_w == WIDXW'(k)))
+                                           - 4'(me_rs_valid && me_rs_ld && (me_rs_w == WIDXW'(k)));
+                // Wake sleepers (only warps already asleep: the warp stalling this
+                // cycle was decided in the issue step).
+                for (int k = 0; k < NW; k++) if (sb_wait[k] && sb_wake[k]) sb_wait[k] <= 1'b0;
 
                 // 3b) Mark written registers valid. The VRF data write itself happens
                 //     in the per-lane distributed-RAM banks (see the generate block);
@@ -1650,4 +1704,110 @@ module warp_pool
         end
     end
 
+    // ── Debug window: warp state (up to 8 warps), then the memory engine ─────────
+    //   0: state per warp (nibbles: 0 empty, 1 run, 2 mem, 3 sfu, 4 done, 5 bar)
+    //   1: asleep | asleep-on-full-unit << 8 | in X << 16 | fetch, issue valid << 24 |
+    //      issue warp << 28      2: loads in flight per warp (nibbles)
+    //   3: integer regs pending | FP regs pending << 8 | SFU state << 16
+    //   4-11: pending integer registers per warp   12-19: base thread id per warp
+    //   20-27: next PC per warp       28-43: memory engine (mem_engine.sv)
+    always_comb begin
+        for (int i = 0; i < 28; i++) dbg_state[i] = '0;
+        for (int k = 0; k < NW && k < 8; k++) begin
+            dbg_state[0][k*4 +: 4] = 4'(wstate[k]);
+            dbg_state[1][k]        = sb_wait[k];
+            dbg_state[1][8 + k]    = sb_wfull[k];
+            dbg_state[1][16 + k]   = inflight[k];
+            dbg_state[2][k*4 +: 4] = ld_out[k];
+            dbg_state[3][k]        = (pend_x[k] != '0);
+            dbg_state[3][8 + k]    = (pend_f[k] != '0);
+            dbg_state[4 + k]       = pend_x[k];
+            dbg_state[12 + k]      = warp_base[k];
+            dbg_state[20 + k]      = stk_npc[k][sp[k]];
+        end
+        dbg_state[1][24]       = fetch_valid;
+        dbg_state[1][25]       = issue_valid;
+        dbg_state[1][28 +: 4]  = 4'(issue_w);
+        dbg_state[3][16 +: 4]  = 4'(sfu_state);
+        for (int i = 0; i < DBG_ME; i++) dbg_state[28 + i] = me_dbg[i];
+    end
+
 endmodule : warp_pool
+
+// =============================================================================
+// wp_resq  -  result queue for one fixed-latency multi-cycle unit (v3 B2)
+//
+// The FP-compute, integer-multiply, INT8-dot and shuffle units of warp_pool are
+// fixed-latency pipelines that accept a new warp instruction every cycle. For each
+// unit this module carries the issuing op's tag down a delay line in step with the
+// unit, pushes tag + per-lane results into a queue when the result appears (LAT
+// cycles after `push`), and presents the queue head for writeback. `rdy` is low
+// while DEPTH ops are in the pipe and the queue together; the issue stage then holds
+// the op back, so the DEPTH-entry queue never overflows.
+// =============================================================================
+/* verilator lint_off DECLFILENAME */
+module wp_resq #(
+    parameter int LAT = 6,              // push -> `res` valid, in cycles (>= 1)
+    parameter int NL  = 8,              // lanes
+    parameter int DEPTH = 8,            // queue entries = most ops in flight
+    parameter int TW  = 8               // tag width
+) (
+    input  logic                 clk,
+    input  logic                 clr,       // synchronous clear (reset, kernel launch)
+    input  logic                 push,      // an op entered the unit this cycle
+    input  logic [TW-1:0]        tag,
+    input  logic [NL-1:0][31:0]  res,       // unit output, for the op pushed LAT cycles ago
+    input  logic                 pop,       // the head was written back this cycle
+    output logic                 rdy,       // room for another op (push allowed)
+    output logic                 vld,       // queue not empty
+    output logic [TW-1:0]        hd_tag,
+    output logic [NL-1:0][31:0]  hd_data
+);
+    localparam int PW = (DEPTH > 1) ? $clog2(DEPTH) : 1;
+
+    // Delay line: dv[LAT-1] / dtag[LAT-1] belong to the op whose result is on `res`.
+    logic [LAT-1:0]   dv;
+    logic [TW-1:0]    dtag [0:LAT-1];
+    if (LAT == 1) begin : g_lat1
+        always_ff @(posedge clk) dv <= clr ? 1'b0 : push;
+    end else begin : g_latn
+        always_ff @(posedge clk) dv <= clr ? '0 : {dv[LAT-2:0], push};
+    end
+    always_ff @(posedge clk) begin
+        dtag[0] <= tag;
+        for (int i = 1; i < LAT; i++) dtag[i] <= dtag[i-1];
+    end
+
+    // Queue: storage without reset (distributed RAM), pointers and count with it.
+    logic [TW-1:0]        qtag  [0:DEPTH-1];
+    logic [NL-1:0][31:0]  qdata [0:DEPTH-1];
+    logic [PW-1:0]        hd, tl;
+    logic [PW:0]          n;                // results waiting in the queue
+    logic [PW:0]          cnt;              // ops in the pipe + the queue
+    function automatic logic [PW-1:0] inc(input logic [PW-1:0] p);
+        return (p == PW'(DEPTH - 1)) ? '0 : p + 1'b1;
+    endfunction
+    always_ff @(posedge clk)
+        if (dv[LAT-1]) begin
+            qtag[tl]  <= dtag[LAT-1];
+            qdata[tl] <= res;
+        end
+    always_ff @(posedge clk) begin
+        if (clr) begin
+            hd  <= '0;
+            tl  <= '0;
+            n   <= '0;
+            cnt <= '0;
+        end else begin
+            if (dv[LAT-1]) tl <= inc(tl);
+            if (pop)       hd <= inc(hd);
+            n   <= n   + (PW+1)'(dv[LAT-1]) - (PW+1)'(pop);
+            cnt <= cnt + (PW+1)'(push)      - (PW+1)'(pop);
+        end
+    end
+    assign rdy     = (cnt < (PW+1)'(DEPTH));
+    assign vld     = (n != '0);
+    assign hd_tag  = qtag[hd];
+    assign hd_data = qdata[hd];
+endmodule
+/* verilator lint_on DECLFILENAME */

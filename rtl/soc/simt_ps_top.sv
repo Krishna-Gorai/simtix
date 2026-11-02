@@ -10,6 +10,9 @@
 //   0x0100           R: L1 read hits of the last kernel
 //   0x0104           R: L1 read misses of the last kernel
 //   0x0108           R: bit 0 = AXI error response seen (sticky)
+//   0x0200 - 0x02FC  R: debug window, 64 state words: 0-43 warp pool and memory
+//                    engine (warp_pool.sv, mem_engine.sv), 44-55 L1 (l1_dcache.sv),
+//                    56-63 AXI port (below). Read over JTAG when a kernel hangs.
 //   0x1000 - 0x1FFF  kernel instruction RAM, 1024 words (R/W); the kernel PC is
 //                    an offset into it
 //
@@ -126,6 +129,8 @@ module simt_ps_top
     logic [31:0]          a_addr;
     logic [LINE_BITS-1:0] a_wdata, a_rdata;
     logic [LINE_BE-1:0]   a_be;
+    logic [31:0]          acc_dbg [0:DBG_POOL-1];
+    logic [31:0]          l1_dbg  [0:DBG_L1-1];
 
     // The L1 answers no request in its own cycle (MEM_BYP = 0).
     simt_accel #(.AMO_AGG(AMO_AGG), .AMO_PAR(AMO_PAR), .MEM_BYP(1'b0)) u_accel (
@@ -147,7 +152,8 @@ module simt_ps_top
         .dmem_be    (a_be),
         .dmem_rvalid(a_rvalid),
         .dmem_rtag  (a_rtag),
-        .dmem_rdata (a_rdata)
+        .dmem_rdata (a_rdata),
+        .dbg_state  (acc_dbg)
     );
 
     // GO (CTRL bit 0) invalidates the L1 as the kernel launches.
@@ -170,7 +176,8 @@ module simt_ps_top
         .m_req(c_req), .m_gnt(c_gnt), .m_tag(c_tag), .m_addr(c_addr),
         .m_we(c_we), .m_wdata(c_wdata), .m_be(c_be),
         .m_rvalid(c_rvalid), .m_rtag(c_rtag), .m_rdata(c_rdata),
-        .hit_ev(hit_ev), .miss_ev(miss_ev)
+        .hit_ev(hit_ev), .miss_ev(miss_ev),
+        .dbg_state(l1_dbg)
     );
 
     axi_line_master #(.IDW(MEM_TAGW + 1), .DW(AXI_DW)) u_axi (
@@ -206,6 +213,40 @@ module simt_ps_top
         end
     end
 
+    // ── Debug window ─────────────────────────────────────────────────────────────
+    // AXI port words (56-63), counted from GO: 56: {AR, AW, W valid; R, B valid;
+    // AR, AW, W ready}, 57: reads outstanding, 58: writes outstanding, 59-62: AR, R
+    // (last beats), AW and B handshakes, 63: tag of the last read and write response.
+    logic [31:0] n_ar, n_rl, n_aw, n_b;
+    logic [MEM_TAGW:0] last_rid, last_bid;
+    always_ff @(posedge clk) begin
+        if (rst || go_wr) begin
+            n_ar <= '0; n_rl <= '0; n_aw <= '0; n_b <= '0;
+        end else begin
+            if (m_axi_arvalid && m_axi_arready)                n_ar <= n_ar + 32'd1;
+            if (m_axi_rvalid && m_axi_rready && m_axi_rlast)   n_rl <= n_rl + 32'd1;
+            if (m_axi_awvalid && m_axi_awready)                n_aw <= n_aw + 32'd1;
+            if (m_axi_bvalid && m_axi_bready)                  n_b  <= n_b + 32'd1;
+        end
+        if (m_axi_rvalid && m_axi_rready && m_axi_rlast) last_rid <= m_axi_rid;
+        if (m_axi_bvalid && m_axi_bready)                last_bid <= m_axi_bid;
+    end
+    logic [31:0] dbg_win [0:63];
+    always_comb begin
+        for (int i = 0; i < 64; i++) dbg_win[i] = '0;
+        for (int i = 0; i < DBG_POOL && i < 44; i++) dbg_win[i] = acc_dbg[i];
+        for (int i = 0; i < DBG_L1 && i < 12; i++)  dbg_win[44 + i] = l1_dbg[i];
+        dbg_win[56] = {24'd0, m_axi_arvalid, m_axi_awvalid, m_axi_wvalid, m_axi_rvalid,
+                       m_axi_bvalid, m_axi_arready, m_axi_awready, m_axi_wready};
+        dbg_win[57] = n_ar - n_rl;
+        dbg_win[58] = n_aw - n_b;
+        dbg_win[59] = n_ar;
+        dbg_win[60] = n_rl;
+        dbg_win[61] = n_aw;
+        dbg_win[62] = n_b;
+        dbg_win[63] = {8'd0, 8'(last_bid), 8'd0, 8'(last_rid)};
+    end
+
     // ── Read data / write response ──────────────────────────────────────────────
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -222,6 +263,7 @@ module simt_ps_top
         if (rd_fire) begin
             if (rd_addr[12])                    s_axil_rdata <= iram[rd_addr[IAW+1:2]];
             else if (rd_addr[15:8] == 8'h00)    s_axil_rdata <= acc_rdata;
+            else if (rd_addr[15:8] == 8'h02)    s_axil_rdata <= dbg_win[rd_addr[7:2]];
             else if (rd_addr[7:0] == 8'h00)     s_axil_rdata <= n_hits;
             else if (rd_addr[7:0] == 8'h04)     s_axil_rdata <= n_misses;
             else if (rd_addr[7:0] == 8'h08)     s_axil_rdata <= {31'd0, axi_err};

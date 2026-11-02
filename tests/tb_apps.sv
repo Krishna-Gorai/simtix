@@ -2,7 +2,9 @@
 // tb_apps.sv  -  v2 application suite on the board top (simt_ps_top)
 //
 // The host side is AXI4-Lite tasks, as in tb_ps_top; DDR4 is axi_mem_model
-// (4 MB, MEM_LAT cycles, out of order, with ready stalls). Everything a case
+// (2^WORDS_LG words, 4 MB by default, MEM_LAT cycles, out of order, with ready
+// stalls; the DRAM-sized inputs of gen_apps.py --size dram need WORDS_LG = 24,
+// with --words-lg 24 there). Everything a case
 // needs comes from the manifest that sim/gen_apps.py writes:
 //   KERNEL <slot> <hex>        kernel image -> instruction RAM at 256*slot bytes
 //   CASE <name>                start a case: the DDR4 model is cleared
@@ -12,7 +14,8 @@
 //   END                        end of the case
 // A launch passes its parameter-block address in REG_BASE_A (a1). Each launch
 // prints APPCSV,<case>,<tag>,<threads>,<cycles>,<L1 hits>,<L1 misses>,<instructions>,
-// the last being the warp instructions the pool issued (reconvergence pops excluded).
+// <active lanes>: the warp instructions the pool issued (reconvergence pops excluded)
+// and the sum of their active lanes.
 // The manifest is +MANIFEST=<path>, else build_apps/apps.manifest found from
 // sim/ (Verilator) or build_xsim/<test>/ (xsim).
 // =============================================================================
@@ -21,12 +24,17 @@ module tb_apps
   import simtix_pkg::*;
 #(
     parameter int MEM_LAT = 24,
+    parameter int MEM_RJW  = 3,     // DDR4 model jitter, write latency, seed (axi_mem_model)
+    parameter int MEM_BLAT = -1,
+    parameter int MEM_SEED = 32'hBEEF,
+    parameter int MEM_LATE = 0,     // 1: writes take effect at their B response
     parameter int AGG     = 1,      // AMO variant (see mem_engine)
-    parameter int APAR    = 0
+    parameter int APAR    = 0,
+    parameter int WORDS_LG = 20     // DDR4 model: 2^WORDS_LG 32-bit words
 );
     localparam int DW    = 128;
     localparam int IDW   = MEM_TAGW + 1;
-    localparam int WORDS = 1 << 20;
+    localparam int WORDS = 1 << WORDS_LG;
 
     logic clk = 0;
     logic rst;
@@ -74,7 +82,8 @@ module tb_apps
         .m_axi_rvalid(m_rvalid), .m_axi_rready(m_rready));
 
     axi_mem_model #(.IDW(IDW), .DW(DW), .WORDS(WORDS), .MAXB(LINE_BITS / DW), .LAT(MEM_LAT),
-                    .STALL(1), .OOO(1)) u_ddr (
+                    .STALL(1), .OOO(1), .RJW(MEM_RJW), .BLAT(MEM_BLAT),
+                    .SEED(16'(MEM_SEED)), .LATE(MEM_LATE)) u_ddr (
         .clk(clk), .rst(rst),
         .awid(m_awid), .awaddr(m_awaddr), .awlen(m_awlen), .awsize(m_awsize),
         .awburst(m_awburst), .awcache(m_awcache), .awprot(m_awprot),
@@ -113,7 +122,7 @@ module tb_apps
     /* verilator lint_off UNUSEDSIGNAL */   // only bit 0 of the status words is read
     task automatic launch(input string tag, input int slot, input logic [31:0] prm,
                           input int n, input int blk);
-        logic [31:0] st, cyc, hits, miss, err, insns;
+        logic [31:0] st, cyc, hits, miss, err, insns, act;
         axil_wr(16'(REG_KERNEL_PC), 32'(256*slot));
         axil_wr(16'(REG_BASE_A), prm);
         axil_wr(16'(REG_BASE_B), 32'd0);
@@ -130,15 +139,20 @@ module tb_apps
         axil_rd(16'h0108, err);
         if (err[0]) begin $display("  [FAIL] %s/%s AXI error", cname, tag); errors++; end
         insns = dut.u_accel.pool_dbg_insns;     // warp instructions issued in this launch
-        $display("APPCSV,%s,%s,%0d,%0d,%0d,%0d,%0d", cname, tag, n, cyc, hits, miss, insns);
+        act   = dut.u_accel.pool_dbg_active;    // and their active lanes
+        $display("APPCSV,%s,%s,%0d,%0d,%0d,%0d,%0d,%0d", cname, tag, n, cyc, hits, miss, insns,
+                 act);
     endtask
     /* verilator lint_on UNUSEDSIGNAL */
 
+    // A kernel occupies one or more consecutive 256-byte slots (up to four);
+    // only the words of its image are written.
     task automatic load_kernel(input int slot, input string path);
-        logic [31:0] kimg [0:63];
-        for (int i = 0; i < 64; i++) kimg[i] = 32'h0000_0013;   // nop
+        logic [31:0] kimg [0:255];
+        for (int i = 0; i < 256; i++) kimg[i] = 'x;
         $readmemh(path, kimg);
-        for (int i = 0; i < 64; i++) axil_wr(16'h1000 + 16'(256*slot + 4*i), kimg[i]);
+        for (int i = 0; i < 256 && !$isunknown(kimg[i]); i++)
+            axil_wr(16'h1000 + 16'(256*slot + 4*i), kimg[i]);
     endtask
 
     task automatic check_gold(input string path);

@@ -1,7 +1,8 @@
 """
 gen_apps.py -- inputs and bit-exact expected outputs for tests/tb_apps.sv.
 
-    python sim/gen_apps.py [--size small|large] [--out DIR] [--lanes L --kdir KDIR]
+    python sim/gen_apps.py [--size small|large|board|dram] [--out DIR] [--lanes L --kdir KDIR]
+                           [--words-lg N] [--only APP ...]
 
 For every application case it writes, under DIR (default build_apps/):
     <case>.mem    $readmemh image of the DDR4 model (@<word index> lines)
@@ -30,9 +31,10 @@ from fractions import Fraction
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 KDIR = os.path.join(ROOT, 'kernels', 'apps')
 SLOTS = {'gemm': 0, 'spmv': 1, 'stencil': 2, 'kmeans': 3, 'bfs': 4, 'scan': 5, 'scan_add': 6,
-         'mlp': 7}
+         'mlp': 7, 'gemm_rb': 8,         # gemm_rb is 98 words: slots 8 and 9
+         'scan_seg': 10, 'scan_segadd': 11}
 DDR_BASE = 0x1000_0000
-WORDS = 1 << 20                     # axi_mem_model WORDS in tb_apps (4 MB)
+WORDS = 1 << 20                     # axi_mem_model words in tb_apps: 2^WORDS_LG (--words-lg)
 UNSEEN = 0xFFFF_FFFF
 LANES = 8                           # --lanes
 
@@ -121,12 +123,17 @@ class Case:
 
 
 # ── Applications ─────────────────────────────────────────────────────────────────
-def gemm(rng, m, n, k):
-    c = Case(f'gemm_{m}x{n}x{k}')
+def gemm(rng, m, n, k, blocked=False):
+    """blocked: gemm_rb.S, a 4x4 block of C per thread (M % 4 == 0, N % 4L == 0)."""
+    c = Case(f"{'gemmrb' if blocked else 'gemm'}_{m}x{n}x{k}")
     a = [rand_f32(rng) for _ in range(m * k)]
     b = [rand_f32(rng) for _ in range(k * n)]
     pa, pb, pc = c.img.alloc(m * k, a), c.img.alloc(k * n, b), c.img.alloc(m * n)
-    c.launch('gemm', 'gemm', [pa, pb, pc, k, n.bit_length() - 1], m * n)
+    if blocked:
+        assert m % 4 == 0 and n % (4 * LANES) == 0
+        c.launch('gemm', 'gemm_rb', [pa, pb, pc, k, n.bit_length() - 1], m * n // 16)
+    else:
+        c.launch('gemm', 'gemm', [pa, pb, pc, k, n.bit_length() - 1], m * n)
     out = []
     for r in range(m):
         for col in range(n):
@@ -281,6 +288,37 @@ def scan(rng, n):
     return c
 
 
+def scanseg(rng, n, rows=64):
+    """scan_seg.S + scan_segadd.S: one warp scans a segment of rows*LANES words (v3)."""
+    c = Case(f'scanseg_{n}')
+    vals = [rng.randrange(1 << 16) for _ in range(n)]
+    lvl = [0]
+
+    def level(src, m):
+        # scan of m (a multiple of LANES) words at src; returns the address of the result
+        r = min(rows, m // LANES)
+        while m % (r * LANES):
+            r //= 2
+        nseg = m // (r * LANES)
+        out = c.img.alloc(m)
+        tot = c.img.alloc(-(-nseg // LANES) * LANES)      # segment totals, zero padded
+        c.launch(f'seg{lvl[0]}', 'scan_seg', [src, out, tot, r], LANES * nseg)
+        lvl[0] += 1
+        if nseg > 1:
+            tsc = level(tot, -(-nseg // LANES) * LANES)
+            c.launch(f'segadd{lvl[0]}', 'scan_segadd', [out, tsc, r], LANES * nseg)
+            lvl[0] += 1
+        return out
+
+    out = level(c.img.alloc(n, vals), n)
+    acc, pre = 0, []
+    for v in vals:
+        acc = (acc + v) & 0xFFFF_FFFF
+        pre.append(acc)
+    c.expect(out, pre)
+    return c
+
+
 F127 = 0x42FE_0000                                # 127.0f
 
 
@@ -329,13 +367,30 @@ def mlp(rng, batch, dims):
 
 
 SIZES = {
-    'small': lambda r: [gemm(r, 32, 32, 32), spmv(r, 512, 512, 16), stencil(r, 32, 32, 2),
-                        kmeans(r, 1024, 8), bfs(r, 1024, 6), scan(r, 2048),
-                        mlp(r, 8, [784, 128, 10])],
-    'large': lambda r: [gemm(r, 64, 64, 64), spmv(r, 4096, 4096, 16), stencil(r, 128, 128, 2),
-                        kmeans(r, 16384, 16), bfs(r, 16384, 8), scan(r, 65536),
-                        mlp(r, 64, [784, 256, 128, 10])],
+    'small': [lambda r: gemm(r, 32, 32, 32), lambda r: spmv(r, 512, 512, 16),
+              lambda r: stencil(r, 32, 32, 2), lambda r: kmeans(r, 1024, 8),
+              lambda r: bfs(r, 1024, 6), lambda r: scan(r, 2048),
+              lambda r: mlp(r, 8, [784, 128, 10])],
+    'large': [lambda r: gemm(r, 64, 64, 64), lambda r: spmv(r, 4096, 4096, 16),
+              lambda r: stencil(r, 128, 128, 2), lambda r: kmeans(r, 16384, 16),
+              lambda r: bfs(r, 16384, 8), lambda r: scan(r, 65536),
+              lambda r: mlp(r, 64, [784, 256, 128, 10])],
+    # the two input sets of the board host (sw/ps_host/apps.c run_apps): medium,
+    # and DRAM-sized (needs --words-lg 24 here and WORDS_LG = 24 in tb_apps)
+    'board': [lambda r: gemm(r, 64, 64, 64), lambda r: spmv(r, 4096, 4096, 16),
+              lambda r: stencil(r, 128, 128, 4), lambda r: kmeans(r, 16384, 16),
+              lambda r: bfs(r, 16384, 8), lambda r: scan(r, 65536),
+              lambda r: mlp(r, 16, [784, 256, 128, 10]),
+              lambda r: gemm(r, 64, 64, 64, blocked=True), lambda r: scanseg(r, 65536)],
+    'dram':  [lambda r: gemm(r, 256, 256, 256), lambda r: spmv(r, 65536, 65536, 16),
+              lambda r: stencil(r, 512, 512, 4), lambda r: kmeans(r, 262144, 16),
+              lambda r: bfs(r, 262144, 8), lambda r: scan(r, 1 << 20),
+              lambda r: mlp(r, 256, [784, 256, 128, 10]),
+              lambda r: gemm(r, 256, 256, 256, blocked=True), lambda r: scanseg(r, 1 << 20)],
 }
+APPS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'mlp', 'gemmrb',   # order of SIZES
+        'scanseg']
+SEED = {'gemmrb': 0, 'scanseg': 5}   # the inputs of gemm / scan, for like-for-like comparisons
 
 
 def main():
@@ -344,16 +399,24 @@ def main():
     ap.add_argument('--out', default=os.path.join(ROOT, 'build_apps'))
     ap.add_argument('--lanes', type=int, default=8, choices=(4, 8, 16))
     ap.add_argument('--kdir', default=KDIR, help='kernel images built for --lanes')
+    ap.add_argument('--words-lg', type=int, default=20,
+                    help='log2 of the DDR4 model words (tb_apps WORDS_LG)')
+    ap.add_argument('--only', nargs='*', help='generate only these applications (e.g. gemm bfs)')
     args = ap.parse_args()
-    global LANES
+    global LANES, WORDS
     LANES = args.lanes
+    WORDS = 1 << args.words_lg
     if LANES != 8 and os.path.abspath(args.kdir) == KDIR:
         ap.error('--lanes other than 8 needs --kdir (kernels/apps/build.py --lanes L --out DIR)')
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     p = lambda f: os.path.join(out, f).replace('\\', '/')
     rng = random.Random(2027)
-    cases = SIZES[args.size](rng)
+    if args.size in ('small', 'large'):          # one stream, as the results were made
+        cases = [f(rng) for f in SIZES[args.size]]
+    else:                                        # a seed per application: --only safe
+        cases = [f(random.Random(2027 + SEED.get(APPS[i], i)))
+                 for i, f in enumerate(SIZES[args.size]) if not args.only or APPS[i] in args.only]
     with open(p('apps.manifest'), 'w', newline='\n') as man:
         for name, slot in SLOTS.items():
             man.write(f'KERNEL {slot} {os.path.join(os.path.abspath(args.kdir), name + ".hex")}\n'

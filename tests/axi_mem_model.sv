@@ -11,6 +11,13 @@
 //   writes: W beats apply to the oldest accepted AW (AXI4 order); B is due LAT
 //           (+0..7 random if OOO) cycles after the last beat
 //   STALL : withholds AR/AW/W ready on about one cycle in four
+//   RJW   : width of the random part of the latency (default 3: +0..7); with
+//           RJW > 3 reads take LAT + 0..2^RJW-1 and writes BLAT + 0..2^RJW-1
+//   BLAT  : write-response latency (default LAT); SEED: random-number seed
+//   LATE  : a write takes effect when its B response is sent, not at its W beats.
+//           Writes of different IDs then complete in any order and a read sees a
+//           write only after its response, which AXI allows: the master must order
+//           a read after a write (and two writes) to the same address itself.
 // =============================================================================
 `timescale 1ns/1ps
 module axi_mem_model #(
@@ -20,7 +27,11 @@ module axi_mem_model #(
     parameter int MAXB  = 2,            // longest burst (beats)
     parameter int LAT   = 24,
     parameter int STALL = 1,
-    parameter int OOO   = 1
+    parameter int OOO   = 1,
+    parameter int RJW   = 3,
+    parameter int BLAT  = -1,           // -1: LAT
+    parameter logic [15:0] SEED = 16'hBEEF,
+    parameter int LATE  = 0
 ) (
     input  logic                clk,
     input  logic                rst,
@@ -76,13 +87,24 @@ module axi_mem_model #(
 
     logic [15:0] lfsr;
     always @(posedge clk)
-        if (rst) lfsr <= 16'hBEEF;
+        if (rst) lfsr <= SEED;
         else     lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
 
     logic rdy;
     assign rdy   = (STALL == 0) || (lfsr[1:0] != 2'b00);
     assign bresp = 2'b00;
     assign rresp = 2'b00;
+
+    // Random latency parts: 0..7 from fixed LFSR bits, or RJW bits of a second
+    // generator (so that wide jitter does not follow the ready stalls).
+    localparam int BL = (BLAT < 0) ? LAT : BLAT;
+    logic [31:0] rng;
+    always @(posedge clk)
+        if (rst) rng <= {SEED, ~SEED};
+        else     rng <= rng ^ (rng << 13) ^ (rng >> 17) ^ (rng << 5);
+    logic [31:0] r_jit, b_jit;
+    assign r_jit = (OOO == 0) ? 0 : (RJW <= 3) ? 32'(lfsr[6:4]) : 32'(rng[RJW-1:0]);
+    assign b_jit = (OOO == 0) ? 0 : (RJW <= 3) ? 32'(lfsr[9:7]) : 32'(rng[16 +: RJW]);
 
     // ── Reads ────────────────────────────────────────────────────────────────────
     int unsigned       now;
@@ -118,6 +140,27 @@ module axi_mem_model #(
     int unsigned       bs_due [NID];
     logic              b_pick;
     logic [IDW-1:0]    b_pid;
+    // LATE: the beats of each ID's write wait here until its B response
+    logic [31:0]       pw_addr [NID];
+    logic [DW-1:0]     pw_data [NID][MAXB];
+    logic [DW/8-1:0]   pw_strb [NID][MAXB];
+    logic [DW-1:0]     cw_data [MAXB];
+    logic [DW/8-1:0]   cw_strb [MAXB];
+
+    // The model writes its memory array at once (blocking), also from the clocked
+    // block below, so that a later beat or read of the same cycle sees the data.
+    /* verilator lint_off BLKSEQ */
+    task automatic put(input logic [31:0] base, input int beat, input logic [DW-1:0] d,
+                       input logic [DW/8-1:0] st);
+        for (int k = 0; k < WPB; k++) begin
+            logic [31:0] a, cur;
+            a   = base + 32'(beat * (DW/8) + 4*k);
+            cur = mem[widx(a)];
+            for (int b = 0; b < 4; b++)
+                if (st[4*k + b]) cur[b*8 +: 8] = d[k*32 + b*8 +: 8];
+            mem[widx(a)] = cur;
+        end
+    endtask
 
     assign awready = rdy && (awq_n != 5'd16);
     assign wready  = rdy && (awq_n != 5'd0);
@@ -140,7 +183,7 @@ module axi_mem_model #(
             now <= now + 1;
             if (arvalid && arready) begin
                 rs_v[arid]   <= 1'b1;
-                rs_due[arid] <= now + LAT + ((OOO != 0) ? 32'(lfsr[6:4]) : 0);
+                rs_due[arid] <= now + LAT + r_jit;
                 rs_len[arid] <= arlen;
                 for (int b = 0; b < MAXB; b++)
                     for (int k = 0; k < WPB; k++)
@@ -160,25 +203,31 @@ module axi_mem_model #(
                 awq_wp           <= awq_wp + 1'b1;
             end
             if (wvalid && wready) begin
-                for (int k = 0; k < WPB; k++) begin
-                    logic [31:0] a, cur;
-                    a   = awq_addr[awq_rp] + 32'(int'(wb_beat) * (DW/8) + 4*k);
-                    cur = mem[widx(a)];
-                    for (int b = 0; b < 4; b++)
-                        if (wstrb[4*k + b]) cur[b*8 +: 8] = wdata[k*32 + b*8 +: 8];
-                    mem[widx(a)] <= cur;
-                end
+                if (LATE == 0) put(awq_addr[awq_rp], int'(wb_beat), wdata, wstrb);
+                cw_data[wb_beat[BBW-1:0]] = wdata;
+                cw_strb[wb_beat[BBW-1:0]] = wstrb;
                 wb_beat <= wb_beat + 8'd1;
                 if (wlast) begin
+                    pw_addr[awq_id[awq_rp]] <= awq_addr[awq_rp];
+                    for (int b = 0; b < MAXB; b++) begin
+                        pw_data[awq_id[awq_rp]][b] <= cw_data[b];
+                        pw_strb[awq_id[awq_rp]][b] <= (b <= int'(wb_beat)) ? cw_strb[b] : '0;
+                    end
                     wb_beat <= '0;
                     awq_rp  <= awq_rp + 1'b1;
                     bs_v[awq_id[awq_rp]]   <= 1'b1;
-                    bs_due[awq_id[awq_rp]] <= now + LAT + ((OOO != 0) ? 32'(lfsr[9:7]) : 0);
+                    bs_due[awq_id[awq_rp]] <= now + BL + b_jit;
                 end
             end
             awq_n <= awq_n + 5'(awvalid && awready) - 5'(wvalid && wready && wlast);
-            if (bvalid && bready) bs_v[bid] <= 1'b0;
+            if (bvalid && bready) begin
+                bs_v[bid] <= 1'b0;
+                if (LATE != 0)
+                    for (int b = 0; b < MAXB; b++) put(pw_addr[bid], b, pw_data[bid][b], pw_strb[bid][b]);
+            end
         end
     end
+
+    /* verilator lint_on BLKSEQ */
 
 endmodule : axi_mem_model

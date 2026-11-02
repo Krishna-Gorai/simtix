@@ -30,8 +30,19 @@
 // waits until that miss has completed, so a returning line never overwrites
 // newer data.
 //
-// inv clears every valid bit (asserted at kernel launch, when nothing is in
-// flight); the cache never holds dirty data, so nothing is written back.
+// inv clears every valid bit (asserted at kernel launch); the cache never holds
+// dirty data, so nothing is written back. A miss register still in flight at inv
+// (only a prefetch can be) is marked stale: its line is not written into the cache
+// and no request joins it.
+//
+// Prefetch (PF = 1, v3): a read that misses line L arms a prefetch of line L+1. It
+// enters the input register like a read with no requester, when that register is
+// free and no upstream request arrives, and goes through the same tag check: on a
+// hit, or if the line is already in flight, or with no free miss register, it is
+// dropped; otherwise it takes a miss register with no waiting tag and the line is
+// filled into the cache when it returns. A later read of the line joins that miss
+// register. No prefetch is sent while a write is in flight downstream (the read
+// could pass the write and bring an old copy of the line into the cache).
 //
 // Downstream tags: {0, miss register} for reads, {1, upstream tag} for writes.
 // =============================================================================
@@ -39,8 +50,9 @@ module l1_dcache
   import simtix_pkg::*;
 #(
     parameter int NWAY  = 4,
-    parameter int NSET  = 16384 / (NWAY * LINE_BITS / 8),
-    parameter int NMSHR = 4,
+    parameter int NSET  = L1_BYTES / (NWAY * LINE_BITS / 8),
+    parameter int NMSHR = L1_MSHR,
+    parameter bit PF    = L1_PF,                 // next-line prefetch
     parameter int UTW   = MEM_TAGW,              // upstream tag width
     parameter int DTW   = MEM_TAGW + 1           // downstream tag width
 ) (
@@ -75,7 +87,10 @@ module l1_dcache
     input  logic [LINE_BITS-1:0]  m_rdata,
 
     output logic                  hit_ev,        // a read was accepted and hit
-    output logic                  miss_ev        // a read was accepted and missed
+    output logic                  miss_ev,       // a read was accepted and missed
+
+    // State for the board's debug window (simt_ps_top, 0x0200): DBG_L1 words.
+    output logic [31:0]           dbg_state [0:DBG_L1-1]
 );
 
     localparam int SW   = $clog2(NSET);          // set index bits
@@ -95,10 +110,15 @@ module l1_dcache
         logic                 we;
         logic [LINE_BITS-1:0] wdata;
         logic [LINE_BE-1:0]   be;
+        logic                 pf;                // a prefetch (no requester)
     } req_t;
-    req_t s_in, i_r, k_r;
+    req_t s_in, i_r, k_r, pf_in;
     logic i_v, k_v, i_gnt, s_acc;
-    assign s_in  = '{tag: s_tag, line: s_addr[31:LINE_OFF], we: s_we, wdata: s_wdata, be: s_be};
+    logic pf_v, pf_go;                           // armed prefetch, injected this cycle
+    logic [LA-1:0] pf_line;
+    assign s_in  = '{tag: s_tag, line: s_addr[31:LINE_OFF], we: s_we, wdata: s_wdata, be: s_be,
+                     pf: 1'b0};
+    assign pf_in = '{tag: '0, line: pf_line, we: 1'b0, wdata: '0, be: '0, pf: 1'b1};
     assign s_gnt = !k_v;
     assign s_acc = s_req && s_gnt;
     always_ff @(posedge clk) begin
@@ -110,8 +130,9 @@ module l1_dcache
                 i_r <= k_r;
                 k_v <= 1'b0;
             end else begin
-                i_v <= s_acc;
-                if (s_acc) i_r <= s_in;
+                i_v <= s_acc || pf_go;
+                if (s_acc)      i_r <= s_in;
+                else if (pf_go) i_r <= pf_in;
             end
         end else if (s_acc) begin                   // held: park the new request
             k_r <= s_in;
@@ -160,6 +181,7 @@ module l1_dcache
     logic [NMSHR-1:0]     q_v;                   // in use
     logic [NMSHR-1:0]     q_fill;                // line has arrived
     logic [NMSHR-1:0]     q_done;                // line written into the cache
+    logic [NMSHR-1:0]     q_stale;               // in flight at inv: do not fill
     logic [LA-1:0]        q_line [0:NMSHR-1];
     logic [NUT-1:0]       q_wait [0:NMSHR-1];    // upstream tags still to answer
     logic [LINE_BITS-1:0] q_data [0:NMSHR-1];
@@ -175,7 +197,7 @@ module l1_dcache
         q_free = 1'b0;
         q_new  = '0;
         for (int m = NMSHR-1; m >= 0; m--) begin
-            q_match[m] = q_v[m] && (q_line[m] == r_line);
+            q_match[m] = q_v[m] && !q_stale[m] && (q_line[m] == r_line);
             if (q_match[m]) begin q_any = 1'b1; q_hit = MW'(m); end
             if (!q_v[m])    begin q_free = 1'b1; q_new = MW'(m); end
         end
@@ -187,11 +209,14 @@ module l1_dcache
     //   read miss            : new miss register + downstream read
     //   write                : downstream write (+ cache update on a hit); waits
     //                          while a miss to the same line is in flight
-    logic rd_hit, rd_join, rd_miss, wr_go;
-    assign rd_hit  = i_v && !i_r.we && hit;
-    assign rd_join = i_v && !i_r.we && !hit && q_any;
+    //   prefetch             : dropped on a hit, a line in flight or no free miss
+    //                          register; else a miss register with no waiter
+    logic rd_hit, rd_join, rd_miss, wr_go, pf_drop;
+    assign rd_hit  = i_v && !i_r.we && !i_r.pf && hit;
+    assign rd_join = i_v && !i_r.we && !i_r.pf && !hit && q_any;
     assign rd_miss = i_v && !i_r.we && !hit && !q_any && q_free;
     assign wr_go   = i_v &&  i_r.we && !q_any;
+    assign pf_drop = i_v &&  i_r.pf && (hit || q_any || !q_free);
 
     assign m_req   = rd_miss || wr_go;
     assign m_tag   = wr_go ? {1'b1, i_r.tag} : {{(DTW-MW){1'b0}}, q_new};
@@ -200,7 +225,7 @@ module l1_dcache
     assign m_wdata = i_r.wdata;
     assign m_be    = i_r.be;
 
-    assign i_gnt   = rd_hit || rd_join || ((rd_miss || wr_go) && m_gnt);
+    assign i_gnt   = rd_hit || rd_join || pf_drop || ((rd_miss || wr_go) && m_gnt);
 
     logic acc, acc_rd_hit, acc_join, acc_miss, acc_wr;
     assign acc        = i_v && i_gnt;
@@ -209,7 +234,8 @@ module l1_dcache
     assign acc_miss   = acc && rd_miss;
     assign acc_wr     = acc && wr_go;
     assign hit_ev     = acc_rd_hit;
-    assign miss_ev    = acc_join || acc_miss;
+    assign miss_ev    = acc_join || (acc_miss && !i_r.pf);
+
 
     // ── Data banks: port A reads the request set, port B writes (write hit or fill)
     logic                  wr_hit;               // accepted write that hits: update line
@@ -248,7 +274,7 @@ module l1_dcache
         fill_go = 1'b0;
         fill_m  = '0;
         for (int m = NMSHR-1; m >= 0; m--)
-            if (q_v[m] && q_fill[m] && !q_done[m]) begin fill_go = !acc; fill_m = MW'(m); end
+            if (q_v[m] && q_fill[m] && !q_done[m] && !q_stale[m]) begin fill_go = !acc; fill_m = MW'(m); end
         f_set = q_line[fill_m][SW-1:0];
         f_tg  = q_line[fill_m][LA-1 -: TGW];
         // Victim: an invalid way of the set, else the round-robin way.
@@ -262,6 +288,23 @@ module l1_dcache
     logic [MW-1:0] m_rm;
     assign m_isw = m_rtag[DTW-1];
     assign m_rm  = m_rtag[MW-1:0];
+
+    // Prefetch arming and injection. wr_out counts writes in flight downstream.
+    logic [UTW:0] wr_out;
+    assign pf_go = PF && pf_v && !k_v && !s_acc && (!i_v || i_gnt) && (wr_out == '0);
+    always_ff @(posedge clk) begin
+        if (rst || inv) begin
+            pf_v <= 1'b0;
+        end else begin
+            if (pf_go) pf_v <= 1'b0;
+            if (PF && acc_miss && !i_r.pf) begin       // a demand miss arms its next line
+                pf_v    <= 1'b1;
+                pf_line <= i_r.line + 1'b1;
+            end
+        end
+        if (rst) wr_out <= '0;
+        else     wr_out <= wr_out + (UTW+1)'(acc_wr) - (UTW+1)'(m_rvalid && m_isw);
+    end
 
     // ── Upstream responses: hit (fixed timing) > miss-register drain > write ack ──
     logic          b_v;                          // a read hit answers this cycle
@@ -363,26 +406,50 @@ module l1_dcache
                     q_fill[gm] <= 1'b0;
                     q_done[gm] <= 1'b0;
                     q_wait[gm] <= '0;
+                    q_stale[gm] <= 1'b0;
                 end else if (alloc) begin
                     q_v[gm]       <= 1'b1;
                     q_fill[gm]    <= arrive;         // a memory may answer at once
                     q_done[gm]    <= 1'b0;
+                    q_stale[gm]   <= 1'b0;
                     q_line[gm]    <= r_line;
-                    q_wait[gm]    <= NUT'(1) << i_r.tag;
+                    q_wait[gm]    <= i_r.pf ? '0 : NUT'(1) << i_r.tag;
                     if (arrive) q_data[gm] <= m_rdata;
                 end else if (q_v[gm]) begin
+                    if (inv) q_stale[gm] <= 1'b1;
                     q_wait[gm] <= wait_n;
                     if (arrive) begin
                         q_fill[gm] <= 1'b1;
                         q_data[gm] <= m_rdata;
                     end
                     if (filled_now) q_done[gm] <= 1'b1;
-                    // free once the line is in the cache and every waiter is answered
-                    if ((q_done[gm] || filled_now) && q_fill[gm] && (wait_n == '0))
+                    // free once the line is in the cache (or stale) and every waiter
+                    // is answered
+                    if ((q_done[gm] || filled_now || q_stale[gm]) && q_fill[gm] && (wait_n == '0))
                         q_v[gm] <= 1'b0;
                 end
             end
         end
     endgenerate
+
+    // ── Debug window ─────────────────────────────────────────────────────────────
+    //   0-3: miss registers in use / line arrived / line written / stale
+    //   4: write acks owed upstream    5: writes in flight downstream << 16 |
+    //   {input valid, skid valid, drain chosen, hit answer, prefetch armed,
+    //    input is a write, input is a prefetch}
+    //   6: line address of the input request    7: its upstream tag
+    //   8-11: upstream tags waiting on miss registers 0-3
+    always_comb begin
+        for (int i = 0; i < DBG_L1; i++) dbg_state[i] = '0;
+        dbg_state[0] = 32'(q_v);
+        dbg_state[1] = 32'(q_fill);
+        dbg_state[2] = 32'(q_done);
+        dbg_state[3] = 32'(q_stale);
+        dbg_state[4] = 32'(wack);
+        dbg_state[5] = {16'(wr_out), 9'd0, i_v, k_v, d_v, b_v, pf_v, i_r.we, i_r.pf};
+        dbg_state[6] = 32'(i_r.line);
+        dbg_state[7] = 32'(i_r.tag);
+        for (int m = 0; m < NMSHR && m < 4; m++) dbg_state[8 + m] = 32'(q_wait[m]);
+    end
 
 endmodule : l1_dcache

@@ -1,8 +1,10 @@
 // =============================================================================
 // mem_engine.sv  -  SIMTiX v2 memory engine: NC concurrent memory contexts
 //
-// A warp that issues a load, store or AMO hands it to a free CONTEXT and parks
-// (W_MEM) while the scheduler keeps issuing other warps. Each context holds the
+// A warp that issues a load, store or AMO hands it to a free CONTEXT; for a store
+// or AMO it parks (W_MEM) while the scheduler keeps issuing other warps, for a load
+// it continues (v3) and only the load's destination register waits for the
+// completion (rs_ld). Each context holds the
 // op's per-lane addresses and store data until every lane has been served.
 //
 // Global memory (everything outside the scratchpad aperture) goes out on a
@@ -75,10 +77,15 @@ module mem_engine
     output logic [4:0]            wb_rd,
     output logic                  wb_fp,
 
-    // Warp resume: warp rs_w continues at rs_pc.
+    // Warp resume: warp rs_w continues at rs_pc. rs_rd / rs_fp name the op's
+    // destination and rs_ld marks a load (not a store or AMO), which lets the warp
+    // pool run loads without parking the warp (it then only clears rd's pending bit).
     output logic                  rs_valid,
     output logic [WIDXW-1:0]      rs_w,
     output logic [31:0]           rs_pc,
+    output logic [4:0]            rs_rd,
+    output logic                  rs_fp,
+    output logic                  rs_ld,
     output logic                  busy,        // any context in use
     output logic                  fp_busy,     // a context holds an FP load/store
 
@@ -95,7 +102,10 @@ module mem_engine
     input  logic [LINE_BITS-1:0]  dmem_rdata,
 
     output logic                  gtxn,        // a global request was accepted
-    output logic                  stxn         // a scratch lane was served
+    output logic                  stxn,        // a scratch lane was served
+
+    // State for the board's debug window (simt_ps_top, 0x0200), DBG_ME words.
+    output logic [31:0]           dbg_state [0:DBG_ME-1]
 );
 
     localparam int NL    = NUM_LANES;
@@ -164,15 +174,18 @@ module mem_engine
     // Lead lane (lowest pending) and its line, per context.
     logic [LIDXW-1:0]    c_lead   [0:NC-1];
     logic [NL-1:0]       c_grp    [0:NC-1];     // pending lanes in the lead's line
+    logic [31:LINE_OFF]  c_ltag   [0:NC-1];     // the lead's line address
+    // Per-iteration values of the combinational loops live in module-level arrays,
+    // not in variables declared inside the loop bodies.
     always_comb begin
         for (int c = 0; c < NC; c++) begin
-            logic [31:LINE_OFF] tag;
             c_lead[c] = '0;
             for (int l = NL-1; l >= 0; l--)
                 if (c_pend[c][l]) c_lead[c] = l[LIDXW-1:0];
-            tag = c_addr[c][c_lead[c]*32 + LINE_OFF +: 32-LINE_OFF];
+            c_ltag[c] = c_addr[c][c_lead[c]*32 + LINE_OFF +: 32-LINE_OFF];
             for (int l = 0; l < NL; l++)
-                c_grp[c][l] = c_pend[c][l] && (c_addr[c][l*32 + LINE_OFF +: 32-LINE_OFF] == tag);
+                c_grp[c][l] = c_pend[c][l] &&
+                              (c_addr[c][l*32 + LINE_OFF +: 32-LINE_OFF] == c_ltag[c]);
         end
     end
 
@@ -263,6 +276,16 @@ module mem_engine
     assign dmem_addr = mreq_valid
                      ? {c_addr[sel][sel_lead*32 + LINE_OFF +: 32-LINE_OFF], {LINE_OFF{1'b0}}}
                      : 32'd0;
+    // Per lane of the selected context: word in the line, byte in the word, data.
+    logic [LINE_WOFFW-1:0] s_woff [0:NL-1];
+    logic [1:0]            s_bsel [0:NL-1];
+    logic [31:0]           s_sd   [0:NL-1];
+    always_comb
+        for (int l = 0; l < NL; l++) begin
+            s_woff[l] = c_addr[sel][l*32 + 2 +: LINE_WOFFW];
+            s_bsel[l] = c_addr[sel][l*32 +: 2];
+            s_sd[l]   = c_sdata[sel][l*32 +: 32];
+        end
     always_comb begin
         dmem_wdata = '0;
         dmem_we    = 1'b0;
@@ -275,29 +298,23 @@ module mem_engine
             end else begin
                 for (int l = 0; l < NL; l++) begin
                     if (mreq_mask[l]) begin
-                        logic [LINE_WOFFW-1:0] woff;
-                        logic [1:0]            bsel;
-                        logic [31:0]           sd;
-                        woff = c_addr[sel][l*32 + 2 +: LINE_WOFFW];
-                        bsel = c_addr[sel][l*32 +: 2];
-                        sd   = c_sdata[sel][l*32 +: 32];
                         unique case (c_f3[sel])
                             3'b000: begin  // sb
-                                dmem_wdata[woff*32 + bsel*8 +: 8] = sd[7:0];
-                                dmem_be[woff*4 + bsel]            = 1'b1;
+                                dmem_wdata[s_woff[l]*32 + s_bsel[l]*8 +: 8] = s_sd[l][7:0];
+                                dmem_be[s_woff[l]*4 + s_bsel[l]]            = 1'b1;
                             end
                             3'b001: begin  // sh
-                                if (bsel[1]) begin
-                                    dmem_wdata[woff*32 + 16 +: 16] = sd[15:0];
-                                    dmem_be[woff*4 + 2 +: 2]       = 2'b11;
+                                if (s_bsel[l][1]) begin
+                                    dmem_wdata[s_woff[l]*32 + 16 +: 16] = s_sd[l][15:0];
+                                    dmem_be[s_woff[l]*4 + 2 +: 2]       = 2'b11;
                                 end else begin
-                                    dmem_wdata[woff*32 +: 16] = sd[15:0];
-                                    dmem_be[woff*4 +: 2]      = 2'b11;
+                                    dmem_wdata[s_woff[l]*32 +: 16] = s_sd[l][15:0];
+                                    dmem_be[s_woff[l]*4 +: 2]      = 2'b11;
                                 end
                             end
                             default: begin  // sw
-                                dmem_wdata[woff*32 +: 32] = sd;
-                                dmem_be[woff*4 +: 4]      = 4'b1111;
+                                dmem_wdata[s_woff[l]*32 +: 32] = s_sd[l];
+                                dmem_be[s_woff[l]*4 +: 4]      = 4'b1111;
                             end
                         endcase
                     end
@@ -343,6 +360,7 @@ module mem_engine
     always_comb
         for (int l = 0; l < NL; l++) a_off[l] = c_addr[lock_c][l*32 + 2 +: LINE_WOFFW];
     if (APAR) begin : g_apar
+        logic [31:0] a_v [0:LINE_WORDS-1];   // operand of each word this round
         always_comb begin
             for (int l = 0; l < NL; l++) a_old[l] = a_line[a_off[l]*32 +: 32];
             for (int l = 0; l < NL; l++) begin
@@ -351,15 +369,14 @@ module mem_engine
                     if (a_left[j] && (a_off[j] == a_off[l])) a_rnd[l] = 1'b0;
             end
             for (int w = 0; w < LINE_WORDS; w++) begin
-                logic [31:0] v;
-                v = '0;
+                a_v[w]    = '0;
                 a_whit[w] = 1'b0;
                 for (int l = 0; l < NL; l++)
                     if (a_rnd[l] && (a_off[l] == LINE_WOFFW'(w))) begin
                         a_whit[w] = 1'b1;
-                        v         = v | c_sdata[lock_c][l*32 +: 32];
+                        a_v[w]    = a_v[w] | c_sdata[lock_c][l*32 +: 32];
                     end
-                a_wnew[w] = amo_alu(c_amo_op[lock_c], a_line[w*32 +: 32], v);
+                a_wnew[w] = amo_alu(c_amo_op[lock_c], a_line[w*32 +: 32], a_v[w]);
             end
         end
     end else begin : g_aser
@@ -458,27 +475,27 @@ module mem_engine
     logic [NC-1:0] c_fin;            // finished this cycle or earlier
     logic [NL-1:0] c_sent [0:NC-1];  // lanes that leave c_pend this cycle
     logic [TW:0]   c_cnt_n [0:NC-1];
+    logic [NC-1:0] c_here, c_rhere;  // request sent / answered for the context this cycle
+    logic [NL-1:0] c_scs  [0:NC-1];  // the scratch lane served this cycle
     always_comb begin
         for (int c = 0; c < NC; c++) begin
-            logic here, rhere;
-            logic [NL-1:0] sc_sent;  // the scratch lane served this cycle
-            here  = mreq_fire && (sel == CW'(c));
-            rhere = dmem_rvalid && (rc == CW'(c));
-            sc_sent = '0;
-            if (sc_step && (sc_c == CW'(c))) sc_sent[c_lead[c]] = 1'b1;
+            c_here[c]  = mreq_fire && (sel == CW'(c));
+            c_rhere[c] = dmem_rvalid && (rc == CW'(c));
+            c_scs[c]   = '0;
+            if (sc_step && (sc_c == CW'(c))) c_scs[c][c_lead[c]] = 1'b1;
             c_sent[c] = '0;
             if (c_scratch[c])
-                c_sent[c] = sc_sent;
-            else if (here && !(c_amo[c] && (c_ph[c] != AP_WR)))
+                c_sent[c] = c_scs[c];
+            else if (c_here[c] && !(c_amo[c] && (c_ph[c] != AP_WR)))
                 c_sent[c] = mreq_mask;
-            c_cnt_n[c] = c_cnt[c] + (TW+1)'(here && !rsp_byp) - (TW+1)'(rhere && !rsp_byp);
+            // c_cnt_n: per context in g_ctx below
             if (BYP)
                 c_fin[c] = c_busy[c] &&
                            (c_done[c] || (((c_pend[c] & ~c_sent[c]) == '0) && (c_cnt_n[c] == '0)));
             else
                 c_fin[c] = c_busy[c] &&
-                           (c_done[c] || (((c_pend[c] & ~sc_sent) == '0) &&
-                                          (c_cnt[c] == (TW+1)'(rhere))));
+                           (c_done[c] || (((c_pend[c] & ~c_scs[c]) == '0) &&
+                                          (c_rhere[c] ? (c_cnt[c] == 1) : (c_cnt[c] == 0))));
         end
     end
 
@@ -491,6 +508,9 @@ module mem_engine
     end
     assign rs_w  = c_w[rs_c];
     assign rs_pc = c_pc[rs_c];
+    assign rs_rd = c_rd[rs_c];
+    assign rs_fp = c_fp[rs_c];
+    assign rs_ld = !c_store[rs_c] && !c_amo[rs_c];
 
     assign gtxn = mreq_fire;
     assign stxn = sc_step;
@@ -504,6 +524,15 @@ module mem_engine
             assign here  = mreq_fire && (sel == CW'(gc));
             assign rhere = dmem_rvalid && (rc == CW'(gc));
             assign last  = rs_valid && (rs_c == CW'(gc));
+            // Requests outstanding after this cycle. Written as two increments: Vivado
+            // 2025.1 built c_cnt[c] + (TW+1)'(c_here[c] && !rsp_byp) - ... in a loop
+            // over c as c_cnt[0] + c_here (all contexts' bits) for context 0, which no
+            // simulator does, and context 0 then never finished (board hang).
+            always_comb begin
+                c_cnt_n[gc] = c_cnt[gc];
+                if (here  && !rsp_byp) c_cnt_n[gc] = c_cnt_n[gc] + 1'b1;
+                if (rhere && !rsp_byp) c_cnt_n[gc] = c_cnt_n[gc] - 1'b1;
+            end
             always_ff @(posedge clk) begin
                 if (rst) begin
                     c_busy[gc] <= 1'b0;
@@ -581,6 +610,28 @@ module mem_engine
             if (mreq_fire && !c_locked[sel])
                 rr <= (int'(sel) == NC-1) ? '0 : sel + 1'b1;
         end
+    end
+
+    // ── Debug window: contexts and tags (up to 16 contexts, 32 tags) ─────────────
+    //   0: busy | done << 16      1: tags in use           2: lanes left | store << 16
+    //   3: AMO | scratch << 16    4-7: requests outstanding per context (nibbles)
+    //   8-11: warp per context (nibbles)    12: AMO phase per context (2 bits)
+    //   13: {dmem_gnt, tag_ok, mreq_valid, rr}
+    always_comb begin
+        for (int i = 0; i < DBG_ME; i++) dbg_state[i] = '0;
+        for (int c = 0; c < NC && c < 16; c++) begin
+            dbg_state[0][c]      = c_busy[c];
+            dbg_state[0][16 + c] = c_done[c];
+            dbg_state[2][c]      = (c_pend[c] != '0);
+            dbg_state[2][16 + c] = c_store[c];
+            dbg_state[3][c]      = c_amo[c];
+            dbg_state[3][16 + c] = c_scratch[c];
+            dbg_state[4 + c/8][(c%8)*4 +: 4] = 4'(c_cnt[c]);
+            dbg_state[8 + c/8][(c%8)*4 +: 4] = 4'(c_w[c]);
+            dbg_state[12][c*2 +: 2]          = c_ph[c];
+        end
+        for (int t = 0; t < MQD && t < 32; t++) dbg_state[1][t] = t_valid[t];
+        dbg_state[13] = {dmem_gnt, tag_ok, mreq_valid, 13'd0, 16'(rr)};
     end
 
 `ifndef SYNTHESIS

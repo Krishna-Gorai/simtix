@@ -48,7 +48,10 @@ module simt_accel
     output logic [LINE_BE-1:0]   dmem_be,
     input  logic                 dmem_rvalid,
     input  logic [MEM_TAGW-1:0]  dmem_rtag,
-    input  logic [LINE_BITS-1:0] dmem_rdata
+    input  logic [LINE_BITS-1:0] dmem_rdata,
+
+    // Warp pool state for the board's debug window (warp_pool.sv).
+    output logic [31:0]          dbg_state [0:DBG_POOL-1]
 );
 
     // ── Command / status registers ──────────────────────────────────────────────
@@ -117,7 +120,8 @@ module simt_accel
         .dbg_divergences (pool_dbg_div),
         .dbg_scratch_txns (pool_dbg_scratch),
         .dbg_issued_insns (pool_dbg_insns),
-        .dbg_active_lanes (pool_dbg_active)
+        .dbg_active_lanes (pool_dbg_active),
+        .dbg_state     (dbg_state)
     );
 
     // ── Dispatcher ────────────────────────────────────────────────────────────────
