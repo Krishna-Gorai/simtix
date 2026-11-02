@@ -56,6 +56,10 @@
 #define PC_SCAN        0x700u
 #define PC_SCAN_ADD    0x800u
 #define PC_MLP         0x900u
+#define PC_GEMM_RB     0xA00u      /* 98 words: 0xA00-0xB87 (v3) */
+#define PC_SCAN_SEG    0xC00u      /* v3 segmented scan */
+#define PC_SCAN_SEGADD 0xD00u
+#define LANES          8u          /* the host drives the 8-lane accelerator */
 
 #define ARENA_BASE     0x10000000u
 #define ARENA_SIZE     0x10000000u
@@ -64,13 +68,27 @@
 static inline void wr(uint32_t off, uint32_t v) { Xil_Out32(SIMT_BASE + off, v); }
 static inline uint32_t rd(uint32_t off)         { return Xil_In32(SIMT_BASE + off); }
 
+/* SIMTIX_A53_ONLY builds the A53 references alone (sw/a53_zcu102: a board without
+   the accelerator); the system counter's frequency is then measured, not
+   COUNTS_PER_SECOND of the BSP. */
+#ifdef SIMTIX_A53_ONLY
+extern double a53_counts_per_second;
+#define CPS a53_counts_per_second
+#else
+#define CPS ((double)COUNTS_PER_SECOND)
+#endif
+
 static double us(XTime t0, XTime t1)
 {
-    return (double)(t1 - t0) * 1e6 / (double)COUNTS_PER_SECOND;
+    return (double)(t1 - t0) * 1e6 / CPS;
 }
 
 /* ── Power pass ─────────────────────────────────────────────────────────────── */
+#ifdef SIMTIX_A53_ONLY
+#define PW_US 6000000.0                 /* long A53 runs need more samples */
+#else
 #define PW_US 2000000.0                 /* each phase is repeated for this long */
+#endif
 static int pmode;                       /* 1 during the power pass */
 static uint32_t ph_reps[PW_PHASES];
 static double   ph_ms[PW_PHASES];
@@ -92,6 +110,9 @@ static void ph_begin(int ph)
 static int ph_again(void)
 {
     XTime t;
+#ifdef SIMTIX_A53_ONLY
+    if (ph_cur == PW_ACCEL) return 0;   /* no accelerator: skip its phase */
+#endif
     if (ph_r++ == 0) return 1;
     if (!pmode) return 0;
     pw_sample();
@@ -108,7 +129,12 @@ static int ph_again(void)
 static void idle_phase(void)
 {
     if (!pmode) return;
+#ifdef SIMTIX_A53_ONLY
+    static volatile uint32_t poll_word;   /* the A53 polls, as it would the accelerator */
+    for (ph_begin(PW_IDLE); ph_again(); ) (void)poll_word;
+#else
     for (ph_begin(PW_IDLE); ph_again(); ) (void)Xil_In32(SIMT_BASE + REG_STATUS);
+#endif
 }
 
 /* ── DDR4 arena ─────────────────────────────────────────────────────────────── */
@@ -153,6 +179,10 @@ static uint32_t run_cycles, run_hits, run_miss;
 
 static void launch(uint32_t pc, const uint32_t *params, uint32_t n, uint32_t blk)
 {
+#ifdef SIMTIX_A53_ONLY
+    (void)pc; (void)params; (void)n; (void)blk;
+    return;
+#endif
     wr(REG_KERNEL_PC, pc);
     wr(REG_BASE_A, addr(params));
     wr(REG_N, n);
@@ -170,6 +200,18 @@ static uint32_t *params(unsigned n) { return alloc_u32(n); }
 static void report(const char *app, uint32_t size, double acc_us, double cpu_us, unsigned errs)
 {
     if (pmode) { pw_report(app, size, ph_reps, ph_ms); return; }
+#ifdef SIMTIX_A53_ONLY
+    /* No accelerator output to check. The FNV-1a hash of the arena (inputs and
+       the A53 results) shows that two builds compute the same results. */
+    (void)acc_us; (void)errs;
+    uint32_t h = 2166136261u;
+    for (const volatile uint32_t *q = (const uint32_t *)(uintptr_t)ARENA_BASE;
+         (uintptr_t)q < top; q++)
+        h = (h ^ *q) * 16777619u;
+    unsigned u10 = (unsigned)(cpu_us * 10.0 + 0.5);
+    xil_printf("A53,%s,%u,%u.%u,%08x\r\n", app, size, u10 / 10, u10 % 10, h);
+    return;
+#endif
     unsigned a10 = (unsigned)(acc_us * 10.0 + 0.5), c10 = (unsigned)(cpu_us * 10.0 + 0.5);
     xil_printf("BOARD,%s,%u,%u,%u.%u,%u.%u,%u,%u,%u\r\n", app, size, run_cycles,
                a10 / 10, a10 % 10, c10 / 10, c10 % 10, run_hits, run_miss, errs);
@@ -183,7 +225,9 @@ static unsigned diff(const uint32_t *a, const uint32_t *b, size_t n)
 }
 
 /* ── GEMM: C = A * B, FP32, n x n ───────────────────────────────────────────── */
-static unsigned app_gemm(uint32_t n)
+/* blocked: gemm_rb.S (v3), a 4x4 block of C per thread; same FMA order over k, so
+   the same reference applies bit for bit. */
+static unsigned app_gemm(uint32_t n, int blocked)
 {
     XTime t0, t1, t2, t3;
     float *a = alloc(4u * n * n), *b = alloc(4u * n * n), *c = alloc(4u * n * n);
@@ -197,7 +241,7 @@ static unsigned app_gemm(uint32_t n)
     idle_phase();
     XTime_GetTime(&t0);
     for (ph_begin(PW_ACCEL); ph_again(); )
-        launch(PC_GEMM, p, n * n, 0);
+        launch(blocked ? PC_GEMM_RB : PC_GEMM, p, blocked ? n * n / 16u : n * n, 0);
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -214,7 +258,7 @@ static unsigned app_gemm(uint32_t n)
         }
     XTime_GetTime(&t3);
     unsigned e = diff((uint32_t *)c, (uint32_t *)ref, n * n);
-    report("gemm", n, us(t0, t1), us(t2, t3), e);
+    report(blocked ? "gemmrb" : "gemm", n, us(t0, t1), us(t2, t3), e);
     return e;
 }
 
@@ -433,13 +477,35 @@ static uint32_t *scan_level(const uint32_t *src, uint32_t m)
     return out;
 }
 
-static unsigned app_scan(uint32_t n)
+/* v3 segmented scan (scan_seg.S + scan_segadd.S): one warp scans a segment of
+   r*LANES words, r = 64 rows at most; the segment totals are scanned the same way,
+   then added. As sim/gen_apps.py scanseg(). */
+static uint32_t *seg_level(const uint32_t *src, uint32_t m)
+{
+    uint32_t r = (m / LANES < 64u) ? m / LANES : 64u;
+    while (m % (r * LANES)) r /= 2u;
+    uint32_t nseg = m / (r * LANES), ntp = (nseg + LANES - 1u) / LANES * LANES;
+    uint32_t *out = alloc_u32(m), *tot = alloc_u32(ntp);
+    for (uint32_t i = 0; i < ntp; i++) tot[i] = 0;
+    uint32_t *p = params(4);
+    p[0] = addr(src); p[1] = addr(out); p[2] = addr(tot); p[3] = r;
+    plan[nplan++] = (struct step){ PC_SCAN_SEG, LANES * nseg, 0, p };
+    if (nseg > 1) {
+        uint32_t *tsc = seg_level(tot, ntp);
+        uint32_t *q = params(3);
+        q[0] = addr(out); q[1] = addr(tsc); q[2] = r;
+        plan[nplan++] = (struct step){ PC_SCAN_SEGADD, LANES * nseg, 0, q };
+    }
+    return out;
+}
+
+static unsigned app_scan(uint32_t n, int seg)
 {
     XTime t0, t1, t2, t3;
     uint32_t *in = alloc_u32(n), *ref = alloc_u32(n);
     for (uint32_t i = 0; i < n; i++) in[i] = rnd() & 0xFFFFu;
     nplan = 0;
-    uint32_t *out = scan_level(in, n);
+    uint32_t *out = seg ? seg_level(in, n) : scan_level(in, n);
     clean_all();
     idle_phase();
     XTime_GetTime(&t0);
@@ -455,7 +521,7 @@ static unsigned app_scan(uint32_t n)
     }
     XTime_GetTime(&t3);
     unsigned e = diff(out, ref, n);
-    report("scan", n, us(t0, t1), us(t2, t3), e);
+    report(seg ? "scanseg" : "scan", n, us(t0, t1), us(t2, t3), e);
     return e;
 }
 
@@ -551,6 +617,10 @@ static unsigned app_mlp(uint32_t batch)
 /* ── Suite ──────────────────────────────────────────────────────────────────── */
 static void load(uint32_t pc, const uint32_t *w, unsigned n)
 {
+#ifdef SIMTIX_A53_ONLY
+    (void)pc; (void)w; (void)n;
+    return;
+#endif
     for (unsigned i = 0; i < n; i++) wr(IRAM + pc + 4u * i, w[i]);
 }
 
@@ -568,26 +638,34 @@ unsigned run_apps(void)
     load(PC_SCAN,     k_scan,     sizeof k_scan / 4u);
     load(PC_SCAN_ADD, k_scan_add, sizeof k_scan_add / 4u);
     load(PC_MLP,      k_mlp,      sizeof k_mlp / 4u);
+    load(PC_GEMM_RB,     k_gemm_rb,     sizeof k_gemm_rb / 4u);
+    load(PC_SCAN_SEG,    k_scan_seg,    sizeof k_scan_seg / 4u);
+    load(PC_SCAN_SEGADD, k_scan_segadd, sizeof k_scan_segadd / 4u);
 
-    RUN(app_gemm(64));          RUN(app_gemm(256));
+    RUN(app_gemm(64, 0));       RUN(app_gemm(256, 0));
     RUN(app_spmv(4096, 16));    RUN(app_spmv(65536, 16));
     RUN(app_stencil(128, 4));   RUN(app_stencil(512, 4));
     RUN(app_kmeans(16384, 16)); RUN(app_kmeans(262144, 16));
     RUN(app_bfs(16384, 8));     RUN(app_bfs(262144, 8));
-    RUN(app_scan(65536));       RUN(app_scan(1u << 20));
+    RUN(app_scan(65536, 0));    RUN(app_scan(1u << 20, 0));
     RUN(app_mlp(16));           RUN(app_mlp(256));
+    /* v3 kernels last, so the inputs of the cases above are those of the earlier runs */
+    RUN(app_gemm(64, 1));       RUN(app_gemm(256, 1));
+    RUN(app_scan(65536, 1));    RUN(app_scan(1u << 20, 1));
 
     /* Power pass on the DRAM-sized inputs */
     if (pw_init() > 0) {
         xil_printf("POWER,app,size,phase,rail,mV,mW,samples,reps,ms\r\n");
         pmode = 1;
-        PRUN(app_gemm(256));
+        PRUN(app_gemm(256, 0));
         PRUN(app_spmv(65536, 16));
         PRUN(app_stencil(512, 4));
         PRUN(app_kmeans(262144, 16));
         PRUN(app_bfs(262144, 8));
-        PRUN(app_scan(1u << 20));
+        PRUN(app_scan(1u << 20, 0));
         PRUN(app_mlp(256));
+        PRUN(app_gemm(256, 1));
+        PRUN(app_scan(1u << 20, 1));
         pmode = 0;
     }
     return errs;

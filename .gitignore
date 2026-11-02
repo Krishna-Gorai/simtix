@@ -84,14 +84,23 @@ ml/data/*.hex
 build_xsim/
 # v2 board project (regenerate with fpga/create_bd_ps.tcl)
 fpga/simtix_ps/
+fpga/simtix_ps_*/
 fpga/*.xsa
 # Python bytecode
 __pycache__/
 # A53 host workspace and log (regenerate with sw/ps_host/build_vitis.py)
 sw/ps_host/ws/
+sw/ps_host/ws_zcu102/
 sw/ps_host/vitis_build.log
 # v2 application-suite data (regenerate with sim/gen_apps.py, sim/lane_sweep.py)
 build_apps/
 build_apps_l*/
 # Vortex baseline run logs (baselines/vortex/run_apps.sh)
 build_vortex/
+
+# ZCU102 PS init: U-Boot GPL source fetched at build time, and build outputs
+sw/a53_zcu102/third_party/
+sw/a53_zcu102/build/
+build_apps_board/
+build_apps_dram/
+build_apps_w8/

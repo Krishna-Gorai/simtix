@@ -1,14 +1,20 @@
-# run_board.tcl  -  program the ZCU104 over JTAG and run the A53 host program
+# run_board.tcl  -  program the ZCU102 (or ZCU104) over JTAG and run the A53 host
 #
-#   xsdb sw/ps_host/run_board.tcl        (from the repository root)
+#   xsdb sw/ps_host/run_board.tcl [zcu104] [out.txt]     (from the repository root)
 #
-# Board setup: boot-mode switch SW6 = JTAG (all ON), USB-JTAG and USB-UART cables
-# connected, a terminal on the UART (115200 8N1; the A53 console is the first of
-# the board's four USB-UART ports). Expects sw/ps_host/build_vitis.py to have
-# built the workspace sw/ps_host/ws.
+# Board setup: the USB-JTAG cable (ZCU102: micro-USB J2) is enough. The host
+# program's console is copied into DDR, and this script waits for the run to finish
+# and writes it to docs/<board>_board_run.txt. A terminal on the UART (ZCU102: J83,
+# 115200 8N1, first of the four ports; or sw/ps_host/capture_uart.ps1) shows it live.
+# Expects sw/ps_host/build_vitis.py to have built the board's workspace,
+# sw/ps_host/ws_zcu102 or sw/ps_host/ws.
 
 set here [file dirname [file normalize [info script]]]
-set ws   [file join $here ws]
+set ws   [file join $here [expr {[lsearch -exact $argv zcu104] >= 0 ? "ws" : "ws_zcu102"}]]
+# Console text of the run (also on the UART): docs/<board>_board_run.txt or a .txt argument
+set brd  [expr {[lsearch -exact $argv zcu104] >= 0 ? "zcu104" : "zcu102"}]
+set out  [file normalize [file join $here .. .. docs ${brd}_board_run.txt]]
+foreach a $argv { if {[string match -nocase *.txt $a]} { set out [file normalize $a] } }
 
 proc find_one {dir pattern} {
     set hits {}
@@ -45,9 +51,49 @@ after 1000
 psu_ps_pl_reset_config
 catch {psu_protection}
 
+# System counter (IOU_SCNTRS) against the host clock over 10 s: the A53 times use
+# COUNTS_PER_SECOND from the hardware description, printed at the end of the run.
+proc r32 {a} { return [lindex [mrd -force -value $a 1] 0] }
+proc counter {} {
+    set t0 [clock microseconds]
+    set lo [r32 0xFF260008]
+    set hi [r32 0xFF26000C]
+    set t1 [clock microseconds]
+    return [list [expr {($hi << 32) | $lo}] [expr {($t0 + $t1) / 2}]]
+}
+lassign [counter] c0 t0
+after 10000
+lassign [counter] c1 t1
+set cps [expr {round(double($c1 - $c0) * 1e6 / double($t1 - $t0))}]
+puts "system counter: $cps Hz (measured)"
+
 targets -set -nocase -filter {name =~ "*A53*#0"}
 rst -processor
 dow $elf
 configparams force-mem-access 0
 con
-puts "running: watch the UART for the BOARD,... lines and RESULT"
+puts "running: the console also goes to DDR and is written to $out at the end"
+
+# Wait for the DONE mark of main.c, then read the console text back over JTAG.
+set OUTBUF 0x0E000000
+set MB     0x0EF00000
+targets -set -nocase -filter {name =~ "*PSU*"}
+set done 0
+set last -1
+for {set i 0} {$i < 1800} {incr i} {
+    after 2000
+    if {[catch {set n [r32 [expr {$MB + 4}]]; set d [r32 [expr {$MB + 8}]]}]} { continue }
+    if {$n != $last} { puts [format "  %4d s: %d bytes of console text" [expr {2 * ($i + 1)}] $n]; set last $n }
+    if {$d == 0x444F4E45} { set done 1; break }
+}
+set n [r32 [expr {$MB + 4}]]
+set bin [file join $here console.bin]
+if {$n > 0} { mrd -force -bin -file $bin $OUTBUF [expr {($n + 3) / 4}] }
+set f [open $bin rb]; set data [string range [read $f] 0 [expr {$n - 1}]]; close $f
+set f [open $out wb]
+puts $f "# run_board.tcl [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}], system counter measured: $cps Hz"
+puts -nonewline $f $data
+close $f
+file delete $bin
+puts [format "wrote %s (%d bytes)%s" $out $n [expr {$done ? "" : " -- run did NOT finish"}]]
+disconnect

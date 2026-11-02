@@ -1,11 +1,20 @@
 /*
- * power.c  -  ZCU104 board power readout over the PS I2C1 bus
+ * power.c  -  board power readout over a PS I2C bus (ZCU102 or ZCU104)
  *
- * The monitors sit behind the PCA9548 mux at 0x74 (Linux device tree
- * zynqmp-zcu104-revC.dts):
+ * The board is chosen at build time (-DSIMTIX_BOARD_ZCU104, else ZCU102). The
+ * monitors, from the Linux device trees:
+ *
+ * ZCU102 (zynqmp-zcu102-revA.dts): PS I2C0 (0xFF02_0000), PCA9544 mux at 0x75
+ *   channel 0 (PS PMBus): INA226 at 0x40-0x47 (U76 U77 U78 U87 U85 U86 U93 U88),
+ *                         0x4A (U15), 0x4B (U92); 5 mOhm shunts
+ *   channel 1 (PL PMBus): INA226 at 0x40-0x47 (U79 U81 U80 U84 U16 U65 U74 U75);
+ *                         U79 2 mOhm, the others 5 mOhm
+ *   A PCA9544 channel is selected by writing 0x04 | channel.
+ * ZCU104 (zynqmp-zcu104-revC.dts): PS I2C1 (0xFF03_0000), PCA9548 mux at 0x74
  *   channel 2: IRPS5401 PMICs at 0x43 (U175) and 0x44 (U180), five outputs each
  *              (PMBus pages 0-4): READ_VOUT (LINEAR16) and READ_IOUT (LINEAR11)
  *   channel 3: INA226 at 0x40 (U183) on the 12 V board input, 5 mOhm shunt
+ *   A PCA9548 channel is selected by writing 1 << channel.
  * The only writes are the mux's channel byte, the PMBus PAGE command and the
  * INA226 configuration register, each after the device has been identified.
  *
@@ -13,11 +22,11 @@
  * most every SAMPLE_US (a sweep of the rails takes a few ms of A53 time; the
  * INA226 averages over 35 ms). apps.c repeats each phase of a DRAM-sized run for
  * two seconds, sampling between repetitions (and while it polls the
- * accelerator), and pw_report()
- * prints one row per phase and rail:
+ * accelerator), and pw_report() prints one row per phase and rail:
  *   POWER,<app>,<size>,<phase>,<rail>,<mV>,<mW>,<samples>,<reps>,<ms>
  * phase: idle (A53 polling, accelerator idle), accel (A53 polling, accelerator
- * running), a53 (A53 computing, accelerator idle).
+ * running), a53 (A53 computing, accelerator idle). The rail names are the
+ * monitors' reference designators; the voltage identifies the supply.
  */
 #include <string.h>
 #include "xparameters.h"
@@ -26,20 +35,49 @@
 #include "xiltimer.h"
 #include "power.h"
 
-#define MUX_ADDR    0x74u
-#define MUX_PMIC    (1u << 2)
-#define MUX_INA     (1u << 3)
-#define INA_ADDR    0x40u
-#define INA_SHUNT_MOHM 5
-#define NPMIC       2
-#define NPAGE       5
-#define NRAIL       (1 + NPMIC * NPAGE)
 #define SAMPLE_US   50000u
 
-static const uint8_t pmic_addr[NPMIC] = { 0x43u, 0x44u };
-static const char *const rail_name[NRAIL] = {
-    "in12v", "u175_0", "u175_1", "u175_2", "u175_3", "u175_4",
-    "u180_0", "u180_1", "u180_2", "u180_3", "u180_4" };
+enum { INA, PMB };                          /* monitor kind */
+
+typedef struct {
+    const char *name;
+    uint8_t     mux;                        /* byte written to the mux */
+    uint8_t     addr;
+    uint8_t     kind;
+    uint8_t     arg;                        /* INA226: shunt in mOhm; PMBus: page */
+} rail_t;
+
+#ifdef SIMTIX_BOARD_ZCU104
+#define IIC_BASE    0xFF030000u             /* PS I2C1 */
+#define MUX_ADDR    0x74u
+#define CH(c)       ((uint8_t)(1u << (c)))  /* PCA9548 */
+static const rail_t rail[] = {
+    { "in12v",  CH(3), 0x40u, INA, 5 },
+    { "u175_0", CH(2), 0x43u, PMB, 0 }, { "u175_1", CH(2), 0x43u, PMB, 1 },
+    { "u175_2", CH(2), 0x43u, PMB, 2 }, { "u175_3", CH(2), 0x43u, PMB, 3 },
+    { "u175_4", CH(2), 0x43u, PMB, 4 },
+    { "u180_0", CH(2), 0x44u, PMB, 0 }, { "u180_1", CH(2), 0x44u, PMB, 1 },
+    { "u180_2", CH(2), 0x44u, PMB, 2 }, { "u180_3", CH(2), 0x44u, PMB, 3 },
+    { "u180_4", CH(2), 0x44u, PMB, 4 },
+};
+#else
+#define IIC_BASE    0xFF020000u             /* PS I2C0 */
+#define MUX_ADDR    0x75u
+#define CH(c)       ((uint8_t)(0x04u | (c)))   /* PCA9544 */
+static const rail_t rail[] = {
+    { "ps_u76", CH(0), 0x40u, INA, 5 }, { "ps_u77", CH(0), 0x41u, INA, 5 },
+    { "ps_u78", CH(0), 0x42u, INA, 5 }, { "ps_u87", CH(0), 0x43u, INA, 5 },
+    { "ps_u85", CH(0), 0x44u, INA, 5 }, { "ps_u86", CH(0), 0x45u, INA, 5 },
+    { "ps_u93", CH(0), 0x46u, INA, 5 }, { "ps_u88", CH(0), 0x47u, INA, 5 },
+    { "ps_u15", CH(0), 0x4Au, INA, 5 }, { "ps_u92", CH(0), 0x4Bu, INA, 5 },
+    { "pl_u79", CH(1), 0x40u, INA, 2 }, { "pl_u81", CH(1), 0x41u, INA, 5 },
+    { "pl_u80", CH(1), 0x42u, INA, 5 }, { "pl_u84", CH(1), 0x43u, INA, 5 },
+    { "pl_u16", CH(1), 0x44u, INA, 5 }, { "pl_u65", CH(1), 0x45u, INA, 5 },
+    { "pl_u74", CH(1), 0x46u, INA, 5 }, { "pl_u75", CH(1), 0x47u, INA, 5 },
+};
+#endif
+#define NRAIL ((int)(sizeof rail / sizeof rail[0]))
+
 static const char *const phase_name[PW_PHASES] = { "idle", "accel", "a53" };
 
 static XIicPs iic;
@@ -107,23 +145,23 @@ static int page(uint8_t addr, uint8_t p)
 static int64_t scale2(int64_t v, int e) { return e >= 0 ? v << e : v >> -e; }
 
 /* INA226: bus voltage (1.25 mV LSB) and shunt voltage (2.5 uV LSB) */
-static int read_ina(int32_t *mv, int32_t *mw)
+static int read_ina(const rail_t *t, int32_t *mv, int32_t *mw)
 {
     uint16_t sh, bus;
-    if (rd16be(INA_ADDR, 0x01u, &sh) || rd16be(INA_ADDR, 0x02u, &bus)) return -1;
+    if (rd16be(t->addr, 0x01u, &sh) || rd16be(t->addr, 0x02u, &bus)) return -1;
     int64_t v_mv = ((int64_t)bus * 125) / 100;
-    int64_t i_ua = ((int64_t)(int16_t)sh * 2500) / INA_SHUNT_MOHM;    /* nV / mOhm = uA */
+    int64_t i_ua = ((int64_t)(int16_t)sh * 2500) / t->arg;    /* nV / mOhm = uA */
     *mv = (int32_t)v_mv;
     *mw = (int32_t)(v_mv * i_ua / 1000000);
     return 0;
 }
 
-/* PMBus rail r (1..): READ_VOUT (LINEAR16, VOUT_MODE exponent), READ_IOUT (LINEAR11) */
+/* PMBus output: READ_VOUT (LINEAR16, VOUT_MODE exponent), READ_IOUT (LINEAR11) */
 static int read_pmbus(int r, int32_t *mv, int32_t *mw)
 {
-    uint8_t a = pmic_addr[(r - 1) / NPAGE];
+    const rail_t *t = &rail[r];
     uint16_t vr, ir;
-    if (page(a, (uint8_t)((r - 1) % NPAGE)) || rd16le(a, 0x8Bu, &vr) || rd16le(a, 0x8Cu, &ir))
+    if (page(t->addr, t->arg) || rd16le(t->addr, 0x8Bu, &vr) || rd16le(t->addr, 0x8Cu, &ir))
         return -1;
     int64_t v_mv = scale2((int64_t)vr * 1000, vout_exp[r]);
     int32_t y = ir & 0x7FF, n = (ir >> 11) & 0x1F;
@@ -137,54 +175,63 @@ static int read_pmbus(int r, int32_t *mv, int32_t *mw)
 
 static int read_rail(int r, int32_t *mv, int32_t *mw)
 {
-    return r == 0 ? read_ina(mv, mw) : read_pmbus(r, mv, mw);
+    return rail[r].kind == INA ? read_ina(&rail[r], mv, mw) : read_pmbus(r, mv, mw);
 }
+
+/* INA226: manufacturer 0x5449 ("TI"), die 0x226x; then 16 averages of 1.1 ms
+   shunt and bus conversions, continuous (a 35 ms window) */
+static int probe_ina(const rail_t *t)
+{
+    uint16_t mid, did;
+    if (rd16be(t->addr, 0xFEu, &mid) || rd16be(t->addr, 0xFFu, &did) ||
+        mid != 0x5449u || (did & 0xFFF0u) != 0x2260u)
+        return 0;
+    const uint8_t cfg[3] = { 0x00u, 0x45u, 0x27u };
+    return wr(t->addr, cfg, 3) == 0;
+}
+
+/* PMBus output: the device answers PMBUS_REVISION, VOUT_MODE is LINEAR, and
+   VOUT and IOUT read back */
+static int probe_pmbus(int r)
+{
+    const rail_t *t = &rail[r];
+    uint8_t rev, mode;
+    uint16_t v, i;
+    if (rd(t->addr, 0x98u, &rev, 1) || page(t->addr, t->arg) || rd(t->addr, 0x20u, &mode, 1) ||
+        (mode >> 5) != 0 || rd16le(t->addr, 0x8Bu, &v) || rd16le(t->addr, 0x8Cu, &i))
+        return 0;
+    vout_exp[r] = (int8_t)((mode & 0x10u) ? (int)(mode & 0x1Fu) - 32 : (int)(mode & 0x1Fu));
+    return 1;
+}
+
+/* Reference clock of the I2C controller, for a platform whose hardware
+   description does not list it (a ZCU102 run on the ZCU104 BSP: sw/a53_zcu102). */
+uint32_t pw_iic_clock_hz;
 
 int pw_init(void)
 {
-    XIicPs_Config *c = XIicPs_LookupConfig(XPAR_XIICPS_0_BASEADDR);
+    static XIicPs_Config own;
+    XIicPs_Config *c = XIicPs_LookupConfig(IIC_BASE);
+    if (c == NULL && pw_iic_clock_hz != 0) {
+        own.BaseAddress  = IIC_BASE;
+        own.InputClockHz = pw_iic_clock_hz;
+        c = &own;
+    }
     if (c == NULL || XIicPs_CfgInitialize(&iic, c, c->BaseAddress) != XST_SUCCESS) {
-        xil_printf("power readout: no I2C controller\r\n");
+        xil_printf("power readout: no I2C controller at 0x%08x\r\n", (unsigned)IIC_BASE);
         return 0;
     }
     XIicPs_SetSClk(&iic, 400000);
     nrail = 0;
     memset(rail_ok, 0, sizeof rail_ok);
 
-    /* INA226: manufacturer 0x5449 ("TI"), die 0x226x; then 16 averages of
-       1.1 ms shunt and bus conversions, continuous (a 35 ms window) */
-    uint16_t mid, did;
-    if (mux(MUX_INA) == 0 && rd16be(INA_ADDR, 0xFEu, &mid) == 0 &&
-        rd16be(INA_ADDR, 0xFFu, &did) == 0 && mid == 0x5449u && (did & 0xFFF0u) == 0x2260u) {
-        const uint8_t cfg[3] = { 0x00u, 0x45u, 0x27u };
-        rail_ok[0] = (wr(INA_ADDR, cfg, 3) == 0);
-    }
-
-    /* IRPS5401: answers PMBUS_REVISION; a page is used if VOUT_MODE is LINEAR
-       and VOUT and IOUT read back */
-    if (mux(MUX_PMIC) == 0) {
-        for (int p = 0; p < NPMIC; p++) {
-            uint8_t rev;
-            if (rd(pmic_addr[p], 0x98u, &rev, 1)) continue;
-            for (int g = 0; g < NPAGE; g++) {
-                int r = 1 + p * NPAGE + g;
-                uint8_t mode;
-                uint16_t v, i;
-                if (page(pmic_addr[p], (uint8_t)g) || rd(pmic_addr[p], 0x20u, &mode, 1) ||
-                    (mode >> 5) != 0 || rd16le(pmic_addr[p], 0x8Bu, &v) ||
-                    rd16le(pmic_addr[p], 0x8Cu, &i))
-                    continue;
-                vout_exp[r] = (int8_t)((mode & 0x10u) ? (int)(mode & 0x1Fu) - 32 : (int)(mode & 0x1Fu));
-                rail_ok[r] = 1;
-            }
-        }
-    }
-
     for (int r = 0; r < NRAIL; r++) {
         int32_t mv, mw;
+        if (mux(rail[r].mux)) continue;
+        rail_ok[r] = rail[r].kind == INA ? probe_ina(&rail[r]) : probe_pmbus(r);
         if (!rail_ok[r]) continue;
-        if (mux(r == 0 ? MUX_INA : MUX_PMIC) || read_rail(r, &mv, &mw)) { rail_ok[r] = 0; continue; }
-        xil_printf("POWERRAIL,%s,%d,%d\r\n", rail_name[r], (int)mv, (int)mw);
+        if (read_rail(r, &mv, &mw)) { rail_ok[r] = 0; continue; }
+        xil_printf("POWERRAIL,%s,%d,%d\r\n", rail[r].name, (int)mv, (int)mw);
         nrail++;
     }
     xil_printf("power readout: %d rails\r\n", nrail);
@@ -205,11 +252,10 @@ void pw_sample(void)
     int ch = -1;
     for (int r = 0; r < NRAIL; r++) {
         int32_t mv, mw;
-        int want = (r == 0) ? MUX_INA : MUX_PMIC;
         if (!rail_ok[r]) continue;
-        if (want != ch) {
-            if (mux((uint8_t)want)) return;
-            ch = want;
+        if (rail[r].mux != ch) {
+            if (mux(rail[r].mux)) return;
+            ch = rail[r].mux;
         }
         if (read_rail(r, &mv, &mw)) continue;
         sum_mv[cur][r] += (uint64_t)(int64_t)mv;
@@ -227,7 +273,7 @@ void pw_report(const char *app, uint32_t size, const uint32_t reps[PW_PHASES],
             int32_t mv = (int32_t)((int64_t)sum_mv[ph][r] / cnt[ph][r]);
             int32_t mw = (int32_t)((int64_t)sum_mw[ph][r] / cnt[ph][r]);
             xil_printf("POWER,%s,%u,%s,%s,%d,%d,%u,%u,%u\r\n", app, size, phase_name[ph],
-                       rail_name[r], (int)mv, (int)mw, cnt[ph][r], reps[ph],
+                       rail[r].name, (int)mv, (int)mw, cnt[ph][r], reps[ph],
                        (unsigned)(ms[ph] + 0.5));
         }
     memset(sum_mv, 0, sizeof sum_mv);

@@ -94,3 +94,13 @@ the status register with the accelerator idle, `accel` the accelerator running
 the application, `a53` the A53 running its reference. `reps / ms` gives the time
 per repetition. Outputs are not checked in this pass. The program writes only the
 mux's channel byte, the PMBus PAGE command and the INA226 configuration register.
+
+## ZCU102 (2026-10-28)
+
+The lab's board turned out to be a ZCU102 (XCZU9EG). `create_bd_ps.tcl`,
+`power.c`, `build_vitis.py` and `run_board.tcl` take the board as an argument
+(ZCU102 by default) and `power.c` has the ZCU102 monitor table (PS I2C0, PCA9544
+mux at 0x75, 18 INA226). Vivado ML Standard cannot implement the XCZU9EG, so
+until a license is available only the A53 side runs on that board:
+`sw/a53_zcu102/README.md` (PS bring-up over JTAG, A53 references and power) and
+`docs/zcu102_a53.md` (results).

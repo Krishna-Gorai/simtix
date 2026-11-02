@@ -20,6 +20,8 @@
 #include "xil_cache.h"
 #include "xil_printf.h"
 #include "xiltimer.h"      /* XTime, XTime_GetTime, COUNTS_PER_SECOND */
+#include <stdarg.h>
+#include <stdio.h>
 #include "kernels.h"
 
 unsigned run_apps(void);   /* apps.c */
@@ -138,12 +140,54 @@ static unsigned run_hist(uint32_t n)
     return errs;
 }
 
+/* ── Console copy in DDR ────────────────────────────────────────────────────────
+   With only the JTAG cable on the board there is no UART to read. build_vitis.py
+   compiles every host file with -Dxil_printf=con_printf: the text still goes to
+   UART0 and is also appended to OUTBUF in DDR; the mailbox MB holds its length
+   ([1]) and DONE ([2]) when the run has finished. run_board.tcl reads it back over
+   JTAG. MB[0] is left to the debugger. */
+#define OUTBUF   0x0E000000u
+#define OUTMAX   0x00F00000u
+#define MB       ((volatile uint32_t *)0x0EF00000u)
+#define MB_DONE  0x444F4E45u               /* "DONE" */
+static uint32_t outlen, flushed;
+
+#undef xil_printf
+void xil_printf(const char8 *ctrl1, ...);   /* the BSP's, to UART0 */
+
+void con_printf(const char8 *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    if (n < 0) return;
+    if (n >= (int)sizeof buf) n = (int)sizeof buf - 1;
+    xil_printf("%s", buf);
+    for (int i = 0; i < n && outlen < OUTMAX; i++)
+        *(volatile char *)(uintptr_t)(OUTBUF + outlen++) = buf[i];
+    if (outlen > flushed) Xil_DCacheFlushRange((INTPTR)(OUTBUF + flushed), outlen - flushed);
+    flushed = outlen;
+    MB[1] = outlen;
+    Xil_DCacheFlushRange((INTPTR)MB, 64);
+}
+#define xil_printf con_printf
+
 int main(void)
 {
     static const uint32_t sizes[] = { 1024u, 16384u, NMAX };
     unsigned errs = 0;
 
+    MB[1] = 0;
+    MB[2] = 0;
+    Xil_DCacheFlushRange((INTPTR)MB, 64);
+
+#ifdef SIMTIX_BOARD_ZCU104
     xil_printf("\r\nSIMTiX v2 on ZCU104: A53 host, DDR4 through L1 + AXI4 (HP0)\r\n");
+#else
+    xil_printf("\r\nSIMTiX v2 on ZCU102: A53 host, DDR4 through L1 + AXI4 (HP0)\r\n");
+#endif
     load_kernel(PC_REDUCE, k_reduce_shfl, sizeof k_reduce_shfl / 4u);
     load_kernel(PC_HIST,   k_histogram,   sizeof k_histogram / 4u);
     for (unsigned i = 0; i < sizeof k_reduce_shfl / 4u; i++)
@@ -157,6 +201,9 @@ int main(void)
     }
     errs += run_apps();
     if (rd(REG_AXI_ERR) & 1u) { xil_printf("AXI error response seen\r\n"); errs++; }
+    xil_printf("COUNTS_PER_SECOND,%u\r\n", (unsigned)COUNTS_PER_SECOND);
     xil_printf("RESULT: %s (%u errors)\r\n", errs ? "FAIL" : "PASS", errs);
+    MB[2] = MB_DONE;
+    Xil_DCacheFlushRange((INTPTR)MB, 64);
     return 0;
 }

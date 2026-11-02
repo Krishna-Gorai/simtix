@@ -1,4 +1,4 @@
-/* power.h  -  ZCU104 board power readout (power.c) */
+/* power.h  -  ZCU102 / ZCU104 board power readout (power.c) */
 #ifndef POWER_H
 #define POWER_H
 #include <stdint.h>
@@ -10,5 +10,9 @@ void pw_phase(int phase);           /* samples go to this phase (PW_NONE: droppe
 void pw_sample(void);               /* read every rail once */
 void pw_report(const char *app, uint32_t size, const uint32_t reps[PW_PHASES],
                const double ms[PW_PHASES]);   /* print and clear the averages */
+
+/* I2C reference clock when the platform does not describe the controller
+   (0: take it from the platform). Set before pw_init(). */
+extern uint32_t pw_iic_clock_hz;
 
 #endif
