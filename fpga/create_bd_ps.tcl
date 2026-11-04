@@ -9,7 +9,7 @@
 # rtl/soc/simt_ps_top.sv). Run from fpga/ (launch Vivado from PowerShell):
 #
 #   vivado -mode batch -source create_bd_ps.tcl -tclargs [build] [zcu102|zcu104] [tag<name>]
-#          [warps<n>] [l1kb<n>] [mshr<n>] [mtags<n>]
+#          [warps<n>] [l1kb<n>] [mshr<n>] [mtags<n>] [mhz<n>] [retime]
 #
 # Without "build" only the project and block design are created. The ZCU102
 # writes simtix_ps_zcu102/, reports_ps_zcu102/ and simtix_ps_zcu102.xsa; the
@@ -30,6 +30,11 @@ array set dname {warps SIMTIX_NUM_WARPS l1kb SIMTIX_L1_KB mshr SIMTIX_L1_MSHR mt
 foreach a $argv {
     if {[regexp {^(warps|l1kb|mshr|mtags)(\d+)$} $a -> k n]} { lappend defs $dname($k)=$n }
 }
+# Optional mhz<n>: the PL clock requested from the PS (default 100; the PS divides a
+# 1.5 GHz PLL by integers, so e.g. 107, 115 or 125 MHz); retime: synthesis retiming.
+set mhz 100
+foreach a $argv { if {[regexp {^mhz(\d+)$} $a -> n]} { set mhz $n } }
+set retime [expr {[lsearch -exact $argv retime] >= 0}]
 puts "========== board $board ($part($board)) =========="
 
 set_param general.maxThreads 2
@@ -64,11 +69,22 @@ set_property -dict [list \
     CONFIG.PSU__USE__S_AXI_GP2 {1} \
     CONFIG.PSU__SAXIGP2__DATA_WIDTH {128} \
     CONFIG.PSU__FPGA_PL0_ENABLE {1} \
-    CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100} \
+    CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ $mhz \
 ] $ps
 
 set simt [create_bd_cell -type module -reference simt_ps_wrap simt_0]
-puts "PL clock 0: [get_property CONFIG.FREQ_HZ [get_bd_pins $ps/pl_clk0]] Hz"
+# The module reference evaluates IDW without the fileset's Verilog defines, so the
+# cell is given the ID width of the mtags<n> setting: log2(tags) + 1. With the
+# default width under mtags16, the ID lost its read/write bit and every write
+# response came back as a read (the L1 waited for its write acks for ever).
+set ntags 8
+foreach d $defs { if {[regexp {^SIMTIX_MEM_TAGS=(\d+)$} $d -> n]} { set ntags $n } }
+set idw 1
+while {(1 << ($idw - 1)) < $ntags} { incr idw }
+set_property CONFIG.IDW $idw $simt
+puts "simt_0 AXI ID width: [get_property CONFIG.IDW $simt] bits"
+set fhz [get_property CONFIG.FREQ_HZ [get_bd_pins $ps/pl_clk0]]
+puts "PL clock 0: $fhz Hz (requested $mhz MHz)"
 set sc   [create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect smartconnect_0]
 set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] $sc
 set rstc [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset rst_pl0]
@@ -93,6 +109,11 @@ set_property offset 0xA0000000 $seg
 set_property range 64K $seg
 
 validate_bd_design
+# Stop here if the cell's ID ports are not log2(tags) + 1 bits wide.
+foreach p {m_axi_awid m_axi_bid m_axi_arid m_axi_rid} {
+    set w [expr {[get_property LEFT [get_bd_pins $simt/$p]] + 1}]
+    if {$w != $idw} { error "simt_0/$p is $w bits, the core needs $idw (mtags $ntags)" }
+}
 save_bd_design
 puts "========== ADDRESS MAP =========="
 foreach s [get_bd_addr_segs -of_objects [get_bd_addr_spaces]] {
@@ -111,6 +132,18 @@ update_compile_order -fileset sources_1
 if {!$build} { puts "BD created (no build requested)"; return }
 
 # ── Build ────────────────────────────────────────────────────────────────────────
+# synth_1 runs in its own Vivado process, which does not see this script's
+# set_param. Its synth.maxThreads (default 7, not general.maxThreads) makes
+# synth_design start helper processes of about 2 GB each, idle during timing
+# optimisation; on an 8 GB host the run then pages for hours. One thread there
+# does not change the netlist.
+set pre [file join $proj_dir synth_pre.tcl]
+set f [open $pre w]
+puts $f "set_param synth.maxThreads 1"
+puts $f "set_param general.maxThreads 2"
+close $f
+set_property STEPS.SYNTH_DESIGN.TCL.PRE $pre [get_runs synth_1]
+if {$retime} { set_property STEPS.SYNTH_DESIGN.ARGS.RETIMING true [get_runs synth_1] }
 launch_runs synth_1 -jobs 1
 wait_on_run synth_1
 if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} { error "synthesis failed" }
@@ -129,7 +162,7 @@ report_utilization    -file $out/post_route_util.rpt
 report_timing_summary -max_paths 10 -file $out/post_route_timing.rpt
 report_power          -file $out/post_route_power.rpt
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
-puts [format "========== BOARD BUILD ($board): WNS %+.3f ns at 100 MHz ==========" $wns]
+puts [format "========== BOARD BUILD ($board): WNS %+.3f ns at %.2f MHz ==========" $wns [expr {$fhz / 1e6}]]
 
 write_hw_platform -fixed -include_bit -force [file normalize ./simtix_ps$sfx.xsa]
 puts "XSA written: [file normalize ./simtix_ps$sfx.xsa]"

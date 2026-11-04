@@ -14,13 +14,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GCC = os.environ.get('RISCV_GCC', 'riscv-none-elf-gcc')
 OBJCOPY = GCC.replace('gcc', 'objcopy')
 KERNELS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add', 'mlp', 'gemm_rb',
-           'scan_seg', 'scan_segadd']
+           'scan_seg', 'scan_segadd', 'stencil_rb', 'kmeans_u', 'zbtest', 'spmv_z']
 
 
 def build(name, lanes, out):
     src = os.path.join(HERE, name + '.S')
     elf, binf = (os.path.join(out, name + e) for e in ('.elf', '.bin'))
-    subprocess.run([GCC, '-march=rv32imaf', '-mabi=ilp32', '-nostdlib', '-nostartfiles',
+    subprocess.run([GCC, '-march=rv32imaf_zba_zbb_zicond', '-mabi=ilp32', '-nostdlib', '-nostartfiles',
                     f'-DLANES={lanes}', '-Wl,-Ttext=0', '-I', os.path.join(HERE, '..', 'sync'),
                     '-o', elf, src], check=True)
     subprocess.run([OBJCOPY, '-O', 'binary', elf, binf], check=True)

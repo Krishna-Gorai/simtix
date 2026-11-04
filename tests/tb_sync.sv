@@ -225,7 +225,8 @@ module tb_sync
             // Reads: the line is captured at AR acceptance and its burst is due
             // MEM_LAT (+0..7 if MEM_OOO) cycles later; the lowest due ID streams
             // next, so bursts of different IDs complete out of order. Writes: W
-            // beats apply to the oldest accepted AW; B is due MEM_LAT (+0..7) later.
+            // beats apply to the oldest accepted AW; B is due MEM_LAT (+0..7) later,
+            // in order among the writes of one ID (up to 16 of an ID may wait).
             int unsigned          now;
             logic                 rdy;
             logic                 rs_v   [MTAGS];
@@ -234,8 +235,11 @@ module tb_sync
             logic                 rb_act;
             logic [MTW-1:0]       rb_id;
             logic [BBW-1:0]       rb_beat;
-            logic                 bs_v   [MTAGS];
-            int unsigned          bs_due [MTAGS];
+            logic [4:0]           bs_n   [MTAGS];
+            logic [3:0]           bs_wp  [MTAGS], bs_rp [MTAGS];
+            int unsigned          bs_due [MTAGS][16];
+            logic [MTW-1:0]       bs_pid;
+            assign bs_pid = awq_id[awq_rp];
             logic [31:0]          awq_addr [16];
             logic [MTW-1:0]       awq_id   [16];
             logic [3:0]           awq_wp, awq_rp;
@@ -256,7 +260,9 @@ module tb_sync
                 r_pick = 1'b0; r_pid = '0; b_pick = 1'b0; b_pid = '0;
                 for (int t = MTAGS-1; t >= 0; t--) begin
                     if (rs_v[t] && (rs_due[t] <= now)) begin r_pick = 1'b1; r_pid = MTW'(t); end
-                    if (bs_v[t] && (bs_due[t] <= now)) begin b_pick = 1'b1; b_pid = MTW'(t); end
+                    if ((bs_n[t] != 5'd0) && (bs_due[t][bs_rp[t]] <= now)) begin
+                        b_pick = 1'b1; b_pid = MTW'(t);
+                    end
                 end
             end
             assign rvalid = rb_act;
@@ -280,7 +286,7 @@ module tb_sync
                     now <= 0; rb_act <= 1'b0; rb_beat <= '0; wb_beat <= '0;
                     awq_wp <= '0; awq_rp <= '0; awq_n <= '0;
                     for (int t = 0; t < MTAGS; t++) rs_v[t] <= 1'b0;
-                    for (int t = 0; t < MTAGS; t++) bs_v[t] <= 1'b0;
+                    for (int t = 0; t < MTAGS; t++) begin bs_n[t] <= '0; bs_wp[t] <= '0; bs_rp[t] <= '0; end
                 end else begin
                     now <= now + 1;
                     if (arvalid && arready) begin
@@ -306,12 +312,15 @@ module tb_sync
                         if (wlast) begin
                             wb_beat <= '0;
                             awq_rp  <= awq_rp + 1'b1;
-                            bs_v[awq_id[awq_rp]]   <= 1'b1;
-                            bs_due[awq_id[awq_rp]] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[9:7]) : 0);
+                            bs_due[bs_pid][bs_wp[bs_pid]] <= now + MEM_LAT + ((MEM_OOO != 0) ? 32'(lfsr[9:7]) : 0);
+                            bs_wp[bs_pid] <= bs_wp[bs_pid] + 1'b1;
                         end
                     end
                     awq_n <= awq_n + 5'(awvalid && awready) - 5'(wvalid && wready && wlast);
-                    if (bvalid && bready) bs_v[bid] <= 1'b0;
+                    if (bvalid && bready) bs_rp[bid] <= bs_rp[bid] + 1'b1;
+                    for (int t = 0; t < MTAGS; t++)
+                        bs_n[t] <= bs_n[t] + 5'(wvalid && wready && wlast && (bs_pid == MTW'(t)))
+                                           - 5'(bvalid && bready && (bid == MTW'(t)));
                 end
             end
         end

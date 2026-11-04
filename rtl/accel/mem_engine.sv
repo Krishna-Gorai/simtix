@@ -20,6 +20,18 @@
 // BYP = 0 (a memory that answers no request before the next cycle, such as the
 // L1) a context's completion no longer depends on this cycle's grant, which
 // removes the path from the grant to the warp resume; the timing is the same.
+// With BYP = 0 the request also takes two stages (v3, for the clock): the context,
+// its lanes and its line are chosen and registered (o_*), and the next cycle the
+// address, write data and byte enables are built from those registers and the
+// context's (unchanging) addresses and data. A new choice is made when the stage
+// is empty or its request is granted, so requests leave in the order chosen.
+// Likewise an issued memory op first waits in an input register (i_*) and takes a
+// context in the next cycle, which takes the warp pool's operand read and address
+// adder out of the context registers' input path. in_ready then means "the input
+// register is free or drains this cycle", decided from registers only. The warp
+// resume (rs_*) is registered too: the warp pool sees a finished op one cycle after
+// its context is freed, which takes the L1 response -> completion -> resume select
+// path out of the warp pool's stack registers.
 //
 // A global AMO is a read-modify-write of one line. The read fetches the line of
 // the lead lane; with AGG = 1 it serves every pending lane whose word lies in that
@@ -189,6 +201,17 @@ module mem_engine
         end
     end
 
+    // ── Input register (BYP = 0): the issued op, one cycle before it takes a context ──
+    logic                 i_v, i_take;
+    logic [WIDXW-1:0]     i_w;
+    logic [NL-1:0]        i_mask;
+    logic                 i_store, i_scratch, i_shared, i_fp, i_amo;
+    logic [4:0]           i_amo_op, i_rd;
+    logic [2:0]           i_f3;
+    logic [31:0]          i_npc;
+    logic [31:0]          i_addr  [0:NL-1];
+    logic [31:0]          i_sdata [0:NL-1];
+
     // ── Issue: allocate the lowest free context ──────────────────────────────────
     logic          free_ok, scr_busy, in_fire;
     logic [CW-1:0] alloc_c;
@@ -199,9 +222,31 @@ module mem_engine
             if (!c_busy[c]) begin free_ok = 1'b1; alloc_c = CW'(c); end
         scr_busy = |(c_busy & c_scratch);
     end
-    assign in_ready = free_ok && !(in_scratch && scr_busy);
-    assign in_fire  = in_valid && in_ready;
-    assign busy     = |c_busy;
+    if (!BYP) begin : g_ireg
+        assign i_take   = i_v && free_ok && !(i_scratch && scr_busy);
+        assign in_ready = !i_v || i_take;
+        always_ff @(posedge clk) begin
+            if (rst)                      i_v <= 1'b0;
+            else if (in_valid && in_ready) i_v <= 1'b1;
+            else if (i_take)              i_v <= 1'b0;
+            if (in_valid && in_ready) begin
+                i_w <= in_w;  i_mask <= in_mask;  i_store <= in_store;  i_scratch <= in_scratch;
+                i_shared <= in_shared;  i_fp <= in_fp;  i_amo <= in_amo;  i_amo_op <= in_amo_op;
+                i_f3 <= in_funct3;  i_rd <= in_rd;  i_npc <= in_next_pc;
+                i_addr <= in_addr;  i_sdata <= in_sdata;
+            end
+        end
+    end else begin : g_noireg
+        assign i_v = in_valid;  assign i_w = in_w;  assign i_mask = in_mask;
+        assign i_store = in_store;  assign i_scratch = in_scratch;  assign i_shared = in_shared;
+        assign i_fp = in_fp;  assign i_amo = in_amo;  assign i_amo_op = in_amo_op;
+        assign i_f3 = in_funct3;  assign i_rd = in_rd;  assign i_npc = in_next_pc;
+        assign i_addr = in_addr;  assign i_sdata = in_sdata;
+        assign in_ready = free_ok && !(in_scratch && scr_busy);
+        assign i_take   = in_valid && in_ready;
+    end
+    assign in_fire  = i_take;
+    assign busy     = (|c_busy) || (!BYP && (i_v || rs_valid));
     assign fp_busy  = |(c_busy & c_fp);
 
     // ── Global request: one context per cycle, rotating priority ─────────────────
@@ -248,7 +293,17 @@ module mem_engine
     assign rot_c = CW'((int'(rr) + int'(rot_off)) % NC);
     assign sel        = (|c_locked) ? lock_c : rot_c;
     assign mreq_valid = ((|c_locked) ? c_want[lock_c] : rot_found) && tag_ok;
-    assign mreq_fire = mreq_valid && dmem_gnt;
+
+    // Request stage (BYP = 0): the chosen request waits here for the grant.
+    localparam bit PIPE = !BYP;
+    logic            o_v, o_free;
+    logic [CW-1:0]   o_sel;
+    logic [NL-1:0]   o_mask;
+    mkind_e          o_kind;
+    logic [TW-1:0]   o_tag;
+    logic [31:LINE_OFF] o_line;
+    assign o_free    = !o_v || dmem_gnt;
+    assign mreq_fire = mreq_valid && (PIPE ? o_free : dmem_gnt);
 
     logic [NL-1:0]   mreq_mask;
     mkind_e          mreq_kind;
@@ -271,34 +326,69 @@ module mem_engine
     logic [NL-1:0]         a_left;   // group lanes not yet applied
     logic [LINE_WORDS-1:0] a_touch;  // words updated (written back)
 
-    assign dmem_req  = mreq_valid;
-    assign dmem_tag  = alloc_t;
-    assign dmem_addr = mreq_valid
-                     ? {c_addr[sel][sel_lead*32 + LINE_OFF +: 32-LINE_OFF], {LINE_OFF{1'b0}}}
-                     : 32'd0;
-    // Per lane of the selected context: word in the line, byte in the word, data.
+    if (PIPE) begin : g_oreg
+        always_ff @(posedge clk) begin
+            if (rst) begin
+                o_v <= 1'b0;
+            end else begin
+                if (o_v && dmem_gnt) o_v <= 1'b0;
+                if (mreq_fire)       o_v <= 1'b1;
+            end
+            if (mreq_fire) begin
+                o_sel  <= sel;
+                o_mask <= mreq_mask;
+                o_kind <= mreq_kind;
+                o_tag  <= alloc_t;
+                o_line <= c_addr[sel][sel_lead*32 + LINE_OFF +: 32-LINE_OFF];
+            end
+        end
+    end else begin : g_nooreg
+        assign o_v    = 1'b0;
+        assign o_sel  = '0;
+        assign o_mask = '0;
+        assign o_kind = MK_LOAD;
+        assign o_tag  = '0;
+        assign o_line = '0;
+    end
+
+    // The request on the port: the registered stage, or (BYP = 1) this cycle's choice.
+    logic               q_v;
+    logic [CW-1:0]      q_sel;
+    logic [NL-1:0]      q_mask;
+    mkind_e             q_kind;
+    assign q_v    = PIPE ? o_v    : mreq_valid;
+    assign q_sel  = PIPE ? o_sel  : sel;
+    assign q_mask = PIPE ? o_mask : mreq_mask;
+    assign q_kind = PIPE ? o_kind : mreq_kind;
+
+    assign dmem_req  = q_v;
+    assign dmem_tag  = PIPE ? o_tag : alloc_t;
+    assign dmem_addr = !q_v ? 32'd0 :
+                       PIPE ? {o_line, {LINE_OFF{1'b0}}}
+                            : {c_addr[sel][sel_lead*32 + LINE_OFF +: 32-LINE_OFF], {LINE_OFF{1'b0}}};
+    // Per lane of the request's context: word in the line, byte in the word, data.
     logic [LINE_WOFFW-1:0] s_woff [0:NL-1];
     logic [1:0]            s_bsel [0:NL-1];
     logic [31:0]           s_sd   [0:NL-1];
     always_comb
         for (int l = 0; l < NL; l++) begin
-            s_woff[l] = c_addr[sel][l*32 + 2 +: LINE_WOFFW];
-            s_bsel[l] = c_addr[sel][l*32 +: 2];
-            s_sd[l]   = c_sdata[sel][l*32 +: 32];
+            s_woff[l] = c_addr[q_sel][l*32 + 2 +: LINE_WOFFW];
+            s_bsel[l] = c_addr[q_sel][l*32 +: 2];
+            s_sd[l]   = c_sdata[q_sel][l*32 +: 32];
         end
     always_comb begin
         dmem_wdata = '0;
         dmem_we    = 1'b0;
         dmem_be    = '0;
-        if (mreq_valid && (mreq_kind == MK_WRITE)) begin
+        if (q_v && (q_kind == MK_WRITE)) begin
             dmem_we = 1'b1;
-            if (c_amo[sel]) begin
+            if (c_amo[q_sel]) begin
                 dmem_wdata = a_line;
                 for (int w = 0; w < LINE_WORDS; w++) dmem_be[w*4 +: 4] = {4{a_touch[w]}};
             end else begin
                 for (int l = 0; l < NL; l++) begin
-                    if (mreq_mask[l]) begin
-                        unique case (c_f3[sel])
+                    if (q_mask[l]) begin
+                        unique case (c_f3[q_sel])
                             3'b000: begin  // sb
                                 dmem_wdata[s_woff[l]*32 + s_bsel[l]*8 +: 8] = s_sd[l][7:0];
                                 dmem_be[s_woff[l]*4 + s_bsel[l]]            = 1'b1;
@@ -500,17 +590,31 @@ module mem_engine
     end
 
     logic [CW-1:0] rs_c;
+    logic          rs_any;           // a context finishes (and is freed) this cycle
     always_comb begin
-        rs_valid = 1'b0;
-        rs_c     = '0;
+        rs_any = 1'b0;
+        rs_c   = '0;
         for (int c = NC-1; c >= 0; c--)
-            if (c_fin[c]) begin rs_valid = 1'b1; rs_c = CW'(c); end
+            if (c_fin[c]) begin rs_any = 1'b1; rs_c = CW'(c); end
     end
-    assign rs_w  = c_w[rs_c];
-    assign rs_pc = c_pc[rs_c];
-    assign rs_rd = c_rd[rs_c];
-    assign rs_fp = c_fp[rs_c];
-    assign rs_ld = !c_store[rs_c] && !c_amo[rs_c];
+    if (!BYP) begin : g_rsreg
+        always_ff @(posedge clk) begin
+            if (rst) rs_valid <= 1'b0;
+            else     rs_valid <= rs_any;
+            rs_w  <= c_w[rs_c];
+            rs_pc <= c_pc[rs_c];
+            rs_rd <= c_rd[rs_c];
+            rs_fp <= c_fp[rs_c];
+            rs_ld <= !c_store[rs_c] && !c_amo[rs_c];
+        end
+    end else begin : g_rscomb
+        assign rs_valid = rs_any;
+        assign rs_w  = c_w[rs_c];
+        assign rs_pc = c_pc[rs_c];
+        assign rs_rd = c_rd[rs_c];
+        assign rs_fp = c_fp[rs_c];
+        assign rs_ld = !c_store[rs_c] && !c_amo[rs_c];
+    end
 
     assign gtxn = mreq_fire;
     assign stxn = sc_step;
@@ -523,7 +627,7 @@ module mem_engine
             assign take  = in_fire && (alloc_c == CW'(gc));
             assign here  = mreq_fire && (sel == CW'(gc));
             assign rhere = dmem_rvalid && (rc == CW'(gc));
-            assign last  = rs_valid && (rs_c == CW'(gc));
+            assign last  = rs_any && (rs_c == CW'(gc));
             // Requests outstanding after this cycle. Written as two increments: Vivado
             // 2025.1 built c_cnt[c] + (TW+1)'(c_here[c] && !rsp_byp) - ... in a loop
             // over c as c_cnt[0] + c_here (all contexts' bits) for context 0, which no
@@ -543,21 +647,21 @@ module mem_engine
                 end else if (take) begin
                     c_busy[gc]     <= 1'b1;
                     c_done[gc]     <= 1'b0;
-                    c_w[gc]        <= in_w;
-                    c_pend[gc]     <= in_mask;
-                    c_store[gc]    <= in_store;
-                    c_scratch[gc]  <= in_scratch;
-                    c_shared[gc]   <= in_shared;
-                    c_fp[gc]       <= in_fp;
-                    c_amo[gc]      <= in_amo;
-                    c_amo_op[gc]   <= in_amo_op;
-                    c_f3[gc]       <= in_funct3;
-                    c_rd[gc]       <= in_rd;
-                    c_pc[gc]       <= in_next_pc;
+                    c_w[gc]        <= i_w;
+                    c_pend[gc]     <= i_mask;
+                    c_store[gc]    <= i_store;
+                    c_scratch[gc]  <= i_scratch;
+                    c_shared[gc]   <= i_shared;
+                    c_fp[gc]       <= i_fp;
+                    c_amo[gc]      <= i_amo;
+                    c_amo_op[gc]   <= i_amo_op;
+                    c_f3[gc]       <= i_f3;
+                    c_rd[gc]       <= i_rd;
+                    c_pc[gc]       <= i_npc;
                     c_cnt[gc]      <= '0;
                     c_ph[gc]       <= AP_RD;
-                    for (int l = 0; l < NL; l++) c_addr[gc][l*32 +: 32]  <= in_addr[l];
-                    for (int l = 0; l < NL; l++) c_sdata[gc][l*32 +: 32] <= in_sdata[l];
+                    for (int l = 0; l < NL; l++) c_addr[gc][l*32 +: 32]  <= i_addr[l];
+                    for (int l = 0; l < NL; l++) c_sdata[gc][l*32 +: 32] <= i_sdata[l];
                 end else if (c_busy[gc]) begin
                     c_pend[gc] <= c_pend[gc] & ~c_sent[gc];
                     c_cnt[gc]  <= c_cnt_n[gc];

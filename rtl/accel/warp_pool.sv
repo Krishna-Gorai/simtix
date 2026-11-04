@@ -237,6 +237,18 @@ module warp_pool
     logic             fetch_valid;
     logic [WIDXW-1:0] fetch_w;
     logic             inflight [0:NW-1];   // warp has an instruction in X
+    // v3 (clock): a branch, jal or jalr updates its warp's SIMT stack one cycle after X
+    // (stage B), from the registered outcome, which takes the operand read, the lane
+    // compares and the taken-mask tests out of the stack registers' input path. The
+    // warp stays in flight until B, so it is not fetched in between.
+    typedef enum logic [1:0] { BK_BR, BK_JUMP } br_kind_e;
+    logic             br_v;
+    br_kind_e         br_kind;
+    logic [WIDXW-1:0] br_w;
+    logic [SPW-1:0]   br_sp;
+    logic [NL-1:0]    br_taken, br_mask;
+    logic [31:0]      br_tgt, br_fall;
+    logic             br_fwd;              // forward branch (target above the branch)
     always_comb begin
         fetch_valid = 1'b0;
         fetch_w     = '0;
@@ -493,6 +505,21 @@ module warp_pool
     assign is_fdiv   = is_fp_op && (fp_funct5 == FP_DIV);
     assign is_fsqrt  = is_fp_op && (fp_funct5 == FP_SQRT);
     assign is_sfu_op = is_fdiv || is_fsqrt;
+
+    // v3: three small standard extensions on the OP major opcode, told apart by the
+    // whole funct7 (the base decode below looks at funct7 bits 5 and 0 only):
+    //   Zba    sh1add/sh2add/sh3add  rd = rs2 + (rs1 << n)    funct7 0010000, funct3 010/100/110
+    //   Zbb    min/minu/max/maxu                              funct7 0000101, funct3 100..111
+    //   Zicond czero.eqz/czero.nez   rd = (rs2 ==/!= 0) ? 0 : rs1
+    //                                                         funct7 0000111, funct3 101/111
+    // Their result (x_res) goes to the register write only, not into the address path.
+    logic [6:0] funct7;
+    logic       x_sh, x_mm, x_cz, x_op;
+    assign funct7 = instr[31:25];
+    assign x_sh   = (opcode == OP_OP) && (funct7 == 7'b0010000) && !funct3[0] && (funct3 != 3'b000);
+    assign x_mm   = (opcode == OP_OP) && (funct7 == 7'b0000101) && funct3[2];
+    assign x_cz   = (opcode == OP_OP) && (funct7 == 7'b0000111) && funct3[2] && funct3[0];
+    assign x_op   = x_sh || x_mm || x_cz;
 
     // ── ALU control decode (shared) ────────────────────────────────────────────────
     logic [3:0] alu_ctrl;
@@ -893,6 +920,17 @@ module warp_pool
         end
     end
 
+    logic [31:0] x_res [0:NL-1];
+    always_comb begin
+        for (int l = 0; l < NL; l++) begin
+            logic lt;
+            lt = funct3[0] ? (rv1[l] < rv2[l]) : ($signed(rv1[l]) < $signed(rv2[l]));
+            if (x_sh)      x_res[l] = rv2[l] + (rv1[l] << funct3[2:1]);
+            else if (x_mm) x_res[l] = (lt ^ funct3[1]) ? rv1[l] : rv2[l];
+            else           x_res[l] = ((rv2[l] == 32'd0) ^ funct3[1]) ? 32'd0 : rv1[l];
+        end
+    end
+
     // Integer-VRF writeback value/enable for the single-cycle INTEGER compute ops
     // (ALU, jal/jalr link, csr tid). FP-compute results no longer commit here in the
     // issue cycle — they are registered and written back through the FPC pipeline
@@ -905,7 +943,8 @@ module warp_pool
             wb_val[l] = 32'd0;
             wb_en[l]  = 1'b0;
             unique case (opcode)
-                OP_OP, OP_OPIMM, OP_LUI, OP_AUIPC: begin wb_val[l] = addr[l];      wb_en[l] = 1'b1; end
+                OP_OP, OP_OPIMM, OP_LUI, OP_AUIPC: begin wb_val[l] = x_op ? x_res[l] : addr[l];
+                                                         wb_en[l] = 1'b1; end
                 OP_JAL, OP_JALR:                   begin wb_val[l] = cur_pc + 32'd4; wb_en[l] = 1'b1; end
                 OP_SYSTEM: if (is_csr)             begin wb_val[l] = tid_l;         wb_en[l] = 1'b1; end
                 default: ;
@@ -944,9 +983,8 @@ module warp_pool
         end
     end
 
-    logic [NL-1:0] taken_mask, ntaken_mask;
+    logic [NL-1:0] taken_mask;            // (not taken: br_mask & ~br_taken, in stage B)
     assign taken_mask  = btaken;
-    assign ntaken_mask = cur_mask & ~btaken;
 
     // Branch/jump targets (relative to the issuing warp's TOS PC).
     logic [31:0] fallthru, br_target, jal_target, jalr_target;
@@ -1149,6 +1187,9 @@ module warp_pool
                             !is_sfu_op && is_shfl;
     assign do_bar         = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             !is_sfu_op && is_bar;
+    logic do_ctl;   // a committed branch / jal / jalr (its stack update is in stage B)
+    assign do_ctl = do_compute && !squash_wb &&
+                    ((opcode == OP_BRANCH) || (opcode == OP_JAL) || (opcode == OP_JALR));
     assign do_compute     = issue_valid && !do_pop && !sb_stall && !is_ecall && !is_mem &&
                             !is_sfu_op && !do_fp && !do_mul && !do_dot &&
                             !do_shf && !do_bar;
@@ -1366,6 +1407,7 @@ module warp_pool
             issue_valid    <= 1'b0;
             instr          <= 32'd0;
             for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
+            br_v           <= 1'b0;
             dbg_retire_a0  <= 32'd0;
             dbg_mem_txns   <= 32'd0;
             dbg_divergences<= 32'd0;
@@ -1405,6 +1447,7 @@ module warp_pool
                 blk_lg         <= (block_log2 > 3'(LOGNW)) ? 3'(LOGNW) : block_log2;
                 issue_valid    <= 1'b0;
                 for (int k = 0; k < NW; k++) inflight[k] <= 1'b0;
+                br_v           <= 1'b0;
                 dbg_mem_txns   <= 32'd0;
                 dbg_divergences<= 32'd0;
                 dbg_scratch_txns<= 32'd0;
@@ -1466,8 +1509,9 @@ module warp_pool
                 //    park its warp on an engine, or (engine busy / squashed
                 //    writeback) do nothing so the warp re-enters the fetch pool and
                 //    retries. Every outcome resolves in this one cycle.
+                br_v <= 1'b0;
                 if (issue_valid) begin
-                    inflight[issue_w] <= 1'b0;
+                    if (!do_ctl) inflight[issue_w] <= 1'b0;   // a jump/branch: at B
                     // M7 energy accounting: a committed datapath instruction clocks
                     // n_active lanes under gating vs all NL lanes ungated. A pop is
                     // bookkeeping (no datapath); a memory op or an fdiv/fsqrt that
@@ -1580,39 +1624,56 @@ module warp_pool
                         // central VRF write arbiter below (a memory writeback this
                         // cycle would have set squash_wb and deferred us instead).
                         // Control flow / next-PC for the TOS frame.
-                        unique case (opcode)
-                            OP_BRANCH: begin
-                                if (taken_mask == cur_mask) begin
-                                    stk_npc[issue_w][cur_sp] <= br_target;     // uniform taken
-                                end else if (taken_mask == '0) begin
-                                    stk_npc[issue_w][cur_sp] <= fallthru;       // uniform not-taken
-                                end else begin
-                                    // Divergent: push a "continue" frame; the rest
-                                    // of the lanes wait, reconverging at RPC.
-                                    dbg_divergences <= dbg_divergences + 32'd1;
-                                    stk_mask[issue_w][cur_sp]      <= cur_mask;  // union @ join
-                                    if (br_target > cur_pc) begin
-                                        // forward `if`: join = target; run the
-                                        // fall-through (not-taken) lanes first.
-                                        stk_npc [issue_w][cur_sp]       <= br_target;
-                                        stk_npc [issue_w][cur_sp + 1'b1] <= fallthru;
-                                        stk_mask[issue_w][cur_sp + 1'b1] <= ntaken_mask;
-                                        stk_rpc [issue_w][cur_sp + 1'b1] <= br_target;
-                                    end else begin
-                                        // backward loop: join = fall-through (exit);
-                                        // run the taken (still-looping) lanes.
-                                        stk_npc [issue_w][cur_sp]       <= fallthru;
-                                        stk_npc [issue_w][cur_sp + 1'b1] <= br_target;
-                                        stk_mask[issue_w][cur_sp + 1'b1] <= taken_mask;
-                                        stk_rpc [issue_w][cur_sp + 1'b1] <= fallthru;
-                                    end
-                                    sp[issue_w] <= cur_sp + 1'b1;
-                                end
-                            end
-                            OP_JAL:  stk_npc[issue_w][cur_sp] <= jal_target;
-                            OP_JALR: stk_npc[issue_w][cur_sp] <= jalr_target;
-                            default: stk_npc[issue_w][cur_sp] <= fallthru;
-                        endcase
+                        // Control flow goes to stage B (below) with its outcome;
+                        // every other op advances its PC now.
+                        if (do_ctl) begin
+                            br_v     <= 1'b1;
+                            br_kind  <= (opcode == OP_BRANCH) ? BK_BR : BK_JUMP;
+                            br_w     <= issue_w;
+                            br_sp    <= cur_sp;
+                            br_taken <= taken_mask;
+                            br_mask  <= cur_mask;
+                            br_tgt   <= (opcode == OP_BRANCH) ? br_target :
+                                        (opcode == OP_JAL)    ? jal_target : jalr_target;
+                            br_fall  <= fallthru;
+                            br_fwd   <= !b_imm[31] && (b_imm != 32'd0);   // br_target > cur_pc
+                        end else begin
+                            stk_npc[issue_w][cur_sp] <= fallthru;
+                        end
+                    end
+                end
+
+                // 2b) Stage B: the SIMT stack update of last cycle's branch / jump. Its
+                //     warp is still in flight, so no other step touches its stack.
+                if (br_v) begin
+                    inflight[br_w] <= 1'b0;
+                    if (br_kind == BK_JUMP) begin
+                        stk_npc[br_w][br_sp] <= br_tgt;
+                    end else if (br_taken == br_mask) begin
+                        stk_npc[br_w][br_sp] <= br_tgt;                   // uniform taken
+                    end else if (br_taken == '0) begin
+                        stk_npc[br_w][br_sp] <= br_fall;                  // uniform not-taken
+                    end else begin
+                        // Divergent: push a "continue" frame; the rest of the lanes
+                        // wait, reconverging at RPC.
+                        dbg_divergences <= dbg_divergences + 32'd1;
+                        stk_mask[br_w][br_sp] <= br_mask;                 // union @ join
+                        if (br_fwd) begin
+                            // forward `if`: join = target; run the fall-through
+                            // (not-taken) lanes first.
+                            stk_npc [br_w][br_sp]        <= br_tgt;
+                            stk_npc [br_w][br_sp + 1'b1] <= br_fall;
+                            stk_mask[br_w][br_sp + 1'b1] <= br_mask & ~br_taken;
+                            stk_rpc [br_w][br_sp + 1'b1] <= br_tgt;
+                        end else begin
+                            // backward loop: join = fall-through (exit); run the
+                            // taken (still-looping) lanes.
+                            stk_npc [br_w][br_sp]        <= br_fall;
+                            stk_npc [br_w][br_sp + 1'b1] <= br_tgt;
+                            stk_mask[br_w][br_sp + 1'b1] <= br_taken;
+                            stk_rpc [br_w][br_sp + 1'b1] <= br_fall;
+                        end
+                        sp[br_w] <= br_sp + 1'b1;
                     end
                 end
 

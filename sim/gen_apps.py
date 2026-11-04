@@ -11,7 +11,8 @@ and DIR/apps.manifest, which tb_apps reads:
     KERNEL <slot> <hex>                    kernel image -> instruction RAM slot
     CASE <name> / MEM <file> / GOLD <file> / END
     LAUNCH <tag> <slot> <param address> <threads> <block_log2>
-A kernel in slot s starts at PC 256*s. Each launch passes the address of its
+A slot is 16 words: a kernel in slot s starts at PC 64*s. The kernels are packed
+in KERNELS order from their image sizes (the instruction RAM holds 1024 words). Each launch passes the address of its
 parameter block in a1 (REG_BASE_A) and the thread count in a4 (REG_N).
 
 --lanes L lays the data out for an L-lane accelerator (a line of stencil padding,
@@ -30,9 +31,20 @@ from fractions import Fraction
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 KDIR = os.path.join(ROOT, 'kernels', 'apps')
-SLOTS = {'gemm': 0, 'spmv': 1, 'stencil': 2, 'kmeans': 3, 'bfs': 4, 'scan': 5, 'scan_add': 6,
-         'mlp': 7, 'gemm_rb': 8,         # gemm_rb is 98 words: slots 8 and 9
-         'scan_seg': 10, 'scan_segadd': 11}
+KERNELS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add', 'mlp', 'gemm_rb',
+           'scan_seg', 'scan_segadd', 'stencil_rb', 'kmeans_u', 'zbtest', 'spmv_z']
+SLOTS = {}                          # kernel -> first 16-word slot (place_kernels)
+IRAM_WORDS = 1024
+
+
+def place_kernels(kdir):
+    """Pack the kernel images into the instruction RAM in 16-word slots."""
+    s = 0
+    for k in KERNELS:
+        n = len(open(os.path.join(kdir, k + '.hex')).read().split())
+        SLOTS[k] = s
+        s += -(-n // 16)
+    assert 16 * s <= IRAM_WORDS, f'kernels need {16 * s} words, the instruction RAM has {IRAM_WORDS}'
 DDR_BASE = 0x1000_0000
 WORDS = 1 << 20                     # axi_mem_model words in tb_apps: 2^WORDS_LG (--words-lg)
 UNSEEN = 0xFFFF_FFFF
@@ -145,8 +157,9 @@ def gemm(rng, m, n, k, blocked=False):
     return c
 
 
-def spmv(rng, rows, cols, maxnnz):
-    c = Case(f'spmv_{rows}x{cols}')
+def spmv(rng, rows, cols, maxnnz, zba=False):
+    """zba: spmv_z.S (pointer walk, sh2add gather; same results)."""
+    c = Case(f"{'spmvz' if zba else 'spmv'}_{rows}x{cols}")
     rowptr, col, val = [0], [], []
     for _ in range(rows):
         nz = rng.randint(0, maxnnz)
@@ -159,7 +172,7 @@ def spmv(rng, rows, cols, maxnnz):
     pcol = c.img.alloc(nnz, col or [0])
     pval = c.img.alloc(nnz, val or [0])
     px, py = c.img.alloc(cols, x), c.img.alloc(rows)
-    c.launch('spmv', 'spmv', [prp, pcol, pval, px, py], rows)
+    c.launch('spmv', 'spmv_z' if zba else 'spmv', [prp, pcol, pval, px, py], rows)
     y = []
     for r in range(rows):
         acc = 0
@@ -170,8 +183,9 @@ def spmv(rng, rows, cols, maxnnz):
     return c
 
 
-def stencil(rng, h, w, sweeps):
-    c = Case(f'stencil_{h}x{w}x{sweeps}')
+def stencil(rng, h, w, sweeps, rows=0):
+    """rows: stencil_rb.S, a strip of `rows` points per thread (rows even, h % rows == 0)."""
+    c = Case(f"{'stencilrb' if rows else 'stencil'}_{h}x{w}x{sweeps}")
     s = w + 2 * LANES                             # a line of padding each side
     grid = [rand_f32(rng) for _ in range((h + 2) * s)]
     c0 = struct.unpack('<I', struct.pack('<f', 0.5))[0]
@@ -180,7 +194,12 @@ def stencil(rng, h, w, sweeps):
     cur = list(grid)
     for t in range(sweeps):
         src, dst = bufs[t % 2], bufs[(t + 1) % 2]
-        c.launch(f'stencil{t}', 'stencil', [src, dst, w.bit_length() - 1, s, c0, c1], h * w)
+        if rows:
+            assert rows % 2 == 0 and h % rows == 0
+            c.launch(f'stencil{t}', 'stencil_rb', [src, dst, w.bit_length() - 1, s, c0, c1, rows],
+                     h // rows * w)
+        else:
+            c.launch(f'stencil{t}', 'stencil', [src, dst, w.bit_length() - 1, s, c0, c1], h * w)
         nxt = list(cur)
         for i in range(h):
             for j in range(w):
@@ -192,8 +211,9 @@ def stencil(rng, h, w, sweeps):
     return c
 
 
-def kmeans(rng, npts, k):
-    c = Case(f'kmeans_{npts}x{k}')
+def kmeans(rng, npts, k, two=False):
+    """two: kmeans_u.S, two points per thread (npts and k even)."""
+    c = Case(f"{'kmeansu' if two else 'kmeans'}_{npts}x{k}")
     px = [rng.randrange(1 << 14) for _ in range(npts)]
     py = [rng.randrange(1 << 14) for _ in range(npts)]
     seeds = rng.sample(range(npts), k)
@@ -202,7 +222,10 @@ def kmeans(rng, npts, k):
     a_cx, a_cy = c.img.alloc(k, cx), c.img.alloc(k, cy)
     a_as, a_sx, a_sy, a_cn = (c.img.alloc(npts), c.img.alloc(k), c.img.alloc(k),
                               c.img.alloc(k))
-    c.launch('kmeans', 'kmeans', [a_px, a_py, a_cx, a_cy, k, a_as, a_sx, a_sy, a_cn], npts)
+    if two:
+        assert npts % 2 == 0 and k % 2 == 0
+    c.launch('kmeans', 'kmeans_u' if two else 'kmeans',
+             [a_px, a_py, a_cx, a_cy, k, a_as, a_sx, a_sy, a_cn], npts // 2 if two else npts)
     assign, sx, sy, cn = [], [0] * k, [0] * k, [0] * k
     for x, y in zip(px, py):
         d = [(x - cx[j]) ** 2 + (y - cy[j]) ** 2 for j in range(k)]
@@ -319,6 +342,25 @@ def scanseg(rng, n, rows=64):
     return c
 
 
+def zbtest(rng, n):
+    """zbtest.S: Zba shNadd, Zbb min/max(u), Zicond czero on random operands."""
+    c = Case(f'zbtest_{n}')
+    edge = [0, 1, 0x7FFF_FFFF, 0x8000_0000, 0xFFFF_FFFF, 0xFFFF_FFFE]
+    a = [rng.choice(edge) if rng.random() < 0.2 else rng.getrandbits(32) for _ in range(n)]
+    b = [rng.choice(edge) if rng.random() < 0.2 else rng.getrandbits(32) for _ in range(n)]
+    pa, pb, pr = c.img.alloc(n, a), c.img.alloc(n, b), c.img.alloc(9 * n)
+    c.launch('zbtest', 'zbtest', [pa, pb, pr], n)
+    sx = lambda v: v - (1 << 32) if v >> 31 else v
+    out = []
+    for x, y in zip(a, b):
+        m = 0xFFFF_FFFF
+        out += [(y + (x << 1)) & m, (y + (x << 2)) & m, (y + (x << 3)) & m,
+                x if sx(x) < sx(y) else y, min(x, y), x if sx(x) > sx(y) else y, max(x, y),
+                0 if (y & 1) == 0 else x, 0 if (y & 1) else x]
+    c.expect(pr, out)
+    return c
+
+
 F127 = 0x42FE_0000                                # 127.0f
 
 
@@ -370,7 +412,7 @@ SIZES = {
     'small': [lambda r: gemm(r, 32, 32, 32), lambda r: spmv(r, 512, 512, 16),
               lambda r: stencil(r, 32, 32, 2), lambda r: kmeans(r, 1024, 8),
               lambda r: bfs(r, 1024, 6), lambda r: scan(r, 2048),
-              lambda r: mlp(r, 8, [784, 128, 10])],
+              lambda r: mlp(r, 8, [784, 128, 10]), lambda r: zbtest(r, 256)],
     'large': [lambda r: gemm(r, 64, 64, 64), lambda r: spmv(r, 4096, 4096, 16),
               lambda r: stencil(r, 128, 128, 2), lambda r: kmeans(r, 16384, 16),
               lambda r: bfs(r, 16384, 8), lambda r: scan(r, 65536),
@@ -381,16 +423,20 @@ SIZES = {
               lambda r: stencil(r, 128, 128, 4), lambda r: kmeans(r, 16384, 16),
               lambda r: bfs(r, 16384, 8), lambda r: scan(r, 65536),
               lambda r: mlp(r, 16, [784, 256, 128, 10]),
-              lambda r: gemm(r, 64, 64, 64, blocked=True), lambda r: scanseg(r, 65536)],
+              lambda r: gemm(r, 64, 64, 64, blocked=True), lambda r: scanseg(r, 65536),
+              lambda r: stencil(r, 128, 128, 4, rows=16), lambda r: kmeans(r, 16384, 16, two=True),
+              lambda r: spmv(r, 4096, 4096, 16, zba=True)],
     'dram':  [lambda r: gemm(r, 256, 256, 256), lambda r: spmv(r, 65536, 65536, 16),
               lambda r: stencil(r, 512, 512, 4), lambda r: kmeans(r, 262144, 16),
               lambda r: bfs(r, 262144, 8), lambda r: scan(r, 1 << 20),
               lambda r: mlp(r, 256, [784, 256, 128, 10]),
-              lambda r: gemm(r, 256, 256, 256, blocked=True), lambda r: scanseg(r, 1 << 20)],
+              lambda r: gemm(r, 256, 256, 256, blocked=True), lambda r: scanseg(r, 1 << 20),
+              lambda r: stencil(r, 512, 512, 4, rows=16), lambda r: kmeans(r, 262144, 16, two=True),
+              lambda r: spmv(r, 65536, 65536, 16, zba=True)],
 }
 APPS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'mlp', 'gemmrb',   # order of SIZES
-        'scanseg']
-SEED = {'gemmrb': 0, 'scanseg': 5}   # the inputs of gemm / scan, for like-for-like comparisons
+        'scanseg', 'stencilrb', 'kmeansu', 'spmvz']
+SEED = {'gemmrb': 0, 'scanseg': 5, 'stencilrb': 2, 'kmeansu': 3, 'spmvz': 1}   # the inputs of gemm / scan, for like-for-like comparisons
 
 
 def main():
@@ -411,6 +457,7 @@ def main():
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     p = lambda f: os.path.join(out, f).replace('\\', '/')
+    place_kernels(os.path.abspath(args.kdir))
     rng = random.Random(2027)
     if args.size in ('small', 'large'):          # one stream, as the results were made
         cases = [f(rng) for f in SIZES[args.size]]

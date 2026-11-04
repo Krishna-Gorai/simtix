@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KDIR = os.path.join(HERE, '..', '..', 'kernels')
 SYNC = ['reduce_shfl', 'histogram', 'reduce_all', 'hist_shared']
 APPS = ['gemm', 'spmv', 'stencil', 'kmeans', 'bfs', 'scan', 'scan_add', 'mlp',
-        'gemm_rb', 'scan_seg', 'scan_segadd']
+        'gemm_rb', 'scan_seg', 'scan_segadd', 'stencil_rb', 'kmeans_u', 'spmv_z']
 
 
 def words_of(name):

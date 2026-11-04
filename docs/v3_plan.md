@@ -66,6 +66,9 @@ FP16; extends the one application where SIMTiX already wins.
 | B4 | memory hierarchy | sweep done 10-29: 64 KB L1, 16 MSHRs, 16 tags chosen; board build to do |
 | B4 | next-line prefetch (`SIMTIX_L1_PF`) | implemented 10-29, L1 tests pass with it on and off; measurement pending |
 | B5 | clock 150-200 MHz | planned 10-29 (see worklog): FPU stage 0 via retiming over the delay line; memory-engine request split |
+| A | stencil (`stencil_rb.S`), k-means (`kmeans_u.S`), SpMV (`spmv_z.S`) | done 11-04, bit-exact (see Findings) |
+| A' | Zba `sh1add`-`sh3add`, Zbb `min`/`max`(`u`), Zicond `czero.*` | done 11-04: decode + writeback mux, `zbtest` case |
+| B5 | clock: request, input and resume registers in the memory engine, branch stage B | done 11-04 in simulation; build at 115 MHz to do |
 | C | multi-core | not started |
 | D | INT8/FP16 units | not started |
 
@@ -236,3 +239,72 @@ line of the input is new) and the add pass misses again on the output (the L1
 does not allocate on writes). That reverses the earlier conclusion on next-line
 prefetch, which was drawn from kernels that reuse lines: streaming kernels such as
 this one need it.
+
+**2026-11-04, low-cost steps (kernels, ISA, clock).** The B3+B4 profile shows an
+issue-bound core: IPC 0.68-0.96, lane use near 100% outside BFS and SpMV, and at most
+20% of the HP0 port in use. One warp instruction per cycle on 8 lanes at 100 MHz is
+0.8 G lane operations per second, below one A53 with NEON, so the cheap levers are
+fewer instructions per result and a faster clock. Board inputs, 8 warps, 64 KB L1,
+16 MSHRs, 16 tags, DDR model latency 24, all outputs bit-exact; cycles:
+
+| App | Before | Kernel | + ISA | + clock stages | Gain |
+|---|---|---|---|---|---|
+| Stencil 128^2 x4 | 320,928 | 173,316 (strip of 16 rows) | -- | 148,935 (rows interleaved) | 2.15x |
+| k-means 16384 | 841,609 | 652,224 (2 points/thread) | 548,667 (min, czero) | 537,806 (points interleaved) | 1.56x |
+| SpMV 4096 | 129,287 | -- | 115,035 (pointer walk, sh2add) | 116,516 | 1.11x |
+| other apps | -- | -- | -- | 0.96-0.99x | -- |
+
+- `stencil_rb.S`: a thread computes 16 rows of one column; up, centre and down move
+  down the column in registers, so a point loads 3 words instead of 5 and the
+  per-thread setup is paid once per 16 points. The two rows of a loop pass are
+  interleaved, which lifts IPC from 0.70 to 0.82.
+- `kmeans_u.S`: two points per thread share each centroid load; the nearest-centroid
+  update is `slt`, `min`, `czero.eqz`, `czero.nez`, `or` (5 instructions, 8 before).
+- The three extensions add a 7-bit funct7 decode and one result mux per lane, on the
+  register write only (not on the address path).
+- Clock. A path analysis of the routed B2 build (`paths_named.tcl`) finds 38,680
+  endpoints failing at 150 MHz, 12,087 at 125 MHz and 2,455 at 111 MHz, in four groups:
+  warp issue -> memory-engine context registers, warp issue -> SIMT stack, memory
+  engine -> L1 input register, and FPU stage 0 / last stage. 150 MHz would need an
+  operand-read stage across the whole issue logic; the four groups are cut instead:
+  the memory engine registers its request (choice, then address and data), its input
+  and its warp resume (`BYP = 0` only), and a branch or jump updates the SIMT stack in
+  a stage B one cycle after issue (the warp stays in flight). The FPU paths are left
+  to synthesis retiming (`create_bd_ps.tcl ... retime`). Cost: 0.3-3.8% more cycles.
+  Board build: `... tagv3b34 warps8 l1kb64 mshr16 mtags16 mhz116 retime`: the PS
+  divides 1.5 GHz by 13 (115.37 MHz); it rounds a request down, so `mhz115` gives
+  1.5 GHz / 14 = 107.1 MHz.
+- Not addressed: reduce, scan and histogram. They stream one element per thread and
+  are limited by instruction count, launches and global atomics; even the full HP0
+  bandwidth at 100 MHz would not reach the A53 on reduce.
+
+**2026-11-04, board run of the low-cost build** (`docs/zcu102_board_run_v3b34.txt`).
+The build closes at 115.37 MHz with WNS +0.406 ns (est. Fmax about 121 MHz); 107,658
+LUTs and 50,091 registers (the 100 MHz B3+B4 build had 110,970 and 48,383; B2 82,998
+and 33,016); 16 BRAM tiles and 72 DSPs in each. All 28 cases are bit-exact, the
+histogram included (the AXI ordering fix holds on the board). Time is the measured
+accelerator time; A53/accel above 1 means the accelerator is faster.
+
+| App | Size | B2 us | v3 us | v3 / B2 | A53/accel B2 | A53/accel v3 |
+|---|---|---|---|---|---|---|
+| GEMM | 64 | 2,584.8 | 2,165.0 | 1.19x | 1.04 | 1.25 |
+| GEMM | 256 | 215,172.4 | 150,613.0 | 1.43x | 0.79 | 1.13 |
+| GEMM, register-blocked | 256 | 49,662.0 | 37,780.7 | 1.31x | 3.42 | 4.49 |
+| MLP | 256 | 278,560.9 | 189,783.3 | 1.47x | 2.62 | 3.85 |
+| BFS | 262144 | 260,316.4 | 162,890.2 | 1.60x | 0.75 | 1.20 |
+| Stencil, 16-row strip | 512 | 59,197.1 (stencil) | 18,945.1 | 3.12x | 0.36 | 1.12 |
+| SpMV | 65536 | 46,634.9 | 20,204.9 | 2.31x | 0.39 | 0.90 |
+| k-means, 2 points/thread | 262144 | 139,603.8 (kmeans) | 72,189.1 | 1.93x | 0.30 | 0.57 |
+| Segmented scan | 1048576 | 54,667.9 | 35,474.8 | 1.54x | 0.08 | 0.13 |
+| Histogram | 262144 | 7,897.4 | 5,653.5 | 1.40x | 0.25 | 0.35 |
+| Scan | 1048576 | 145,148.9 | 108,019.7 | 1.34x | 0.03 | 0.04 |
+
+PL power rises with the larger, faster design: idle 1.12 -> 1.24 W; accelerator
+running 1.42-1.92 W (B2) -> 1.70-2.28 W.
+
+`spmv_z` on the board (second run, 08:29; the other 28 cases repeat the first run within
+1%): 4096 rows 116,949 cycles against 130,900 for `spmv` (1.12x, A53/accel 0.47);
+65536 rows 2,233,648 against 2,332,695 (1.04x, A53/accel 0.94). The large case misses
+the L1 on 40% of accesses, so fewer instructions help less there. It runs after the
+other cases, so its random matrix differs from the `spmv` one (same size and density).
+

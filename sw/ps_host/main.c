@@ -42,7 +42,7 @@ unsigned run_apps(void);   /* apps.c */
 #define IRAM           0x1000u
 
 #define PC_REDUCE      0x000u          /* instruction-RAM byte offsets */
-#define PC_HIST        0x100u
+#define PC_HIST        0x080u          /* 0x100-0x1FF: stencil_rb (apps.c) */
 
 #define NMAX           (1u << 18)      /* 262144 elements */
 

@@ -70,16 +70,38 @@ TESTS = {
     # exercises the scoreboard's unit-full sleep; it hung before the wake-up fix of
     # 2026-10-29 (the small input set and 4 warps do not reach that state).
     'apps_w8':   ('tb_apps', PS + ['tests/tb_apps.sv'], [], False),
+    # The board top through its block-design wrapper (simt_ps_wrap.v), with the AXI
+    # ID width the build gives the cell; and the B3+B4 board configuration
+    # (fpga/create_bd_ps.tcl ... warps8 l1kb64 mshr16 mtags16), whose 16 tags need a
+    # 5-bit ID. A 4-bit ID there hung the board on 2026-11-03.
+    'ps_wrap':     ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], ['rtl/soc/simt_ps_wrap.v'], False),
+    'ps_b34':      ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], [], False),
+    'ps_wrap_b34': ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], ['rtl/soc/simt_ps_wrap.v'], False),
+    'apps_b34':    ('tb_apps', PS + ['tests/tb_apps.sv'], [], False),
+    'apps_w8_b34': ('tb_apps', PS + ['tests/tb_apps.sv'], [], False),
+    # Writes that take effect only at their B response (AXI allows a read to pass a
+    # write), at sizes where the stream of A evicts the histogram's bin lines from the
+    # L1: an AMO read that then misses must wait for the previous AMO write. Without
+    # that the board lost histogram updates at N = 262144 (2026-11-03).
+    'ps_late':      ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], [], False, ['N=16384', 'MEM_LATE=1']),
+    'ps_b34_late':  ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], [], False, ['N=16384', 'MEM_LATE=1']),
+    'ps_b34_board': ('tb_ps_top', PS + ['tests/tb_ps_top.sv'], [], False, ['N=262144', 'MEM_LATE=1']),
+    'apps_b34_late': ('tb_apps', PS + ['tests/tb_apps.sv'], [], False, ['MEM_LATE=1']),
 }
 # Verilog defines and xsim plusargs per test.
-DEFINES = {'apps_w8': ['SIMTIX_NUM_WARPS=8']}
+B34 = ['SIMTIX_NUM_WARPS=8', 'SIMTIX_L1_KB=64', 'SIMTIX_L1_MSHR=16', 'SIMTIX_MEM_TAGS=16']
+DEFINES = {'apps_w8': ['SIMTIX_NUM_WARPS=8'],
+           'ps_wrap': ['PS_WRAP=4'], 'ps_b34': B34, 'ps_wrap_b34': B34 + ['PS_WRAP=5'],
+           'apps_b34': B34, 'apps_w8_b34': B34, 'ps_b34_late': B34, 'ps_b34_board': B34,
+           'apps_b34_late': B34}
 APPS_W8 = os.path.join(ROOT, 'build_apps_w8')
-PLUSARGS = {'apps_w8': [f'MANIFEST={APPS_W8}/apps.manifest'.replace('\\', '/')]}
+PLUSARGS = {n: [f'MANIFEST={APPS_W8}/apps.manifest'.replace('\\', '/')]
+            for n in ('apps_w8', 'apps_w8_b34')}
 
 
 def prepare(name):
     """Generate a test's input data if it is missing."""
-    if name == 'apps_w8' and not os.path.isfile(os.path.join(APPS_W8, 'apps.manifest')):
+    if name in ('apps_w8', 'apps_w8_b34') and not os.path.isfile(os.path.join(APPS_W8, 'apps.manifest')):
         subprocess.run([sys.executable, os.path.join(ROOT, 'sim', 'gen_apps.py'), '--size', 'board',
                         '--only', 'gemmrb', '--out', APPS_W8], check=True,
                        stdout=subprocess.DEVNULL)

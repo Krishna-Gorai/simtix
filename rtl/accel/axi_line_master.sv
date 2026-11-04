@@ -4,12 +4,16 @@
 // Turns the line-wide, tagged, split-transaction port (the memory side of
 // l1_dcache) into AXI4 transactions for a DW-bit slave such as the Zynq
 // UltraScale+ S_AXI_HP ports into DDR4. A line (LINE_BITS) is one INCR burst of
-// NB = LINE_BITS / DW beats; the request tag is the AXI ID, so reads with
-// different tags may complete in any order (as the line protocol allows).
+// NB = LINE_BITS / DW beats. A read's tag is its AXI ID, so reads with different
+// tags may complete in any order (as the line protocol allows). Every write goes
+// out with the one ID WID: AXI completes the writes of one ID in order, also in
+// memory, so a write cannot pass an earlier write to the same line (writes with
+// different IDs may, and the board lost AMO updates that way on 2026-11-03). The
+// tags of the writes in flight wait in a FIFO for their in-order B responses.
 //
 //   read  : AR (ARID = tag) -> NB beats on R -> one line response, tag = RID
-//   write : AW + NB beats on W (WSTRB from the byte enables) -> B -> response,
-//           tag = BID
+//   write : AW (AWID = WID) + NB beats on W (WSTRB from the byte enables) -> B ->
+//           response, tag = the oldest write tag in the FIFO
 //
 // One read and one write may wait in staging registers for their address
 // channel; a new request of the same kind is granted once its stage is free.
@@ -55,7 +59,9 @@ module axi_line_master
     output logic                  m_axi_wlast,
     output logic                  m_axi_wvalid,
     input  logic                  m_axi_wready,
+    /* verilator lint_off UNUSEDSIGNAL */   // every write has ID WID; B comes in order
     input  logic [IDW-1:0]        m_axi_bid,
+    /* verilator lint_on UNUSEDSIGNAL */
     /* verilator lint_off UNUSEDSIGNAL */   // bit 0 (EXOKAY) does not matter
     input  logic [1:0]            m_axi_bresp,
     /* verilator lint_on UNUSEDSIGNAL */
@@ -83,6 +89,9 @@ module axi_line_master
     localparam int NB  = LINE_BITS / DW;         // beats per line
     localparam int BW  = (NB > 1) ? $clog2(NB) : 1;
     localparam int NID = 1 << IDW;
+    // Write tags are {1, t}: at most NID / 2 writes are in flight.
+    localparam int WQW = (IDW > 2) ? IDW - 1 : 1;
+    localparam logic [IDW-1:0] WID = {1'b1, {(IDW-1){1'b0}}};
 
     // Fixed burst attributes: INCR bursts of NB beats of DW bits, normal
     // non-cacheable bufferable memory, unprivileged secure data access.
@@ -141,7 +150,7 @@ module axi_line_master
     always_ff @(posedge clk)
         if (s_req && s_gnt) begin
             if (s_we) begin
-                m_axi_awid   <= s_tag;
+                m_axi_awid   <= WID;
                 m_axi_awaddr <= s_addr;
                 w_data       <= s_wdata;
                 w_be         <= s_be;
@@ -165,7 +174,20 @@ module axi_line_master
         s_rdata[(NB-1)*DW +: DW] = m_axi_rdata;
     end
     assign s_rvalid = r_done || m_axi_bvalid;
-    assign s_rtag   = r_done ? m_axi_rid : m_axi_bid;
+    // Tags of the writes in flight, in AW order.
+    logic [IDW-1:0] wq [0:(1 << WQW)-1];
+    logic [WQW-1:0] wq_wp, wq_rp;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            wq_wp <= '0;
+            wq_rp <= '0;
+        end else begin
+            if (s_req && s_gnt && s_we)       wq_wp <= wq_wp + 1'b1;
+            if (m_axi_bvalid && m_axi_bready) wq_rp <= wq_rp + 1'b1;
+        end
+        if (s_req && s_gnt && s_we) wq[wq_wp] <= s_tag;
+    end
+    assign s_rtag   = r_done ? m_axi_rid : wq[wq_rp];
 
     always_ff @(posedge clk) begin
         if (rst) begin

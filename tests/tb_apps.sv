@@ -6,7 +6,7 @@
 // stalls; the DRAM-sized inputs of gen_apps.py --size dram need WORDS_LG = 24,
 // with --words-lg 24 there). Everything a case
 // needs comes from the manifest that sim/gen_apps.py writes:
-//   KERNEL <slot> <hex>        kernel image -> instruction RAM at 256*slot bytes
+//   KERNEL <slot> <hex>        kernel image -> instruction RAM at 64*slot bytes (16-word slots)
 //   CASE <name>                start a case: the DDR4 model is cleared
 //   MEM <file>                 $readmemh preload of the DDR4 model
 //   LAUNCH <tag> <slot> <param address> <threads> <block_log2>
@@ -123,7 +123,7 @@ module tb_apps
     task automatic launch(input string tag, input int slot, input logic [31:0] prm,
                           input int n, input int blk);
         logic [31:0] st, cyc, hits, miss, err, insns, act;
-        axil_wr(16'(REG_KERNEL_PC), 32'(256*slot));
+        axil_wr(16'(REG_KERNEL_PC), 32'(64*slot));
         axil_wr(16'(REG_BASE_A), prm);
         axil_wr(16'(REG_BASE_B), 32'd0);
         axil_wr(16'(REG_BASE_C), 32'd0);
@@ -145,14 +145,14 @@ module tb_apps
     endtask
     /* verilator lint_on UNUSEDSIGNAL */
 
-    // A kernel occupies one or more consecutive 256-byte slots (up to four);
+    // A kernel occupies one or more consecutive 16-word slots (up to 256 words);
     // only the words of its image are written.
     task automatic load_kernel(input int slot, input string path);
         logic [31:0] kimg [0:255];
         for (int i = 0; i < 256; i++) kimg[i] = 'x;
         $readmemh(path, kimg);
         for (int i = 0; i < 256 && !$isunknown(kimg[i]); i++)
-            axil_wr(16'h1000 + 16'(256*slot + 4*i), kimg[i]);
+            axil_wr(16'h1000 + 16'(64*slot + 4*i), kimg[i]);
     endtask
 
     task automatic check_gold(input string path);

@@ -47,7 +47,7 @@
 #define REG_L1_MISSES  0x104u
 #define IRAM           0x1000u
 
-/* Instruction-RAM byte offsets (slots 0 and 1 hold reduce_shfl / histogram). */
+/* Instruction-RAM byte offsets (0x000 and 0x080 hold reduce_shfl / histogram, main.c). */
 #define PC_GEMM        0x200u
 #define PC_SPMV        0x300u
 #define PC_STENCIL     0x400u
@@ -59,6 +59,9 @@
 #define PC_GEMM_RB     0xA00u      /* 98 words: 0xA00-0xB87 (v3) */
 #define PC_SCAN_SEG    0xC00u      /* v3 segmented scan */
 #define PC_SCAN_SEGADD 0xD00u
+#define PC_STENCIL_RB  0x100u      /* v3 strip-mined stencil, up to 64 words */
+#define PC_KMEANS_U    0xE00u      /* v3 two points per thread, up to 128 words */
+#define PC_SPMV_Z      0x380u      /* v3 pointer walk + sh2add, up to 32 words (after spmv) */
 #define LANES          8u          /* the host drives the 8-lane accelerator */
 
 #define ARENA_BASE     0x10000000u
@@ -263,7 +266,7 @@ static unsigned app_gemm(uint32_t n, int blocked)
 }
 
 /* ── SpMV: y = M x, CSR, FP32 ───────────────────────────────────────────────── */
-static unsigned app_spmv(uint32_t rows, uint32_t maxnnz)
+static unsigned app_spmv(uint32_t rows, uint32_t maxnnz, int zba)
 {
     XTime t0, t1, t2, t3;
     uint32_t *rowptr = alloc_u32(rows + 1);
@@ -284,7 +287,7 @@ static unsigned app_spmv(uint32_t rows, uint32_t maxnnz)
     idle_phase();
     XTime_GetTime(&t0);
     for (ph_begin(PW_ACCEL); ph_again(); )
-        launch(PC_SPMV, p, rows, 0);
+        launch(zba ? PC_SPMV_Z : PC_SPMV, p, rows, 0);   /* zba: spmv_z.S */
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -297,7 +300,7 @@ static unsigned app_spmv(uint32_t rows, uint32_t maxnnz)
         }
     XTime_GetTime(&t3);
     unsigned e = diff((uint32_t *)y, (uint32_t *)ref, rows);
-    report("spmv", rows, us(t0, t1), us(t2, t3), e);
+    report(zba ? "spmvz" : "spmv", rows, us(t0, t1), us(t2, t3), e);
     return e;
 }
 
@@ -312,7 +315,7 @@ static void stencil_ref(const float *in, float *out, uint32_t n, uint32_t s, flo
         }
 }
 
-static unsigned app_stencil(uint32_t n, uint32_t sweeps)
+static unsigned app_stencil(uint32_t n, uint32_t sweeps, uint32_t rows)
 {
     XTime t0, t1, t2, t3;
     uint32_t s = n + 16, words = (n + 2) * s, lg = 0;
@@ -323,15 +326,16 @@ static unsigned app_stencil(uint32_t n, uint32_t sweeps)
     for (uint32_t i = 0; i < words; i++) g[0][i] = g[1][i] = r[0][i] = r[1][i] = rnd_f32();
     uint32_t *p[16];
     for (uint32_t t = 0; t < sweeps && t < 16; t++) {
-        p[t] = params(6);
+        p[t] = params(7);
         p[t][0] = addr(g[t % 2]); p[t][1] = addr(g[(t + 1) % 2]);
-        p[t][2] = lg; p[t][3] = s; p[t][4] = f2u(c0); p[t][5] = f2u(c1);
+        p[t][2] = lg; p[t][3] = s; p[t][4] = f2u(c0); p[t][5] = f2u(c1); p[t][6] = rows;
     }
     clean_all();
     idle_phase();
     XTime_GetTime(&t0);
     for (ph_begin(PW_ACCEL); ph_again(); )
-        for (uint32_t t = 0; t < sweeps && t < 16; t++) launch(PC_STENCIL, p[t], n * n, 0);
+        for (uint32_t t = 0; t < sweeps && t < 16; t++)   /* rows: stencil_rb.S, a strip per thread */
+            launch(rows ? PC_STENCIL_RB : PC_STENCIL, p[t], rows ? n / rows * n : n * n, 0);
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -341,12 +345,12 @@ static unsigned app_stencil(uint32_t n, uint32_t sweeps)
             stencil_ref(r[t % 2], r[(t + 1) % 2], n, s, c0, c1);
     XTime_GetTime(&t3);
     unsigned e = diff((uint32_t *)g[sweeps % 2], (uint32_t *)r[sweeps % 2], words);
-    report("stencil", n, us(t0, t1), us(t2, t3), e);
+    report(rows ? "stencilrb" : "stencil", n, us(t0, t1), us(t2, t3), e);
     return e;
 }
 
 /* ── k-means: assignment + accumulation, integer 2-D points ─────────────────── */
-static unsigned app_kmeans(uint32_t npts, uint32_t k)
+static unsigned app_kmeans(uint32_t npts, uint32_t k, uint32_t two)
 {
     XTime t0, t1, t2, t3;
     uint32_t *px = alloc_u32(npts), *py = alloc_u32(npts), *as = alloc_u32(npts);
@@ -365,7 +369,7 @@ static unsigned app_kmeans(uint32_t npts, uint32_t k)
     idle_phase();
     XTime_GetTime(&t0);
     for (ph_begin(PW_ACCEL); ph_again(); )
-        launch(PC_KMEANS, p, npts, 0);
+        launch(two ? PC_KMEANS_U : PC_KMEANS, p, two ? npts / 2u : npts, 0);   /* two: kmeans_u.S */
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -385,7 +389,7 @@ static unsigned app_kmeans(uint32_t npts, uint32_t k)
     }
     XTime_GetTime(&t3);
     unsigned e = diff(as, ras, npts) + diff(sx, rsx, k) + diff(sy, rsy, k) + diff(cn, rcn, k);
-    report("kmeans", npts, us(t0, t1), us(t2, t3), e);
+    report(two ? "kmeansu" : "kmeans", npts, us(t0, t1), us(t2, t3), e);
     return e;
 }
 
@@ -641,31 +645,43 @@ unsigned run_apps(void)
     load(PC_GEMM_RB,     k_gemm_rb,     sizeof k_gemm_rb / 4u);
     load(PC_SCAN_SEG,    k_scan_seg,    sizeof k_scan_seg / 4u);
     load(PC_SCAN_SEGADD, k_scan_segadd, sizeof k_scan_segadd / 4u);
+    _Static_assert(sizeof k_stencil_rb <= 0x100u, "stencil_rb overflows 0x100-0x1FF");
+    _Static_assert(sizeof k_kmeans_u <= 0x200u, "kmeans_u overflows 0xE00-0xFFF");
+    load(PC_STENCIL_RB,  k_stencil_rb,  sizeof k_stencil_rb / 4u);
+    load(PC_KMEANS_U,    k_kmeans_u,    sizeof k_kmeans_u / 4u);
+    _Static_assert(sizeof k_spmv <= 0x80u && sizeof k_spmv_z <= 0x80u, "spmv / spmv_z overflow 0x300-0x3FF");
+    load(PC_SPMV_Z,      k_spmv_z,      sizeof k_spmv_z / 4u);
 
     RUN(app_gemm(64, 0));       RUN(app_gemm(256, 0));
-    RUN(app_spmv(4096, 16));    RUN(app_spmv(65536, 16));
-    RUN(app_stencil(128, 4));   RUN(app_stencil(512, 4));
-    RUN(app_kmeans(16384, 16)); RUN(app_kmeans(262144, 16));
+    RUN(app_spmv(4096, 16, 0)); RUN(app_spmv(65536, 16, 0));
+    RUN(app_stencil(128, 4, 0));   RUN(app_stencil(512, 4, 0));
+    RUN(app_kmeans(16384, 16, 0)); RUN(app_kmeans(262144, 16, 0));
     RUN(app_bfs(16384, 8));     RUN(app_bfs(262144, 8));
     RUN(app_scan(65536, 0));    RUN(app_scan(1u << 20, 0));
     RUN(app_mlp(16));           RUN(app_mlp(256));
     /* v3 kernels last, so the inputs of the cases above are those of the earlier runs */
     RUN(app_gemm(64, 1));       RUN(app_gemm(256, 1));
     RUN(app_scan(65536, 1));    RUN(app_scan(1u << 20, 1));
+    RUN(app_stencil(128, 4, 16));  RUN(app_stencil(512, 4, 16));
+    RUN(app_kmeans(16384, 16, 1)); RUN(app_kmeans(262144, 16, 1));
+    RUN(app_spmv(4096, 16, 1)); RUN(app_spmv(65536, 16, 1));
 
     /* Power pass on the DRAM-sized inputs */
     if (pw_init() > 0) {
         xil_printf("POWER,app,size,phase,rail,mV,mW,samples,reps,ms\r\n");
         pmode = 1;
         PRUN(app_gemm(256, 0));
-        PRUN(app_spmv(65536, 16));
-        PRUN(app_stencil(512, 4));
-        PRUN(app_kmeans(262144, 16));
+        PRUN(app_spmv(65536, 16, 0));
+        PRUN(app_stencil(512, 4, 0));
+        PRUN(app_kmeans(262144, 16, 0));
         PRUN(app_bfs(262144, 8));
         PRUN(app_scan(1u << 20, 0));
         PRUN(app_mlp(256));
         PRUN(app_gemm(256, 1));
         PRUN(app_scan(1u << 20, 1));
+        PRUN(app_stencil(512, 4, 16));
+        PRUN(app_kmeans(262144, 16, 1));
+        PRUN(app_spmv(65536, 16, 1));
         pmode = 0;
     }
     return errs;

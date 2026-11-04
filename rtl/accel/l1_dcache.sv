@@ -20,7 +20,9 @@
 //
 // Reads: a hit answers from the data bank. A miss allocates one of NMSHR miss
 // registers and requests the line downstream; a later miss to the same line
-// joins that register (a mask over the upstream tags). When the line returns it
+// joins that register (a mask over the upstream tags). A miss to a line with a
+// write in flight downstream waits until memory has acknowledged that write: AXI
+// lets a read pass a write, and the read would return the line without it. When the line returns it
 // is held in the register, every waiting request is answered from it, and it
 // is written into the cache (way: an invalid one, else round robin).
 //
@@ -203,20 +205,36 @@ module l1_dcache
         end
     end
 
+    // ── Writes in flight downstream, by upstream tag, with their lines ──────────
+    // AXI does not order a read after a write to the same address, so a read that
+    // misses a line with a write in flight could fetch the line from before the
+    // write; such a read waits until memory has acknowledged the write. (The memory
+    // engine ends an AMO's lock when its write is sent, and the next AMO of the line
+    // reads it.) Two writes stay in order through axi_line_master's single write ID.
+    logic [NUT-1:0] w_v;
+    logic [LA-1:0]  w_line [0:NUT-1];
+    logic           w_any;                       // a write to the request line is in flight
+    always_comb begin
+        w_any = 1'b0;
+        for (int t = 0; t < NUT; t++) if (w_v[t] && (w_line[t] == r_line)) w_any = 1'b1;
+    end
+
     // ── Accepting a request ──────────────────────────────────────────────────────
     //   read hit             : answered next cycle from the data bank
     //   read, line in flight : joins that miss register
-    //   read miss            : new miss register + downstream read
+    //   read miss            : new miss register + downstream read; waits while a
+    //                          write to the same line is in flight downstream
     //   write                : downstream write (+ cache update on a hit); waits
     //                          while a miss to the same line is in flight
-    //   prefetch             : dropped on a hit, a line in flight or no free miss
-    //                          register; else a miss register with no waiter
+    //   prefetch             : dropped on a hit, a line in flight, a write to the
+    //                          line in flight or no free miss register; else a
+    //                          miss register with no waiter
     logic rd_hit, rd_join, rd_miss, wr_go, pf_drop;
     assign rd_hit  = i_v && !i_r.we && !i_r.pf && hit;
     assign rd_join = i_v && !i_r.we && !i_r.pf && !hit && q_any;
-    assign rd_miss = i_v && !i_r.we && !hit && !q_any && q_free;
+    assign rd_miss = i_v && !i_r.we && !hit && !q_any && q_free && !w_any;
     assign wr_go   = i_v &&  i_r.we && !q_any;
-    assign pf_drop = i_v &&  i_r.pf && (hit || q_any || !q_free);
+    assign pf_drop = i_v &&  i_r.pf && (hit || q_any || !q_free || w_any);
 
     assign m_req   = rd_miss || wr_go;
     assign m_tag   = wr_go ? {1'b1, i_r.tag} : {{(DTW-MW){1'b0}}, q_new};
@@ -304,6 +322,17 @@ module l1_dcache
         end
         if (rst) wr_out <= '0;
         else     wr_out <= wr_out + (UTW+1)'(acc_wr) - (UTW+1)'(m_rvalid && m_isw);
+    end
+    // An upstream tag is reused only after its response, so a write's entry is free
+    // when the write is accepted.
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            w_v <= '0;
+        end else begin
+            if (m_rvalid && m_isw) w_v[m_rtag[UTW-1:0]] <= 1'b0;
+            if (acc_wr)            w_v[i_r.tag]         <= 1'b1;
+        end
+        if (acc_wr) w_line[i_r.tag] <= r_line;
     end
 
     // ── Upstream responses: hit (fixed timing) > miss-register drain > write ack ──

@@ -9,7 +9,8 @@
 //           later (+0..7 random if OOO), and the lowest due ID streams next, so
 //           bursts of different IDs complete out of order
 //   writes: W beats apply to the oldest accepted AW (AXI4 order); B is due LAT
-//           (+0..7 random if OOO) cycles after the last beat
+//           (+0..7 random if OOO) cycles after the last beat. Up to 16 writes of
+//           one ID may wait for B; they are answered in order (as AXI requires)
 //   STALL : withholds AR/AW/W ready on about one cycle in four
 //   RJW   : width of the random part of the latency (default 3: +0..7); with
 //           RJW > 3 reads take LAT + 0..2^RJW-1 and writes BLAT + 0..2^RJW-1
@@ -136,14 +137,21 @@ module axi_mem_model #(
     logic [3:0]        awq_wp, awq_rp;
     logic [4:0]        awq_n;
     logic [7:0]        wb_beat;
-    logic              bs_v   [NID];
-    int unsigned       bs_due [NID];
+    // Writes waiting for B: per ID a FIFO of WQD, each with its due time and (LATE)
+    // its beats, which take effect when its B response is sent.
+    localparam int WQD = 16;
+    logic [4:0]        bq_n   [NID];
+    logic [3:0]        bq_wp  [NID], bq_rp [NID];
+    int unsigned       bq_due [NID][WQD];
     logic              b_pick;
     logic [IDW-1:0]    b_pid;
-    // LATE: the beats of each ID's write wait here until its B response
-    logic [31:0]       pw_addr [NID];
-    logic [DW-1:0]     pw_data [NID][MAXB];
-    logic [DW/8-1:0]   pw_strb [NID][MAXB];
+    logic [31:0]       pw_addr [NID][WQD];
+    logic [DW-1:0]     pw_data [NID][WQD][MAXB];
+    logic [DW/8-1:0]   pw_strb [NID][WQD][MAXB];
+    logic              w_push;
+    logic [IDW-1:0]    w_pid;
+    assign w_push = wvalid && wready && wlast;
+    assign w_pid  = awq_id[awq_rp];
     logic [DW-1:0]     cw_data [MAXB];
     logic [DW/8-1:0]   cw_strb [MAXB];
 
@@ -168,7 +176,9 @@ module axi_mem_model #(
         b_pick = 1'b0;
         b_pid  = '0;
         for (int t = NID-1; t >= 0; t--)
-            if (bs_v[t] && (bs_due[t] <= now)) begin b_pick = 1'b1; b_pid = IDW'(t); end
+            if ((bq_n[t] != 5'd0) && (bq_due[t][bq_rp[t]] <= now)) begin
+                b_pick = 1'b1; b_pid = IDW'(t);
+            end
     end
     assign bvalid = b_pick;
     assign bid    = b_pid;
@@ -178,7 +188,7 @@ module axi_mem_model #(
             now <= 0; rb_act <= 1'b0; rb_beat <= '0; wb_beat <= '0;
             awq_wp <= '0; awq_rp <= '0; awq_n <= '0;
             for (int t = 0; t < NID; t++) rs_v[t] <= 1'b0;
-            for (int t = 0; t < NID; t++) bs_v[t] <= 1'b0;
+            for (int t = 0; t < NID; t++) begin bq_n[t] <= '0; bq_wp[t] <= '0; bq_rp[t] <= '0; end
         end else begin
             now <= now + 1;
             if (arvalid && arready) begin
@@ -208,23 +218,27 @@ module axi_mem_model #(
                 cw_strb[wb_beat[BBW-1:0]] = wstrb;
                 wb_beat <= wb_beat + 8'd1;
                 if (wlast) begin
-                    pw_addr[awq_id[awq_rp]] <= awq_addr[awq_rp];
+                    if (bq_n[w_pid] == 5'(WQD)) $error("axi_mem_model: over %0d writes of ID %0d", WQD, w_pid);
+                    pw_addr[w_pid][bq_wp[w_pid]] <= awq_addr[awq_rp];
                     for (int b = 0; b < MAXB; b++) begin
-                        pw_data[awq_id[awq_rp]][b] <= cw_data[b];
-                        pw_strb[awq_id[awq_rp]][b] <= (b <= int'(wb_beat)) ? cw_strb[b] : '0;
+                        pw_data[w_pid][bq_wp[w_pid]][b] <= cw_data[b];
+                        pw_strb[w_pid][bq_wp[w_pid]][b] <= (b <= int'(wb_beat)) ? cw_strb[b] : '0;
                     end
+                    bq_due[w_pid][bq_wp[w_pid]] <= now + BL + b_jit;
+                    bq_wp[w_pid] <= bq_wp[w_pid] + 1'b1;
                     wb_beat <= '0;
                     awq_rp  <= awq_rp + 1'b1;
-                    bs_v[awq_id[awq_rp]]   <= 1'b1;
-                    bs_due[awq_id[awq_rp]] <= now + BL + b_jit;
                 end
             end
             awq_n <= awq_n + 5'(awvalid && awready) - 5'(wvalid && wready && wlast);
             if (bvalid && bready) begin
-                bs_v[bid] <= 1'b0;
+                bq_rp[bid] <= bq_rp[bid] + 1'b1;
                 if (LATE != 0)
-                    for (int b = 0; b < MAXB; b++) put(pw_addr[bid], b, pw_data[bid][b], pw_strb[bid][b]);
+                    for (int b = 0; b < MAXB; b++)
+                        put(pw_addr[bid][bq_rp[bid]], b, pw_data[bid][bq_rp[bid]][b], pw_strb[bid][bq_rp[bid]][b]);
             end
+            for (int t = 0; t < NID; t++)
+                bq_n[t] <= bq_n[t] + 5'(w_push && (w_pid == IDW'(t))) - 5'(bvalid && bready && (bid == IDW'(t)));
         end
     end
 
