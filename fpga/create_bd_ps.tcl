@@ -25,10 +25,13 @@ set sfx [expr {$board eq "zcu104" ? "" : "_$board"}]
 foreach a $argv { if {[regexp {^tag(\w+)$} $a -> t]} { append sfx "_$t" } }
 # Optional warps<n> (SIMTIX_NUM_WARPS, default 4), l1kb<n> (SIMTIX_L1_KB, 16), mshr<n>
 # (SIMTIX_L1_MSHR, 4), mtags<n> (SIMTIX_MEM_TAGS, 8), e.g. "warps8 l1kb64 mshr16 mtags16".
+# Also lanes<n> (SIMTIX_NUM_LANES, 8), agg<0|1> (SIMTIX_AMO_AGG, 1: line-aggregated
+# AMOs) and apar<0|1> (SIMTIX_AMO_PAR, 0: the serial aggregation; 1: parallel).
 set defs {}
-array set dname {warps SIMTIX_NUM_WARPS l1kb SIMTIX_L1_KB mshr SIMTIX_L1_MSHR mtags SIMTIX_MEM_TAGS}
+array set dname {warps SIMTIX_NUM_WARPS l1kb SIMTIX_L1_KB mshr SIMTIX_L1_MSHR mtags SIMTIX_MEM_TAGS
+                 lanes SIMTIX_NUM_LANES agg SIMTIX_AMO_AGG apar SIMTIX_AMO_PAR}
 foreach a $argv {
-    if {[regexp {^(warps|l1kb|mshr|mtags)(\d+)$} $a -> k n]} { lappend defs $dname($k)=$n }
+    if {[regexp {^(warps|l1kb|mshr|mtags|lanes|agg|apar)(\d+)$} $a -> k n]} { lappend defs $dname($k)=$n }
 }
 # Optional mhz<n>: the PL clock requested from the PS (default 100; the PS divides a
 # 1.5 GHz PLL by integers, so e.g. 107, 115 or 125 MHz); retime: synthesis retiming.

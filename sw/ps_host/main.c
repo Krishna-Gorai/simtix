@@ -43,6 +43,8 @@ unsigned run_apps(void);   /* apps.c */
 
 #define PC_REDUCE      0x000u          /* instruction-RAM byte offsets */
 #define PC_HIST        0x080u          /* 0x100-0x1FF: stencil_rb (apps.c) */
+#define PC_CONTEND     0x280u          /* after gemm (apps.c, 0x200-0x277) */
+#define PC_HSHARED     0x840u          /* after scan_add (apps.c, 0x800-0x837) */
 
 #define NMAX           (1u << 18)      /* 262144 elements */
 
@@ -50,6 +52,9 @@ unsigned run_apps(void);   /* apps.c */
 static uint32_t A[NMAX]          __attribute__((aligned(64)));
 static uint32_t C[NMAX / 8 + 64] __attribute__((aligned(64)));
 static uint32_t REF[NMAX / 8 + 64];
+static uint32_t KB[2u * NMAX]    __attribute__((aligned(64)));   /* amo_contend: 16 words per warp */
+static uint32_t CC[4u * NMAX]    __attribute__((aligned(64)));   /* amo_contend: 4 results per thread */
+static uint32_t KREF[2u * NMAX], CREF[4u * NMAX];
 
 static inline void wr(uint32_t off, uint32_t v) { Xil_Out32(SIMT_BASE + off, v); }
 static inline uint32_t rd(uint32_t off)         { return Xil_In32(SIMT_BASE + off); }
@@ -65,20 +70,27 @@ static void load_kernel(uint32_t pc, const uint32_t *w, unsigned n)
 }
 
 /* Launch one kernel and wait; returns accelerator cycles, fills wall time. */
-static uint32_t launch(uint32_t pc, uint32_t n, double *t_us)
+static uint32_t launch_ab(uint32_t pc, uint32_t n, const void *a, const void *b, const void *c,
+                          uint32_t block, double *t_us)
 {
     XTime t0, t1;
     wr(REG_KERNEL_PC, pc);
-    wr(REG_BASE_A, (uint32_t)(uintptr_t)A);
-    wr(REG_BASE_C, (uint32_t)(uintptr_t)C);
+    wr(REG_BASE_A, (uint32_t)(uintptr_t)a);
+    wr(REG_BASE_B, (uint32_t)(uintptr_t)b);
+    wr(REG_BASE_C, (uint32_t)(uintptr_t)c);
     wr(REG_N, n);
-    wr(REG_BLOCK, 0);
+    wr(REG_BLOCK, block);
     XTime_GetTime(&t0);
     wr(REG_CTRL, 1);
     while (!(rd(REG_STATUS) & 1u)) ;
     XTime_GetTime(&t1);
     *t_us = us(t0, t1);
     return rd(REG_CYCLES);
+}
+
+static uint32_t launch(uint32_t pc, uint32_t n, double *t_us)
+{
+    return launch_ab(pc, n, A, 0, C, 0, t_us);
 }
 
 static uint32_t hash(uint32_t i) { return ((i * 2654435761u) >> 12) & 0xFFFu; }
@@ -140,6 +152,65 @@ static unsigned run_hist(uint32_t n)
     return errs;
 }
 
+/* hist_shared: the histogram privatised in block-shared memory (32-thread blocks,
+   one global AMO per bin and block) */
+static unsigned run_hist_shared(uint32_t n)
+{
+    XTime t0, t1;
+    double acc_us;
+    unsigned errs = 0;
+    for (uint32_t i = 0; i < n; i++) A[i] = hash(i);
+    for (uint32_t b = 0; b < 16u; b++) C[b] = 0;
+    Xil_DCacheFlushRange((INTPTR)A, n * 4u);
+    Xil_DCacheFlushRange((INTPTR)C, 64u);
+
+    uint32_t cyc = launch_ab(PC_HSHARED, n, A, 0, C, 2u, &acc_us);
+    Xil_DCacheInvalidateRange((INTPTR)C, 64u);
+
+    XTime_GetTime(&t0);
+    for (uint32_t b = 0; b < 16u; b++) REF[b] = 0;
+    for (uint32_t i = 0; i < n; i++) REF[A[i] & 15u]++;
+    XTime_GetTime(&t1);
+    for (uint32_t b = 0; b < 16u; b++) errs += (C[b] != REF[b]);
+    report("hist_shared", n, cyc, acc_us, us(t0, t1), errs);
+    return errs;
+}
+
+/* amo_contend: amoadd / amomax / amoswap that collide within a warp. Every
+   returned value and the final words are checked against the lanes executed one
+   at a time in ascending order (amo_contend.S). Warps own disjoint words, so the
+   serial order over all threads is ascending tid. */
+static unsigned run_contend(uint32_t n)
+{
+    XTime t0, t1;
+    double acc_us;
+    unsigned errs = 0;
+    for (uint32_t i = 0; i < n; i++)          /* odd threads negative, for amomax */
+        A[i] = hash(i) ^ ((i & 1u) ? 0x80000000u : 0u);
+    for (uint32_t i = 0; i < 2u * n; i++) KB[i] = KREF[i] = hash(i + 7u) - 0x800u;
+    for (uint32_t i = 0; i < 4u * n; i++) CC[i] = CREF[i] = 0xDEADBEEFu;
+    Xil_DCacheFlushRange((INTPTR)A, n * 4u);
+    Xil_DCacheFlushRange((INTPTR)KB, 2u * n * 4u);
+    Xil_DCacheFlushRange((INTPTR)CC, 4u * n * 4u);
+
+    uint32_t cyc = launch_ab(PC_CONTEND, n, A, KB, CC, 0, &acc_us);
+    Xil_DCacheInvalidateRange((INTPTR)KB, 2u * n * 4u);
+    Xil_DCacheInvalidateRange((INTPTR)CC, 4u * n * 4u);
+
+    XTime_GetTime(&t0);
+    for (uint32_t t = 0; t < n; t++) {
+        uint32_t v = A[t], b = v & 3u, *k = KREF + 16u * (t / 8u);
+        CREF[4u * t + 0] = k[b];     k[b] += v;
+        CREF[4u * t + 1] = k[4 + b]; if ((int32_t)v > (int32_t)k[4 + b]) k[4 + b] = v;
+        CREF[4u * t + 2] = k[8 + b]; k[8 + b] = t;
+    }
+    XTime_GetTime(&t1);
+    for (uint32_t i = 0; i < 2u * n; i++) errs += (KB[i] != KREF[i]);
+    for (uint32_t i = 0; i < 4u * n; i++) errs += (CC[i] != CREF[i]);
+    report("amo_contend", n, cyc, acc_us, us(t0, t1), errs);
+    return errs;
+}
+
 /* ── Console copy in DDR ────────────────────────────────────────────────────────
    With only the JTAG cable on the board there is no UART to read. build_vitis.py
    compiles every host file with -Dxil_printf=con_printf: the text still goes to
@@ -190,6 +261,10 @@ int main(void)
 #endif
     load_kernel(PC_REDUCE, k_reduce_shfl, sizeof k_reduce_shfl / 4u);
     load_kernel(PC_HIST,   k_histogram,   sizeof k_histogram / 4u);
+    _Static_assert(sizeof k_amo_contend <= 0x80u, "amo_contend overflows 0x280-0x2FF");
+    _Static_assert(sizeof k_hist_shared <= 0xC0u, "hist_shared overflows 0x840-0x8FF");
+    load_kernel(PC_CONTEND, k_amo_contend, sizeof k_amo_contend / 4u);
+    load_kernel(PC_HSHARED, k_hist_shared, sizeof k_hist_shared / 4u);
     for (unsigned i = 0; i < sizeof k_reduce_shfl / 4u; i++)
         errs += (rd(IRAM + PC_REDUCE + 4u * i) != k_reduce_shfl[i]);
     xil_printf("instruction RAM read-back: %s\r\n", errs ? "MISMATCH" : "ok");
@@ -198,6 +273,8 @@ int main(void)
     for (unsigned s = 0; s < sizeof sizes / sizeof sizes[0]; s++) {
         errs += run_reduce(sizes[s]);
         errs += run_hist(sizes[s]);
+        errs += run_hist_shared(sizes[s]);
+        errs += run_contend(sizes[s]);
     }
     errs += run_apps();
     if (rd(REG_AXI_ERR) & 1u) { xil_printf("AXI error response seen\r\n"); errs++; }

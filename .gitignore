@@ -104,3 +104,36 @@ sw/a53_zcu102/build/
 build_apps_board/
 build_apps_dram/
 build_apps_w8/
+# Ara and Vortex baselines: Vivado/Vitis projects, XSAs, kernel builds, xsim
+# projects and generated xsim cases (regenerate with each baseline's scripts)
+baselines/ara/ara_ps_zcu102/
+baselines/ara/host/ws_zcu102/
+baselines/ara/kernels/build/
+baselines/ara/clockInfo.txt
+baselines/vortex/vortex_ps_zcu102/
+baselines/vortex/host/ws_zcu102/
+baselines/vortex/tb/xsim_proj_*/
+baselines/vortex/tb/xcase_*/
+baselines/*/*.xsa
+baselines/**/*_done.txt
+# generated application data (sim/gen_apps.py, sim/gen_suite2.py, Vortex manifests)
+build_apps_new_*/
+build_apps_vx*/
+build_suite2/
+# Rodinia suite: generated cases and the data blob (sim/gen_rodinia.py, sim/rd_data.py)
+build_rodinia*/
+build_rivec*/
+kernels/rivec/qtest/build/
+# RiVEC QEMU test: generated from the RiVEC checkout by run_qtest.sh
+kernels/rivec/qtest/rivec_bs_vector*.inc
+kernels/rivec/qtest/bs_input.h
+# board-run partial consoles, tool markers and large build products in the baselines
+docs/*.partial
+**/*_done.txt
+**/dfx_runtime.txt
+baselines/ara/clockInfo.txt
+baselines/ara/**/*.dcp
+baselines/ara/*.xsa
+baselines/vortex/tb/xsim_proj_*/
+baselines/vortex/tb/xcase_*/
+baselines/vortex/tb/sim_xcase_*

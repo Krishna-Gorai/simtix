@@ -337,7 +337,86 @@ above idle is lower on the A53 for every application (GEMM-RB 43.3 mJ on SIMTiX,
 8.3 mJ on the A53; MLP 150.7 and 26.3 mJ), because the idle phase already has the
 A53 running and the PL adds 0.3-0.9 W.
 
-## Next (2026-11-02)
+## 2026-11-03 and 2026-11-04
+
+Details and tables: `docs/v3_plan.md` (sections of 11-04). Committed and pushed as
+`b5a9d98`: the AXI write-order fix, the v3 low-cost speed-up and its board run.
+
+- **11-03.** The B3+B4 board build ran, but the histogram lost atomic updates:
+  writes with different AXI IDs, and a read after a write to the same line, completed
+  out of order. Fix: one write ID with an in-order tag FIFO in `axi_line_master`, and
+  the L1 holds a read miss while a write to its line is in flight; the test slaves
+  keep per-ID in-order write responses; `MEM_LATE=1` tests reproduce the bug.
+- **11-04 morning.** Kernels `stencil_rb`, `kmeans_u`, `spmv_z`; Zba/Zbb min-max/
+  Zicond; memory-engine request/input/resume registers and branch stage B. Build at
+  115.37 MHz (`mhz116 retime`): WNS +0.406 ns, 107,658 LUTs. Board: all bit-exact,
+  1.2-3.1x faster than B2.
+- **11-04 afternoon.** Paper retargeted to v3, everything on the board (user's
+  decision). Table I (GPU instruction sets, after Vortex's Table 1, with SIMTiX) added
+  to the paper. Build options `lanes/agg/apar`. Host and simulation for five new
+  kernels (`conv8`, `embag`, `hashj`, `mandel`, `swat`) with A53 references in CPU
+  layouts, an IRAM overlay window, and a fair MLP reference. Board runs: `ser` with
+  the new applications, A53 `-O2`/`-O3` runs, the `agg0` bitstream (built, 115.37
+  MHz, run). Findings: SIMTiX beats the best A53 on hash join 1.97x, CNN 1.31x,
+  GEMM-RB 1.25x, embedding bag 1.21x, BFS 1.19x; the old MLP win (3.85x) came from an
+  unvectorizable A53 reference (fair: 0.29x); aggregation gives 2.48x on the histogram
+  and 1.80x on contention on the board.
+- Pre-build checks for `agg0` and `apar1` (board-size `tb_ps_top` and `tb_apps`
+  with late writes, 4/4; regression 38/38; Verilator 5.020 clean) passed before the
+  `simt_ps_top` macro change was synthesized.
+- `tb_apps` status-poll limit raised from 2M to 20M (Mandelbrot and Smith-Waterman
+  at board size run longer than 10M cycles).
+
+## Next (2026-11-05)
+
+1. DONE 11-05: the board-size Mandelbrot / Smith-Waterman simulation passed (67,584
+   checks; Mandelbrot 7,885,990 cycles, Smith-Waterman 23,294,046), and the host is
+   rebuilt against `fpga/simtix_ps_zcu102_v3b34.xsa` (the workspace holds the `ser`
+   bitstream again). DONE 11-06: board run `docs/zcu102_board_run_v3_apps3.txt`,
+   Mandelbrot 0.83x and Smith-Waterman 0.57x of the best A53 (v3_plan.md).
+2. `apar1` bitstream: build started 11-06 07:23 (log `fpga/build_ps_zcu102_v3apar1.log`);
+   then host build against its XSA and a board run. Command, from `fpga/`,
+   `vivado -mode batch -nojournal -log build_ps_zcu102_v3apar1.log -source
+   create_bd_ps.tcl -tclargs build zcu102 tagv3apar1 warps8 l1kb64 mshr16 mtags16
+   apar1 mhz116 retime`, at least 3 GB free first (`wsl --shutdown` frees ~1.2 GB);
+   host build against its XSA; board run.
+   DONE 11-06: routed 09:14, WNS +0.244 ns (Fmax 118.7 MHz), 114,446 LUT / 50,053 FF /
+   16 BRAM / 72 DSP, SIMTiX 1.35 W (Vivado); board run 09:44
+   `docs/zcu102_board_run_v3_apar1.txt` PASS, 0 errors. At 262,144 threads, base ->
+   ser / par: histogram 2.47x / 3.17x, contention 1.80x / 2.06x, block-shared
+   histogram 1.16x / 1.18x, k-means-U 1.07x / 1.08x, k-means 1.02x, BFS 1.00x;
+   par/ser at most 1.28x (histogram). Paper: `tab:impl` par row, Sec. AMO text.
+   The host workspace `sw/ps_host/ws_zcu102` now holds the apar1 bitstream.
+   Ara: `bender checkout` done 11-06 (`baselines/ara/board_plan.md`, Status).
+3. Full xsim regression and Verilator after today's `gen_apps.py` (overlay) and
+   `tb_apps.sv` (poll limit) changes, before committing.
+4. Lane variants (4 and 16 lanes) on the board: kernels per lane count
+   (`kernels/apps/build.py --lanes L`), host kernels and `LANES` per build
+   (`amo_contend` assumes 8 lanes), simulation in the exact build configuration first.
+5. Vortex 3.0 on the ZCU102: `Vortex_axi` in the block design with an AXI-Lite
+   control block (DCR writes, reset, busy), a bare-metal host that loads the kernel
+   binary into DDR4; 4, 8 and 16 warps, each at the fastest PS clock it meets.
+6. Optional: a register-blocked MLP kernel.
+7. Paper rewrite for v3 with board data only; both A53 builds; the AMO table from the
+   agg0/ser/apar1 boards; the new applications; the A53-reference caveat.
+7b. Comparison set for the paper (user's decision 2026-11-05): SIMTiX against
+   **CVA6** (RV64GC application core), **Ara** (RVV 1.0 vector unit, which runs
+   with CVA6 as its scalar core, so the two share one integration), **Vortex** and
+   the **A53**, all on the ZCU102 with board power. CVA6 and Ara: start from the
+   pulp-platform/ara system (Ara + CVA6 + AXI), check which lane count fits the
+   XCZU9EG (2 or 4 lanes), host control from the A53 as for SIMTiX, kernels in C
+   (scalar for CVA6, RVV for Ara) checked against the same A53 references. The
+   HetRV work already ran CVA6 under Verilator (`project_hetrv_*` notes).
+8. After the paper (user's decision 2026-11-05): a two-core SIMTiX (phase C of
+   `docs/v3_plan.md`) rather than a higher clock. The board design uses 39% of the
+   LUTs, so two 8-lane cores fit; a higher clock (150 MHz needs an operand-read stage
+   across the issue logic, 200+ MHz a redesign) helps compute-bound kernels only,
+   not the memory-latency-bound ones.
+9. Commit when asked (not `docs/v2_plan.md`; `git add -f` the new `.hex` files:
+   `conv8 embag hashj mandel swat`). Redundant run copies that need not be committed:
+   `docs/zcu102_board_run_v3b34_prev.txt` (= `_awid`), `_nospmvz.txt`.
+
+## Next (2026-11-02, superseded)
 
 1. Full regression (29) and Verilator 5.020 on the fixed `mem_engine.sv`; commit
    when asked.
@@ -394,3 +473,202 @@ New: `docs/board_sim.csv`, `docs/figs/arch_v2_tikz/` (generators),
 `sw/a53_zcu102/`.
 
 Private, never committed: `docs/v2_plan.md`.
+
+## End of 2026-11-06
+
+- apar1 bitstream built and run on the board (PASS); paper AMO text and `tab:impl` par row updated.
+- Ara: Bender checkout, Verilator 2-lane `fmatmul` PASS, out-of-context implementation on the
+  XCZU9EG: 2 lanes full FPU 177k LUT / 80.7 MHz; 4 lanes FP32/16 does not fit (316.6k LUT, 115%).
+  Details in `baselines/ara/board_plan.md` (Status).
+- Open decision: board Ara = 2 lanes, full FPU (78.9 MHz) or a 2-lane FP32/16 build first
+  (`vivado ... -source synth_ara_ooc.tcl -tclargs 2 hs`, ~1.5 h; may raise the clock).
+- Still to do before any commit: xsim regression + Verilator (gen_apps overlay, tb_apps poll
+  limit); `git add -f` the new app `.hex` files. Then the `ara_ps_wrap` board wrapper.
+- Board host workspace `sw/ps_host/ws_zcu102` holds the apar1 build; rebuild against the ser
+  XSA before the next ser run.
+
+## 2026-11-06 evening: Ara board build
+
+- Wrapper `baselines/ara/rtl/ara_ps_top.sv` + `ara_ps_wrap.v`, testbench `tb/ara_ps_tb.*`;
+  fmatmul PASSES on the wrapper model (details in `baselines/ara/board_plan.md`, step 3).
+- Board build launched 19:08 in its own window: `create_bd_ara.tcl -tclargs build mhz79`
+  (78.94 MHz, 2 lanes, full FPU). Block design OK (ara_0 at 0xA000_0000, HP0 64-bit).
+  Finish mark: `baselines/ara/create_bd_ara_done.txt`; log `create_bd_ara.log`; reports
+  `reports_ps_zcu102/`; XSA `ara_ps_zcu102.xsa`.
+- Next: check WNS (if negative: rebuild at mhz75 = 1.5 GHz / 20); then
+  `vitis -s baselines/ara/host/build_vitis_ara.py`, then
+  `xsdb baselines/ara/host/run_board_ara.tcl` (fmatmul in ara_progs.h; the host prints
+  `ARA,<program>,<exit>,<cycles>,<hwcnt>,<us>`).
+- 2026-11-06 ~19:20: user asked to turn everything off: the build was STOPPED in synthesis
+  (no bitstream). Tomorrow relaunch it from scratch (same command; ~2 h).
+
+## 2026-11-08: Ara on the board
+
+- Ara 2-lane board build relaunched 07:31, finished 11:01: timing met at 78.94 MHz
+  (WNS +0.000, WHS +0.007), 182,331 LUT / 63,650 FF / 92.5 BRAM / 130 DSP, 4.514 W est.
+- Vitis host built; board run 11:18: fmatmul FP64 PASS, 64x64 in 164,396 cycles
+  (3.19 FLOP/cycle, 79.7% of peak), whole program 401,879 cycles / 5.09 ms.
+  Details in baselines/ara/board_plan.md; output docs/zcu102_board_run_ara.txt.
+- Next: Ara/CVA6 benchmark kernels (scalar for CVA6, RVV for Ara) with the A53 inputs/checks.
+
+## 2026-11-08 (later): Ara/CVA6 benchmark kernels on the board, comparison with SIMTiX
+
+- Kernels in `baselines/ara/kernels/`. Interface: `ak.h`. Scalar CVA6 versions: `ak_scalar.c`
+  (the A53 reference loops). RVV versions for Ara: `ak_vector.c`. Self-test and board main:
+  `ak_main.c`. Build: `build.sh` (GCC 15.2; `VCC=clang` builds the vector file with
+  clang 21 in WSL). Reference model: `qemu_st.sh` (QEMU 10.2 user mode, RVV 1.0). The
+  `dbg_*.c` files are probes from the debugging.
+- Ara executes legal GCC RVV wrongly in several ways, all found in simulation. The list
+  and the workarounds are in the `ak_vector.c` header. In short:
+  - compares at LMUL > 1 trap;
+  - vcpop and vfirst are wrong;
+  - masked operations and mask logic lose elements, hang, or give timing-dependent results;
+  - widening `.vx` operations use the whole scalar register;
+  - narrowing in place, and reloading spilled registers, give wrong values;
+  - GCC auto-vectorization breaks.
+
+  Every kernel passes under QEMU.
+- Simulation (wrapper model): 11 of 12 kernels pass. The Mandelbrot kernel deadlocks Ara in
+  every form. User decision: go to the board without Ara mandel (the host prints `ara,skip`).
+- Host `apps_ara.c` and testbench (`+TMO=` timeout, UART dump on timeout). Board run 19:04,
+  output `docs/zcu102_board_run_ara.txt`; the earlier fmatmul-only log is now
+  `docs/zcu102_board_run_ara_fmatmul.txt`.
+  - CVA6: 24/24 runs correct.
+  - Ara: 18 of 22 runs correct.
+  - Ara mlp: all logits wrong. Ara swat: half the pairs wrong.
+  - These two pass in simulation even at vl = 256. Suspect the host's vector-layout input
+    preparation; to do next.
+- Comparison table for the paper: `docs/ara_cva6_simtix_comparison.md`, with the CSV from
+  `python baselines/ara/compare_simtix.py`.
+  - SIMTiX vs Ara at the large sizes: geometric mean 5.98x in time, 4.09x per cycle, over 9 apps.
+  - SIMTiX vs CVA6: 21.2x.
+- Not committed.
+
+## 2026-11-09: suite 2 on the board, CVA6/Ara divide rounding, Vortex on the board
+
+- **Suite 2 on the ZCU102.** Host programs rebuilt with suite 2 for SIMTiX and for Ara/CVA6.
+  - SIMTiX, suites 1 and 2: PASS, 0 errors (`docs/zcu102_board_run_v3_s2.txt`).
+  - Ara/CVA6 (`docs/zcu102_board_run_ara_s2.txt`): Ara mandel now runs. Wrong results remain
+    for Ara mlp and swat (as on 2026-11-08) and for Black-Scholes on both Ara and CVA6.
+  - Large sizes, geometric mean of time against SIMTiX: Ara 4.31x and CVA6 17.2x (9 apps),
+    A53 `-O2` 0.60x (10 apps). The A53 is faster than SIMTiX on 8 of the 10 suite-2 apps;
+    the paper has to address this.
+- **CVA6 and Ara divide and square root are not correctly rounded** (they share the FPU's
+  divsqrt unit). On 4,096 random inputs (`baselines/ara/kernels/dbg_divsqrt.c`): fdiv/vfdiv
+  wrong on 355 (8.7%), fsqrt/vfsqrt on 284 (6.9%), CVA6 identical to Ara on every input.
+  Example: 0x3f33ee4f / 0x40366672 gives 0x3e7c88ca, correct 0x3e7c88cb. This explains the
+  identical Black-Scholes failures; the timings stay valid, the paper notes the accuracy.
+- **Reference fixes in `kernels/suite2/s2_ref.h`.** `s2_sqrtf` (the A53 `fsqrt` instruction,
+  no libm), the Black-Scholes code compiled with `fp-contract=off` and `noinline` (GCC fused
+  multiply-adds into the A53 reference). Checked natively and under QEMU aarch64 (0/131,072
+  wrong).
+- **Ara backprop at 2^19.** The Ara host ran out of arena; under `S2_ARA` the weights are now
+  redrawn per mode from the saved RNG state instead of copied (`sw/ps_host/suite2.inc`).
+- **Ara mlp/swat on the board.** Still open. The host cache flush and the host layouts are ruled
+  out; size is the remaining suspect. `ak_main.c` takes the self-test sizes as macros
+  (`AK_ST_MLP_DIMS`, `AK_ST_MLP_BATCH`, `AK_ST_SWAT`); the board-size simulation
+  (`build/brd_mlpswat.elf`, about 2 h) was stopped before it finished.
+- **Vortex 3.0 on the ZCU102** (`baselines/vortex/board_plan.md`, Done section).
+  - xsim of the board configuration (Xilinx FP IPs): gemm and mandel PASS after a testbench fix
+    (xsim did not re-evaluate an `always_comb` read channel over a queue; the testbench now has
+    a heartbeat and a `+MAXCYC` watchdog).
+  - Build 1 h 05 min: 125 MHz, setup slack +1.308 ns; 85,179 LUT / 85,577 FF / 62 BRAM / 48 DSP.
+  - Board run: 24/24 correct (`docs/zcu102_board_run_vortex.txt`). On the same code SIMTiX is
+    2.98x faster in time and 3.23x per cycle (large sizes, 12 apps); against SIMTiX's best
+    kernels 4.11x.
+  - Added to the comparison table (`docs/ara_cva6_simtix_comparison.md`, CSV from
+    `baselines/ara/compare_simtix.py`).
+- **Next.** Paper: the comparison table with Vortex and suite 2, the divsqrt note; switch the
+  Ara columns to the 2026-11-09 log; Ara mlp/swat board-size simulation; power for all cores.
+
+## 2026-11-10 — Rodinia, the fast benchmarks (simulation done, board run next)
+
+- **Plan and decisions** in `docs/rodinia_plan.md`: all runnable Rodinia benchmarks (19 of 23),
+  FP32 everywhere, CVA6/Ara checked within an ulp or relative tolerance where a kernel divides
+  or takes a square root (their divider and square root are not correctly rounded).
+- **Eight benchmarks on all four machines** with Rodinia's own data (`sim/rd_data.py`, a
+  100.8 MB blob loaded at DDR 0x7000_0000): pathfinder, backprop, bfs (graph65536), hotspot
+  (512 and 1024, 2 iterations), nn (42,764 records), hotspot3D (512x512x8, 100 iterations),
+  gaussian (`-s 1024`), kmeans (kdd_cup, k = 5, 37 iterations).
+  - SIMTiX: new kernels in `kernels/rodinia/`; small and board sizes PASS in simulation.
+  - Vortex: ports in `baselines/vortex/simtix_apps`; small and board sizes PASS (simx and the
+    PS testbench). Fixed the launch grid, which dropped the last threads when the count was
+    not a multiple of 32.
+  - Ara/CVA6: `ak_vector_rd.inc`, self-tests `ak_st_rd.inc`. The five Rodinia self-tests pass
+    in sequence (0 errors). Gaussian's Fan1 now runs on CVA6's scalar divider: Ara's vector
+    Fan1 gave wrong multipliers, or deadlocked, when it ran after nn (`ak_vector.c` header,
+    item 7).
+- **Hosts built** in Rodinia-only mode (`rodinia` argument, `RD_ONLY`) for SIMTiX, Vortex and
+  Ara. `baselines/ara/compare_rodinia.py` turns the three board logs into
+  `docs/rodinia_results.csv` (tested on dummy logs).
+- **Board, 15:43.** SIMTiX: all nine Rodinia runs correct (`docs/zcu102_board_run_rodinia_simtix.txt`,
+  kmeans 37 iterations). Against the A53 (-O2) SIMTiX is faster only on hotspot3D (1.75x); nn
+  runs at 0.07x. A power cut stopped the board during the Vortex run.
+- **Vortex hang on the board, fixed in the host.** `s2_load_all`/`rd_load_all` wrote SIMTiX's
+  kernels to IRAM offsets 0x1000+; Vortex's control block decodes only the low 8 address bits,
+  so the words landed on CTRL.reset, START and the DCRs and the first launch never finished.
+  The Vortex build now skips both loaders (`apps.c`, `rodinia.inc`); host rebuilt, not yet run.
+  (The Vortex PS testbench launches kernels itself, so simulation never ran this host path.)
+- **Ara/CVA6 run lost** to a second power cut at about 17:03 (results only in board DDR). The
+  three board scripts now copy the console text to `<out>.partial` whenever it grows.
+- **Next.** `build_vortex/board_rd_rest.ps1` (Vortex and Ara/CVA6 only), then
+  `compare_rodinia.py`, the results document, and the slow Rodinia benchmarks.
+
+## 2026-11-11 — Rodinia on the board: all four machines done
+
+- Ara/CVA6 (09:12), Vortex (09:50, host fix of 2026-11-10 confirmed) and the CVA6 hotspot3D
+  rerun (10:06, host built with `rd_sel=0x40`, 1 h per run) all PASS:
+  `docs/zcu102_board_run_rodinia_{ara,vortex,ara_hs3d}.txt`. kmeans 37 iterations everywhere.
+- `python baselines/ara/compare_rodinia.py` -> `docs/rodinia_results.csv`. Geometric mean of
+  time / SIMTiX time over 8 benchmarks: CVA6 14.57, Ara 2.62, Vortex 1.98, A53 0.56. nn is the
+  one loss (Ara 0.58, Vortex 0.31). CVA6 hotspot3D 491.6 s (52x).
+- Two counter overflows, corrected by compare_rodinia.py from the logs: CVA6 kmeans time
+  (32-bit tenths of us: 726.0 s printed as 429.5 s) and Vortex kmeans cycles (8.05e9 summed
+  in 32 bits). Hosts now print 64-bit values (`apps_ara.c` report, `apps.c` run_cycles);
+  NOT yet rebuilt or compile-checked.
+- Ara host: TIMEOUT_S 3600; `rodinia.inc` RD_SEL (bit per benchmark, `rd_sel=<mask>` to
+  build_vitis_ara.py, written to src/rd_cfg.h because vitis.bat splits arguments at '=' and
+  Vitis kept only the first compile define). Ara board script waits up to 2 h.
+- **Documented.** `docs/rodinia_results.md` (machines, inputs, method, tables, correctness,
+  observations, problems, reproduction). Paper `docs/paper/simtix_tvlsi.tex`: new Section
+  VI-G "Rodinia on Four Machines" with Table VIII (`tab:rodinia`) and references rodinia,
+  ara, ara2, cva6 (volume/pages of ara, ara2, cva6 marked TO CHECK). Compiles, 12 pages.
+  nn explanation: SIMTiX's one shared divide/sqrt unit (41 cycles per record); Vortex has
+  one sqrt unit per lane (`NUM_PES_SQRT = NUM_LANES`).
+- **Figure.** `docs/plot_rodinia.py` -> `docs/figs/rodinia_ratio.pdf` (style of plot_vortex.py:
+  (a) time, (b) cycles, each machine / SIMTiX, log axis, geometric mean labelled; categorical
+  blue/orange/aqua/yellow plus hatching for grayscale). In the paper as Fig. 5 (`fig:rodinia`),
+  next to Table VIII. Compiles, 12 pages.
+- **Table VIII extended** with GEMM-RB, SpMV-Z, CNN and Mandelbrot on all four machines
+  (`docs/ara_cva6_simtix_comparison.csv`; Ara's Mandelbrot from `docs/zcu102_board_run_ara_s2.txt`,
+  2026-11-09, after the vid.v fix: 4,553.5 ms, 0 errors). Geometric means now for Rodinia and for
+  all twelve: time CVA6 19.9, Ara 3.32, Vortex 2.63, A53 0.85; cycles 13.6, 2.27, 2.85. A53
+  column is the -O2 reference (Table VII: faster of -O2/-O3). Fig. 5 stays Rodinia only.
+  Still open: the comparison CSV/md read the 2026-11-08 Ara log (Mandelbrot "skip").
+
+## 2026-11-11/12 — RiVEC batch 1 (simulation on SIMTiX, Vortex, Ara/CVA6)
+
+- **Plan and decisions** in `docs/rivec_plan.md`: all 12 RiVEC applications, FP32 on every
+  machine, Ara runs RiVEC's own vector code (changes only for Ara bugs, FP32, bare metal,
+  each marked). Batch 1: axpy, matmul, spmv, jacobi-2d, pathfinder, blackscholes, lavaMD
+  (streamcluster moved to batch 2: its decisions depend on rounding).
+- **Reference** `kernels/rivec/rv_ref.h` (per element RiVEC's vector code, its Cephes exp/log;
+  sums in serial order): bit-exact with RiVEC's vector code under QEMU
+  (`kernels/rivec/qtest/run_qtest.sh`), with RiVEC's shipped results (matmul, pathfinder),
+  and with the exact Python model of `sim/gen_rivec.py` (`sim/rv_xcheck.py`).
+- **Two bugs in RiVEC:** blackscholes' mask-agnostic masked subtract (46,277 of 65,536 prices
+  wrong as written); spmv's 1-based indices and read past the end of x (it computes A^T x;
+  17 of its verification values are wrong).
+- **SIMTiX:** `kernels/rivec/{axpy_rv,jacobi_rv,bs_rv,lavamd_rv}.S` (+ gemm_rb, spmv_z,
+  pathfinder reused); RTL simulation small 11,283 and board 2,644,343 words, 0 errors.
+  `tests/tb_apps.sv` loads kernel images up to 1,024 words (bs_rv has 274).
+- **Vortex:** ports in `kernel.cpp` (calling `rv_ref.h`); simx and the wrapper testbench pass
+  small (2 seeds) and board (matmul: the first 16 rows of the 512^3 product, the whole product
+  exceeding the testbench's 200 M-cycle limit per launch).
+- **Ara/CVA6:** `baselines/ara/kernels/ak_vector_rv.inc` (RiVEC's code, RiVEC's headers copied
+  to `rivec/` with their licences), `ak_st_rv.inc`; the RiVEC self-tests pass under QEMU (spmv
+  within 1.2e-7, lavaMD within 1.7e-6 of the row/force magnitude, the rest exact). The run in
+  Ara's Verilator model was stopped after 1.5 h for the commit (lavaMD's scalar part is long);
+  to be rerun in two parts.
+- **Next:** Ara model self-test rerun, host driver `sw/ps_host/rivec.inc` and the `rivec`
+  build/board arguments, board session; then batch 2.

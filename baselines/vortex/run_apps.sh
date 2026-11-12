@@ -38,6 +38,7 @@ export CONFIGS="-DVX_CFG_EXT_A_ENABLE -DVX_CFG_PLATFORM_MEMORY_NUM_BANKS=1 ${EXT
 
 mkdir -p "$VX/tests/regression/simtix_apps"
 cp "$HERE"/simtix_apps/{Makefile,common.h,kernel.cpp,main.cpp} "$VX/tests/regression/simtix_apps/"
+cp "$REPO/kernels/rivec/rv_ref.h" "$VX/tests/regression/simtix_apps/"   # RiVEC's FP32 reference (kernel.cpp)
 if [ ! -f "$VX/build/tests/regression/simtix_apps/Makefile" ]; then
   (cd "$VX/build" && ../configure --xlen=32 --tooldir="$HOME/v2/tools" \
      --osversion=ubuntu/focal --prefix="$VX/build/install")

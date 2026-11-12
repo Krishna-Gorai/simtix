@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -51,10 +52,36 @@ const uint32_t PTR_FIELDS[APP_COUNT] = {
   0x007,   // scan     in out bsum
   0x003,   // scan_add out bscan
   0x007,   // mlp      x W out | Kp log2Npad scale zp mode
+  0x007,   // conv8    X Wt Out | Cw log2Cout log2(W/4) scale zp Wp
+  0x007,   // embag    T idx out | K log2D
+  0x007,   // hashj    slot keys out | 32-s mask
+  0x001,   // mandel   out | log2W x0 y0 dx dy M
+  0x00f,   // swat     T Q B out | Lt S stride
+  0x007,   // pathfinder src dst wall | cols
+  0x007,   // bp_forward in w ps
+  0x00f,   // bp_adjust  in w ow ed | m
+  0x007,   // hotspot_rd Tin Tout Pw | log2n rx1 ry1 rz1 amb sdc
+  0x003,   // nn         loc dist | lat lng
+  0x007,   // hotspot3d  Tin Tout Pw | log2n nz cc ce cn ct sdc amb
+  0x003,   // gauss_fan1 a m | n t
+  0x003,   // gauss_fan2 a m | n t
+  0x007,   // kmeans_rd  f c membership | N K F
+  0x003,   // axpy_rv    dx dy | a
+  0x003,   // jacobi_rv  A B | log2n 0.2f
+  0x0ff,   // bs_rv      S K r v T type price C
+  0x05f,   // lavamd_rv  rv qv fv nn nei | a2 | C
 };
 
-struct Launch { std::string tag; uint32_t slot, param, threads, blk; };
-struct Case   { std::string name, mem, gold; std::vector<Launch> launches; };
+// Kernel file names (kernels/apps/<name>.hex) in APP_ order.
+const char* const APP_NAMES[APP_COUNT] = {
+  "gemm", "spmv", "stencil", "kmeans", "bfs", "scan", "scan_add", "mlp",
+  "conv8", "embag", "hashj", "mandel", "swat",
+  "pathfinder", "bp_forward", "bp_adjust", "hotspot_rd", "nn", "hotspot3d", "gauss_fan1", "gauss_fan2", "kmeans_rd",
+  "axpy_rv", "jacobi_rv", "bs_rv", "lavamd_rv",
+};
+
+struct Launch { std::string tag; uint32_t slot, param, threads, blk; int app; };
+struct Case   { std::string name, mem, gold; std::vector<Launch> launches; bool ok = true; };
 
 const char* kernel_file = "kernel.vxbin";
 const char* manifest    = nullptr;
@@ -77,17 +104,30 @@ std::vector<Case> read_manifest(const char* path) {
   std::ifstream f(path);
   if (!f) { std::fprintf(stderr, "cannot open %s\n", path); std::exit(1); }
   std::vector<Case> cases;
+  std::map<uint32_t, int> slot_app;     // instruction-RAM slot -> APP_ (-1: no Vortex port)
   std::string line;
   while (std::getline(f, line)) {
     std::istringstream s(line);
     std::string kw;
     s >> kw;
-    if (kw == "CASE") { cases.emplace_back(); s >> cases.back().name; }
+    if (kw == "KERNEL") {               // KERNEL <slot> <path>/<name>.hex
+      uint32_t slot; std::string p;
+      s >> slot >> p;
+      std::string n = p.substr(p.find_last_of("/\\") + 1);
+      n = n.substr(0, n.rfind('.'));
+      int app = -1;
+      for (int i = 0; i < APP_COUNT; ++i) if (n == APP_NAMES[i]) app = i;
+      slot_app[slot] = app;
+    }
+    else if (kw == "CASE") { cases.emplace_back(); s >> cases.back().name; }
     else if (kw == "MEM")  { std::string p; s >> p; cases.back().mem  = host_path(p); }
     else if (kw == "GOLD") { std::string p; s >> p; cases.back().gold = host_path(p); }
     else if (kw == "LAUNCH") {
       Launch l;
       s >> l.tag >> l.slot >> std::hex >> l.param >> std::dec >> l.threads >> l.blk;
+      auto it = slot_app.find(l.slot);
+      l.app = (it == slot_app.end()) ? -1 : it->second;
+      if (l.app < 0) cases.back().ok = false;
       cases.back().launches.push_back(l);
     }
   }
@@ -134,7 +174,7 @@ int run_case(vx_device_h dev, vx_queue_h q, vx_kernel_h kern, uint32_t nt, const
   for (const auto& l : c.launches) {
     uint32_t w = (l.param - DDR_BASE) / 4;
     for (uint32_t i = 0; i < 32; ++i)
-      if (PTR_FIELDS[l.slot] >> i & 1) img[w + i] = reloc(img[w + i]);
+      if (PTR_FIELDS[l.app] >> i & 1) img[w + i] = reloc(img[w + i]);
   }
   CHECK(vx_enqueue_write(q, buf, 0, img.data(), bytes, 0, nullptr, nullptr));
   CHECK(vx_queue_finish(q, VX_TIMEOUT_INFINITE));
@@ -142,23 +182,23 @@ int run_case(vx_device_h dev, vx_queue_h q, vx_kernel_h kern, uint32_t nt, const
   uint64_t total = 0, total_ins = 0;
   for (const auto& l : c.launches) {
     uint32_t block = nt << l.blk;
-    if (block_override && l.slot != APP_SCAN)
+    if (block_override && l.app != APP_SCAN)
       block = std::min(block_override, l.threads);
-    if (l.threads % block) {
+    if (l.app == APP_SCAN && l.threads % block) {   // scan's blocks are part of the algorithm
       std::fprintf(stderr, "%s: %u threads is not a whole number of %u-thread blocks\n",
                    l.tag.c_str(), l.threads, block);
       std::exit(1);
     }
-    kernel_arg_t arg{ l.slot, reloc(l.param), l.threads };
+    kernel_arg_t arg{ (uint32_t)l.app, reloc(l.param), l.threads };
     vx_launch_info_t li{};
     li.struct_size  = sizeof(li);
     li.kernel       = kern;
     li.args_host    = &arg;
     li.args_size    = sizeof(arg);
     li.ndim         = 1;
-    li.grid_dim[0]  = l.threads / block;
+    li.grid_dim[0]  = (l.threads + block - 1) / block;   // kernel_main skips t >= threads
     li.block_dim[0] = block;
-    li.lmem_size    = (l.slot == APP_SCAN) ? (block / nt) * 4 : 0;
+    li.lmem_size    = (l.app == APP_SCAN) ? (block / nt) * 4 : 0;
 
     uint64_t c0 = mpm(dev, VX_CSR_MCYCLE), i0 = mpm(dev, VX_CSR_MINSTRET);
     vx_event_h ev = nullptr;
@@ -236,6 +276,7 @@ int main(int argc, char** argv) {
   int errors = 0, ran = 0;
   for (const auto& c : read_manifest(manifest)) {
     if (only_case && c.name != only_case) continue;
+    if (!c.ok) { std::printf("SKIP %s: a kernel without a Vortex port\n", c.name.c_str()); continue; }
     errors += run_case(dev, q, kern, (uint32_t)nt, c);
     ++ran;
   }

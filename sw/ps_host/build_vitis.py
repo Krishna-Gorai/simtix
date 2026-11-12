@@ -54,11 +54,17 @@ platform.build()
 xpfm = client.find_platform_in_repos('simtix_plat')
 app = client.create_app_component(name='ps_host', platform=xpfm,
                                   domain='standalone_a53', template='empty_application')
-app.import_files(from_loc=HERE, files=['main.c', 'apps.c', 'power.c', 'power.h', 'kernels.h'],
+app.import_files(from_loc=HERE, files=['main.c', 'apps.c', 'power.c', 'power.h', 'kernels.h',
+                                       'suite2.inc', 'kernels_s2.h', 'rodinia.inc', 'kernels_rd.h'],
+                 dest_dir_in_cmp='src')
+app.import_files(from_loc=os.path.join(HERE, '..', '..', 'kernels', 'suite2'), files=['s2_ref.h'],
+                 dest_dir_in_cmp='src')
+app.import_files(from_loc=os.path.join(HERE, '..', '..', 'kernels', 'rodinia'), files=['rd_ref.h'],
                  dest_dir_in_cmp='src')
 app.set_app_config(key='USER_COMPILE_OPTIMIZATION_LEVEL', values='-O2')
 # xil_printf -> con_printf (main.c): the console also goes to DDR, for run_board.tcl
 defs = ['xil_printf=con_printf'] + (['SIMTIX_BOARD_ZCU104'] if BOARD == 'zcu104' else [])
+defs += ['RD_ONLY'] if 'rodinia' in ARGS else []          # the Rodinia suite alone (rodinia.inc)
 app.set_app_config(key='USER_COMPILE_DEFINITIONS', values=defs)
 app.build()
 

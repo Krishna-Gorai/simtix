@@ -1,0 +1,84 @@
+# run_board.tcl 2026-11-11 09:50:13, system counter measured: 100013443 Hz
+
+Ara + CVA6 on ZCU102: 2 lanes, VLEN 2048, PL clock 78.95 MHz
+ARA,program,exit,cycles,hwcnt_cycles,us
+  | 
+  | =============
+  | =  FMATMUL  =
+  | =============
+  | 
+  | 
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (4 x 4) x (4 x 4) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 937 cycles.
+  | The performance is 0.136606 FLOP/cycle (3.415155% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (8 x 8) x (8 x 8) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 1499 cycles.
+  | The performance is 0.683122 FLOP/cycle (17.078053% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (16 x 16) x (16 x 16) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 5093 cycles.
+  | The performance is 1.608482 FLOP/cycle (40.212055% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (32 x 32) x (32 x 32) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 21583 cycles.
+  | The performance is 3.036464 FLOP/cycle (75.911598% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (64 x 64) x (64 x 64) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 164468 cycles.
+  | The performance is 3.187781 FLOP/cycle (79.694527% utilization).
+  | Verifying result...
+  | Passed.
+ARA,fmatmul,0,402125,0,5093.6
+ARAK,app,size,core,cycles,us,a53_us,hwcnt_cycles,errors
+RODINIA,suite,start
+ARAK,pathfinder,100000,cva6,349644056,4428824.7,97012.9,349644119,0
+ARAK,pathfinder,100000,ara,33252505,421198.4,97012.9,33252569,0
+ARAK,backprop,524288,cva6,452290069,5729007.5,214215.6,452290125,0
+ARAK,backprop,524288,ara,241214442,3055382.9,214215.6,241214504,0
+ARAK,bfs,65536,cva6,23669011,299807.5,21889.1,23669074,0
+ARAK,bfs,65536,ara,62690263,794076.7,21889.1,62690328,0
+ARAK,hotspot,512,cva6,43662871,553063.0,20999.8,43662934,0
+ARAK,hotspot,512,ara,3578825,45331.8,20999.8,3578887,0
+ARAK,hotspot,1024,cva6,195396034,2475016.4,85482.4,195396096,0
+ARAK,hotspot,1024,ara,13641292,172789.7,85482.4,13641354,0
+RDULP,nn,42764,0,1
+ARAK,nn,42764,cva6,1922657,24353.7,1036.0,1922742,0
+RDULP,nn,42764,1,1
+ARAK,nn,42764,ara,706098,8943.9,1036.0,706183,0
+ARAK run failed: app 25 mode 0 status 4 exit 0 done 0
+ARAK,hotspot3d,512,cva6,0,0.0,16503251.2,23682102362,2097151
+ARAK,hotspot3d,512,ara,1620681855,20528636.8,16503251.2,1620681917,0
+RDREL,gaussian_a,1024,0,219506
+RDREL,gaussian_m,1024,0,185610
+ARAK,gaussian,1024,cva6,8261235462,104642315.9,3916544.2,8261235526,0
+RDREL,gaussian_a,1024,1,219506
+RDREL,gaussian_m,1024,1,185610
+ARAK,gaussian,1024,ara,803440662,10176915.1,3916544.2,803440725,0
+RDITER,kmeans,494020,0,37
+ARAK,kmeans,494020,cva6,57316896670,429496729.5,28064920.2,57316899842,0
+RDITER,kmeans,494020,1,37
+ARAK,kmeans,494020,ara,4443943657,56289953.0,28064920.2,4443946010,0
+RODINIA,suite,end,0
+RESULT: FAIL (2097151 errors)

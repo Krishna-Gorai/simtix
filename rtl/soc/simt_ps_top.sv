@@ -24,13 +24,22 @@
 // invalidates it before reading results.
 // =============================================================================
 `timescale 1ns/1ps
+// The AMO variant of a board build (the block design's module reference cannot
+// override these parameters): SIMTIX_AMO_AGG=0 one read-modify-write per lane,
+// SIMTIX_AMO_PAR=1 the parallel aggregation (mem_engine).
+`ifndef SIMTIX_AMO_AGG
+`define SIMTIX_AMO_AGG 1
+`endif
+`ifndef SIMTIX_AMO_PAR
+`define SIMTIX_AMO_PAR 0
+`endif
 module simt_ps_top
   import simtix_pkg::*;
 #(
     parameter int AXI_DW = 128,
     parameter int IRAM_WORDS = 1024,
-    parameter bit AMO_AGG = 1'b1,   // see mem_engine
-    parameter bit AMO_PAR = 1'b0
+    parameter bit AMO_AGG = `SIMTIX_AMO_AGG,   // see mem_engine
+    parameter bit AMO_PAR = `SIMTIX_AMO_PAR
 ) (
     input  logic                clk,
     input  logic                rst,             // active-high

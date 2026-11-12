@@ -1,0 +1,54 @@
+# run_board.tcl 2026-11-08 11:18:13, system counter measured: 100014724 Hz
+
+Ara + CVA6 on ZCU102: 2 lanes, VLEN 2048, PL clock 78.95 MHz
+ARA,program,exit,cycles,hwcnt_cycles,us
+  | 
+  | =============
+  | =  FMATMUL  =
+  | =============
+  | 
+  | 
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (4 x 4) x (4 x 4) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 938 cycles.
+  | The performance is 0.136461 FLOP/cycle (3.411514% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (8 x 8) x (8 x 8) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 1479 cycles.
+  | The performance is 0.692360 FLOP/cycle (17.308992% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (16 x 16) x (16 x 16) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 5103 cycles.
+  | The performance is 1.605330 FLOP/cycle (40.133255% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (32 x 32) x (32 x 32) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 21600 cycles.
+  | The performance is 3.034074 FLOP/cycle (75.851852% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (64 x 64) x (64 x 64) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 164396 cycles.
+  | The performance is 3.189177 FLOP/cycle (79.729431% utilization).
+  | Verifying result...
+  | Passed.
+ARA,fmatmul,0,401879,0,5090.5
+RESULT: PASS (0 errors)

@@ -1,0 +1,41 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
+| Date         : Mon Nov  9 23:12:00 2026
+| Host         : Krishna_NITjsr running 64-bit major release  (build 9200)
+| Command      : report_utilization -hierarchical -hierarchical_depth 5 -file C:/work/SIMTiX-v2/baselines/vortex/reports_ps_zcu102/post_route_util_hier.rpt
+| Design       : system_wrapper
+| Device       : xczu9eg-ffvb1156-2-e
+| Speed File   : -2
+| Design State : Physopt postRoute
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++----------------------------+--------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+|          Instance          |             Module             | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | URAM | DSP Blocks |
++----------------------------+--------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+| system_wrapper             |                          (top) |      85179 |      79610 |    4440 | 1129 | 85577 |     48 |     28 |    0 |         48 |
+|   system_i                 |                         system |      85179 |      79610 |    4440 | 1129 | 85577 |     48 |     28 |    0 |         48 |
+|     smartconnect_0         |        system_smartconnect_0_0 |        728 |        727 |       0 |    1 |   799 |      0 |      0 |    0 |          0 |
+|       inst                 |                        bd_919a |        728 |        727 |       0 |    1 |   799 |      0 |      0 |    0 |          0 |
+|         s00_entry_pipeline | s00_entry_pipeline_imp_1KR8Y8Q |        669 |        669 |       0 |    0 |   630 |      0 |      0 |    0 |          0 |
+|           s00_mmu          |               bd_919a_s00mmu_0 |        213 |        213 |       0 |    0 |   241 |      0 |      0 |    0 |          0 |
+|           s00_si_converter |               bd_919a_s00sic_0 |        450 |        450 |       0 |    0 |   349 |      0 |      0 |    0 |          0 |
+|         s00_nodes          |          s00_nodes_imp_1O9PSU8 |         39 |         39 |       0 |    0 |   130 |      0 |      0 |    0 |          0 |
+|     vortex_0               |              system_vortex_0_0 |      84438 |      78871 |    4440 | 1127 | 84745 |     48 |     28 |    0 |         48 |
+|       inst                 |                 vortex_ps_wrap |      84404 |      78871 |    4406 | 1127 | 84745 |     48 |     28 |    0 |         48 |
+|         i_top              |                  vortex_ps_top |      84404 |      78871 |    4406 | 1127 | 84745 |     48 |     28 |    0 |         48 |
+|           (i_top)          |                  vortex_ps_top |        219 |        203 |      16 |    0 |   384 |      0 |      0 |    0 |          0 |
+|           i_vortex         |                     Vortex_axi |      84185 |      78668 |    4390 | 1127 | 84361 |     48 |     28 |    0 |         48 |
++----------------------------+--------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+

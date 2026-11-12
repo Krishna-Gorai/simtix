@@ -131,7 +131,9 @@ module tb_apps
         axil_wr(16'(REG_BLOCK), 32'(blk));
         axil_wr(16'(REG_CTRL), 32'd1);
         st = 0;
-        for (int g = 0; g < 2000000 && !st[STATUS_DONE_BIT]; g++) axil_rd(16'(REG_STATUS), st);
+        // up to 20M polls (about 100M cycles): the board-size Mandelbrot and
+        // Smith-Waterman launches run for more than 10M cycles
+        for (int g = 0; g < 20000000 && !st[STATUS_DONE_BIT]; g++) axil_rd(16'(REG_STATUS), st);
         if (!st[STATUS_DONE_BIT]) begin $display("  [FAIL] %s/%s timeout", cname, tag); errors++; end
         axil_rd(16'(REG_CYCLES), cyc);
         axil_rd(16'h0100, hits);
@@ -145,13 +147,13 @@ module tb_apps
     endtask
     /* verilator lint_on UNUSEDSIGNAL */
 
-    // A kernel occupies one or more consecutive 16-word slots (up to 256 words);
-    // only the words of its image are written.
+    // A kernel occupies one or more consecutive 16-word slots (up to the 1,024 words of
+    // the instruction RAM; RiVEC's bs_rv has 274); only the words of its image are written.
     task automatic load_kernel(input int slot, input string path);
-        logic [31:0] kimg [0:255];
-        for (int i = 0; i < 256; i++) kimg[i] = 'x;
+        logic [31:0] kimg [0:1023];
+        for (int i = 0; i < 1024; i++) kimg[i] = 'x;
         $readmemh(path, kimg);
-        for (int i = 0; i < 256 && !$isunknown(kimg[i]); i++)
+        for (int i = 0; i < 1024 && !$isunknown(kimg[i]); i++)
             axil_wr(16'h1000 + 16'(64*slot + 4*i), kimg[i]);
     endtask
 

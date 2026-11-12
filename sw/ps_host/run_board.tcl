@@ -70,6 +70,13 @@ puts "system counter: $cps Hz (measured)"
 targets -set -nocase -filter {name =~ "*A53*#0"}
 rst -processor
 dow $elf
+# The Rodinia suite (argument rodinia): the data blob of sim/rd_data.py at 0x7000_0000
+if {[lsearch -exact $argv rodinia] >= 0} {
+    set blob [file normalize [file join $here .. .. build_rodinia rd_data.bin]]
+    if {![file exists $blob]} { error "missing $blob (run python sim/rd_data.py first)" }
+    puts "data blob: $blob"
+    dow -data $blob 0x70000000
+}
 configparams force-mem-access 0
 con
 puts "running: the console also goes to DDR and is written to $out at the end"
@@ -83,7 +90,11 @@ set last -1
 for {set i 0} {$i < 1800} {incr i} {
     after 2000
     if {[catch {set n [r32 [expr {$MB + 4}]]; set d [r32 [expr {$MB + 8}]]}]} { continue }
-    if {$n != $last} { puts [format "  %4d s: %d bytes of console text" [expr {2 * ($i + 1)}] $n]; set last $n }
+    if {$n != $last} {
+        puts [format "  %4d s: %d bytes of console text" [expr {2 * ($i + 1)}] $n]; set last $n
+        # keep what has run so far on the PC (<out>.partial), in case the board loses power
+        catch { mrd -force -bin -file $out.partial $OUTBUF [expr {($n + 3) / 4}] }
+    }
     if {$d == 0x444F4E45} { set done 1; break }
 }
 set n [r32 [expr {$MB + 4}]]

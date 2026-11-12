@@ -308,3 +308,134 @@ running 1.42-1.92 W (B2) -> 1.70-2.28 W.
 the L1 on 40% of accesses, so fewer instructions help less there. It runs after the
 other cases, so its random matrix differs from the `spmv` one (same size and density).
 
+**Caution on the A53/accel column above:** it uses the board host's own A53 build
+(`-O2`). Against the best A53 build (`-O3 -mcpu=cortex-a53`, NEON; `sw/a53_zcu102`) the
+regular kernels move a lot (GEMM 3.6x, stencil 2.5x faster on the A53); see the table
+of the afternoon below. The MLP's 3.85 is also against a reference that cannot
+vectorize (below).
+
+## 2026-11-04 (afternoon): everything on the board, new applications, AMO variants
+
+Decisions (user): the TVLSI paper is retargeted to v3, and every result in it is
+measured on the ZCU102: the AMO variants and the 4- and 16-lane designs as their own
+bitstreams, and Vortex 3.0 as a PS peripheral of the same board. The paper shows both
+A53 builds (`-O2` and `-O3` NEON).
+
+**Board-build options** (`create_bd_ps.tcl`): `lanes<n>`, `agg<0|1>`, `apar<0|1>` set
+`SIMTIX_NUM_LANES`, `SIMTIX_AMO_AGG`, `SIMTIX_AMO_PAR`; `simt_ps_top` takes its
+`AMO_AGG` / `AMO_PAR` defaults from the two macros (a block-design module reference
+cannot override parameters). `sim/v3_sweeps.py` runs `app_sweep.py` and
+`amo_sweep.py` with the v3 defines (`docs/apps_agg_v3.csv`, `docs/amo_agg_v3.csv`;
+15/15 runs pass).
+
+**Host additions.** `main.c`: `hist_shared` (block-shared histogram) and
+`amo_contend` (colliding `amoadd`/`amomax`/`amoswap`; every returned value and final
+word checked against the serial lane order). `apps.c`: an overlay window in the
+instruction RAM (`PC_OVL` = 0x000-0x1FF, 128 words; main.c's sync kernels are done
+before the suite) into which `stencil_rb` and the new kernels are loaded at the start
+of their application; a second, fair MLP reference (`A53T` rows: weights one
+contiguous row per output, so GCC vectorizes the INT8 dot product). `gen_apps.py`:
+`OVERLAY` kernels share one region after the resident ones and a case loads its
+overlay kernel (a `KERNEL` line inside the case); `write_manifest()`.
+
+**New application kernels** (all bit-exact in simulation at small and board sizes,
+v3 defines, late write responses; and on the board):
+- `conv8.S` (111 words): INT8 3x3 convolution, padding 1, requantization + ReLU as
+  `mlp.S`; layout [row][channel/4][column] words so a layer's output is the next
+  layer's input; a thread computes 4 adjacent pixels of one output channel (12
+  `pdot8` per 9 loads). Board: 16 -> 32 -> 32 channels, 32x32 and 128x128 images.
+  A53 reference: NHWC bytes, OHWI weights (contiguous channels, vectorized at -O3).
+- `embag.S` (31 words): embedding-bag sum (recommendation inference), D = 32
+  floats per row, summed in order from +0; two gathers in flight per warp. Board:
+  16,384-row (2 MB) and 262,144-row (32 MB) tables, 256x16 and 4096x32 bags.
+- `hashj.S` (26 words): hash-join probe, linear probing, 2^s slots {key, value},
+  half full, half of the probe keys present; one backward branch, the hit test with
+  Zicond. Board: s = 16 (16,384 probes) and s = 22 (32 MB, 1M probes).
+- `mandel.S` (38 words): Mandelbrot escape counts, FP32, [-2, 0.5] x [-1.25, 1.25],
+  M = 256. Board: 256^2 and 1024^2.
+- `swat.S` (116 words): Smith-Waterman scores, affine gaps (+2/-1, open 3, extend 1),
+  one DNA pair per thread, query in strips of 4 rows (H, E in registers, a packed
+  boundary word per column between strips). Board: 2,048 and 16,384 pairs of 32 x 128.
+
+**Board, `ser` bitstream (v3b34), against both A53 builds** (`docs/zcu102_board_run_v3_apps2.txt`,
+`docs/zcu102_a53_run_O{2,3}_v3apps.txt`; large sizes; times in ms; > 1: SIMTiX faster):
+
+| App | SIMTiX | A53 -O2 | A53 -O3 NEON | vs best A53 |
+|---|---|---|---|---|
+| Hash-join probe, 32 MB | 99.3 | 195.6 | 195.4 | 1.97 |
+| CNN 128x128, 16-32-32 | 290.7 | 1,196.3 | 381.8 | 1.31 |
+| GEMM-RB 256 | 37.8 | 169.6 | 47.2 | 1.25 |
+| Embedding bag, 32 MB | 37.5 | 68.7 | 45.4 | 1.21 |
+| BFS 262144 | 162.9 | 195.8 | 194.6 | 1.19 |
+| SpMV-Z 65536 | 19.4 | 18.2 | 18.1 | 0.94 |
+| k-means-U 262144 | 72.2 | 41.3 | 34.3 | 0.47 |
+| Stencil-RB 512 | 18.9 | 21.3 | 8.6 | 0.45 |
+| MLP 256, fair reference | 189.8 | 256.5 | 55.4 | 0.29 |
+| Segmented scan 1M | 35.5 | 4.5 | 4.5 | 0.13 |
+
+The `-O2` and `-O3` builds give the same arena hash for every application. SIMTiX
+wins on memory-latency-bound work (hash join, embedding bag, BFS: one in-order A53
+thread waits on each DRAM miss, SIMTiX keeps 64 threads and 16 misses in flight) and
+on regular compute with reuse per thread (GEMM-RB, CNN). It loses on streaming kernels
+with little work per element and on dense INT8 dot products, where NEON keeps up.
+**MLP:** the original A53 reference reads the weights in the accelerator's packed
+layout and cannot vectorize (730 ms at -O2 and -O3); with contiguous weights the A53
+takes 256.5 ms at -O2 and 55.4 ms at -O3, so SIMTiX's 3.85x becomes 0.29x. The
+paper must not use the old number. The MLP kernel itself does 0.32 G MAC/s (one
+output per thread); a register-blocked version like `conv8.S` (0.78 G MAC/s in
+simulation) would still trail the A53's ~1.1 G MAC/s. The A53 references are plain C
+compiled by GCC, not a tuned library; a tuned NEON CNN would narrow the 1.31.
+
+**AMO tests on the board** (`docs/zcu102_board_run_v3_ser.txt`; 262,144 elements;
+`ser`): histogram 653,913 cycles (5.67 ms; A53 2.00 ms), block-shared histogram
+1,186,938, contention 4,292,620 (37.2 ms; A53 6.2 ms); every contention return value
+(786,432) and final word (524,288) matches the serial lane order. The L1 read counts
+are exact: 3 reads per histogram warp (input line + one per bin line), 4 per contention
+warp (input + one per AMO instruction). These kernels are memory-engine bound (the
+port is held from an AMO's read to its write; ~20 cycles per histogram warp) and
+measure the mechanism, not speed against the A53.
+
+**`agg0` bitstream** (one read-modify-write per lane; `tagv3agg0 ... agg0 mhz116
+retime`): WNS +0.349 ns at 115.37 MHz, 106,998 LUTs, 50,036 registers (aggregation
+costs 660 LUTs, 0.6%, in context; 2,551 out of context in the v2 engine). Board
+(`docs/zcu102_board_run_v3_agg0.txt`, all 0 errors), 262,144 elements, `agg0` -> `ser`:
+
+| Kernel | agg0 cycles | ser cycles | Gain | L1 reads agg0 -> ser |
+|---|---|---|---|---|
+| Histogram | 1,618,167 | 652,783 | 2.48x | 294,912 -> 98,304 |
+| AMO contention | 7,706,706 | 4,291,186 | 1.80x | 819,200 -> 131,072 |
+| Block-shared histogram | 1,380,470 | 1,180,049 | 1.17x | 163,840 -> 49,152 |
+| k-means-U | 8,937,737 | 8,331,755 | 1.07x | |
+| k-means | 13,600,741 | 13,384,065 | 1.02x | |
+| BFS | 18,826,816 | 18,792,724 | 1.00x | |
+
+Without aggregation the block-shared histogram beats the plain one (textbook); with it
+the plain one is 1.8x faster. The v2 paper's k-means gain of 1.29x shrinks to 1.02x
+in v3 (8 warps, scoreboard and the 64 KB L1 make the final AMOs a small part).
+
+**Mandelbrot and Smith-Waterman.** Small sizes pass (Mandelbrot IPC 0.92, 74% lane use;
+Smith-Waterman IPC 0.97, 0.36 cells/cycle, about 42 M cells/s at 115 MHz). The first
+board-size simulation failed only because `tb_apps` gave up after 2M status polls
+(~10M cycles); the limit is now 20M and the rerun is in progress. A53 (board,
+`docs/zcu102_a53_run_O{2,3}_v3apps2.txt`): Mandelbrot 1024^2 847.9 ms (-O2) / 845.7
+(-O3); Smith-Waterman 16,384 pairs 922.1 ms (-O2) / 1,075.2 (-O3), 72.8 M cells/s.
+Neither vectorizes.
+
+**2026-11-06, both on the board** (`docs/zcu102_board_run_v3_apps3.txt`, `ser`, all
+cases 0 errors; the board-size simulation passed first, 67,584 checks): Mandelbrot
+256^2 7,876,275 cycles (68.3 ms; A53 best 52.9 ms, 0.77x), 1024^2 117,647,130 cycles
+(1,019.7 ms; A53 best 845.7 ms, **0.83x**); Smith-Waterman 2,048 pairs 23,265,849
+cycles (201.7 ms; A53 best 115.1 ms), 16,384 pairs 186,138,599 cycles (1,613.4 ms;
+A53 best 922.1 ms, **0.57x**, 41.6 vs 72.8 M cells/s). Board and simulated cycles
+agree within 0.1%. Total energy of the 18 rails, A53 best / SIMTiX: Mandelbrot 0.62,
+Smith-Waterman 0.55 (SIMTiX phase 4.19 / 3.83 W, A53 phase 3.12-3.16 W).
+
+**Energy, all applications (2026-11-05/06).** Sum of the 18 rails: idle 3.13-3.17 W
+(A53 polling), SIMTiX phase 3.62-4.26 W (+0.5 to +1.1 W), A53 phase 3.18-3.38 W
+(+0.05 to +0.2 W: the A53 already runs in the idle phase). Total energy, best A53 /
+SIMTiX: hash join 1.50, CNN 1.02, BFS 0.96, embedding bag 0.94, GEMM-RB 0.94, SpMV-Z
+0.73, Mandelbrot 0.62, Smith-Waterman 0.55, k-means-U 0.38, stencil-RB 0.34,
+segmented scan 0.11. Energy above idle makes SIMTiX look 11-100x worse, because it
+charges the accelerator its whole switching power and the A53 almost nothing; the
+paper should report total energy first.
+

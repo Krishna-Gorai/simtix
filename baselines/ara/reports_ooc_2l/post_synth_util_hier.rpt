@@ -1,0 +1,111 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
+| Date         : Fri Nov  6 14:49:09 2026
+| Host         : Krishna_NITjsr running 64-bit major release  (build 9200)
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -file C:/work/SIMTiX-v2/baselines/ara/reports_ooc_2l/post_synth_util_hier.rpt
+| Design       : ara_ooc_top
+| Device       : xczu9eg-ffvb1156-2-e
+| Speed File   : -2
+| Design State : Synthesized
+------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++----------------------------------------------+------------------------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+|                   Instance                   |                     Module                     | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | URAM | DSP Blocks |
++----------------------------------------------+------------------------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+| ara_ooc_top                                  |                                          (top) |     182342 |     182342 |       0 |    0 | 62879 |     96 |      8 |    0 |        130 |
+|   (ara_ooc_top)                              |                                          (top) |          0 |          0 |       0 |    0 |     1 |      0 |      0 |    0 |          0 |
+|   i_ara_soc                                  |                                        ara_soc |     182342 |     182342 |       0 |    0 | 62878 |     96 |      8 |    0 |        130 |
+|     i_system                                 |                                     ara_system |     177827 |     177827 |       0 |    0 | 59135 |     88 |      8 |    0 |        130 |
+|       i_ara                                  |                                            ara |     132157 |     132157 |       0 |    0 | 34451 |     32 |      0 |    0 |        102 |
+|         i_vlsu                               |                                           vlsu |       7503 |       7503 |       0 |    0 |  2520 |      0 |      0 |    0 |          4 |
+|         (i_sequencer)                        |                                  ara_sequencer |       1557 |       1557 |       0 |    0 |   640 |      0 |      0 |    0 |          0 |
+|         gen_lanes[0].i_lane                  |                                           lane |      53072 |      53072 |       0 |    0 | 14078 |     16 |      0 |    0 |         49 |
+|         gen_lanes[1].i_lane                  |                                        lane_66 |      52717 |      52717 |       0 |    0 | 14067 |     16 |      0 |    0 |         49 |
+|         i_dispatcher                         |                                 ara_dispatcher |       1384 |       1384 |       0 |    0 |   596 |      0 |      0 |    0 |          0 |
+|         i_masku                              |                                          masku |       9843 |       9843 |       0 |    0 |  1403 |      0 |      0 |    0 |          0 |
+|         i_sldu                               |                                           sldu |       6052 |       6052 |       0 |    0 |  1128 |      0 |      0 |    0 |          0 |
+|       i_ariane                               |                                           cva6 |      44919 |      44919 |       0 |    0 | 23890 |     56 |      8 |    0 |         28 |
+|         issue_stage_i                        |                                    issue_stage |      14262 |      14262 |       0 |    0 |  6681 |      0 |      0 |    0 |          0 |
+|         controller_i                         |                                     controller |        110 |        110 |       0 |    0 |   115 |      0 |      0 |    0 |          0 |
+|         csr_regfile_i                        |                                    csr_regfile |        878 |        878 |       0 |    0 |  1345 |      0 |      0 |    0 |          0 |
+|         ex_stage_i                           |                                       ex_stage |      17405 |      17405 |       0 |    0 |  7636 |      0 |      0 |    0 |         28 |
+|         gen_accelerator.i_acc_dispatcher     |                                 acc_dispatcher |       2148 |       2148 |       0 |    0 |   884 |      0 |      0 |    0 |          0 |
+|         gen_cache_wt.i_cache_subsystem       |                             wt_cache_subsystem |       7001 |       7001 |       0 |    0 |  2585 |     56 |      8 |    0 |          0 |
+|         gen_perf_counter.perf_counters_i     |                                  perf_counters |        183 |        183 |       0 |    0 |   414 |      0 |      0 |    0 |          0 |
+|         i_frontend                           |                                       frontend |       2590 |       2590 |       0 |    0 |  3948 |      0 |      0 |    0 |          0 |
+|         id_stage_i                           |                                       id_stage |        422 |        422 |       0 |    0 |   281 |      0 |      0 |    0 |          0 |
+|       i_axi_inval_filter                     |                               axi_inval_filter |        138 |        138 |       0 |    0 |   176 |      0 |      0 |    0 |          0 |
+|         (i_axi_inval_filter)                 |                               axi_inval_filter |         54 |         54 |       0 |    0 |    65 |      0 |      0 |    0 |          0 |
+|         i_aw_fifo                            |                       fifo_v3__parameterized14 |         84 |         84 |       0 |    0 |   111 |      0 |      0 |    0 |          0 |
+|       i_system_mux                           |                        axi_mux__parameterized0 |        623 |        623 |       0 |    0 |   618 |      0 |      0 |    0 |          0 |
+|         gen_mux.i_w_spill_reg                |                 spill_register__parameterized0 |         41 |         41 |       0 |    0 |   148 |      0 |      0 |    0 |          0 |
+|         gen_mux.i_ar_spill_reg               |                 spill_register__parameterized2 |        184 |        184 |       0 |    0 |   142 |      0 |      0 |    0 |          0 |
+|         gen_mux.i_aw_spill_reg               |                                 spill_register |        210 |        210 |       0 |    0 |   153 |      0 |      0 |    0 |          0 |
+|         gen_mux.i_r_spill_reg                |                 spill_register__parameterized3 |        133 |        133 |       0 |    0 |   138 |      0 |      0 |    0 |          0 |
+|     i_axi_lite_to_apb_uart                   |                                axi_lite_to_apb |         72 |         72 |       0 |    0 |   142 |      0 |      0 |    0 |          0 |
+|       gen_resp_ft_reg.i_read_resp_ft_reg     |          fall_through_register__parameterized1 |         56 |         56 |       0 |    0 |    34 |      0 |      0 |    0 |          0 |
+|         i_fifo                               |                        fifo_v3__parameterized9 |         56 |         56 |       0 |    0 |    34 |      0 |      0 |    0 |          0 |
+|       gen_req_ft_reg.i_req_ft_reg            |                          fall_through_register |          6 |          6 |       0 |    0 |    99 |      0 |      0 |    0 |          0 |
+|         i_fifo                               |                        fifo_v3__parameterized7 |          6 |          6 |       0 |    0 |    99 |      0 |      0 |    0 |          0 |
+|     i_axi_slave_uart_dwc                     |                               axi_dw_converter |       1725 |       1725 |       0 |    0 |   758 |      0 |      0 |    0 |          0 |
+|       (i_axi_slave_uart_dwc)                 |                               axi_dw_converter |        221 |        221 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       gen_dw_downsize.i_axi_dw_downsizer     |                               axi_dw_downsizer |       1529 |       1529 |       0 |    0 |   758 |      0 |      0 |    0 |          0 |
+|         (gen_dw_downsize.i_axi_dw_downsizer) |                               axi_dw_downsizer |        730 |        730 |       0 |    0 |   284 |      0 |      0 |    0 |          0 |
+|         i_axi_demux                          |                      axi_demux__parameterized1 |        490 |        490 |       0 |    0 |   396 |      0 |      0 |    0 |          0 |
+|         i_axi_err_slv                        |                    axi_err_slv__parameterized1 |         76 |         76 |       0 |    0 |    65 |      0 |      0 |    0 |          0 |
+|         i_forward_b_beats_queue              |                       fifo_v3__parameterized12 |        219 |        219 |       0 |    0 |     3 |      0 |      0 |    0 |          0 |
+|     i_axi_to_axi_lite                        |                axi_to_axi_lite__parameterized0 |        602 |        602 |       0 |    0 |   213 |      0 |      0 |    0 |          0 |
+|       i_axi_atop_filter                      |                axi_atop_filter__parameterized2 |         73 |         73 |       0 |    0 |    28 |      0 |      0 |    0 |          0 |
+|         (i_axi_atop_filter)                  |                axi_atop_filter__parameterized2 |         56 |         56 |       0 |    0 |    19 |      0 |      0 |    0 |          0 |
+|       i_axi_burst_splitter                   |             axi_burst_splitter__parameterized0 |        515 |        515 |       0 |    0 |   175 |      0 |      0 |    0 |          0 |
+|         i_demux_supported_vs_unsupported     |                      axi_demux__parameterized2 |        150 |        150 |       0 |    0 |    60 |      0 |      0 |    0 |          0 |
+|         (i_axi_burst_splitter_ar_chan)       | axi_burst_splitter_ax_chan__parameterized0_457 |        194 |        194 |       0 |    0 |    22 |      0 |      0 |    0 |          0 |
+|         (i_axi_burst_splitter_aw_chan)       |                 axi_burst_splitter_ax_chan_458 |         79 |         79 |       0 |    0 |    23 |      0 |      0 |    0 |          0 |
+|     i_axi_to_axi_lite_uart                   |                                axi_to_axi_lite |        677 |        677 |       0 |    0 |   328 |      0 |      0 |    0 |          0 |
+|       i_axi_burst_splitter                   |                             axi_burst_splitter |        622 |        622 |       0 |    0 |   290 |      0 |      0 |    0 |          0 |
+|         i_demux_supported_vs_unsupported     |                      axi_demux__parameterized0 |        115 |        115 |       0 |    0 |    60 |      0 |      0 |    0 |          0 |
+|         i_axi_burst_splitter_ar_chan         |     axi_burst_splitter_ax_chan__parameterized0 |        326 |        326 |       0 |    0 |    94 |      0 |      0 |    0 |          0 |
+|         i_axi_burst_splitter_aw_chan         |                     axi_burst_splitter_ax_chan |        144 |        144 |       0 |    0 |    95 |      0 |      0 |    0 |          0 |
+|     i_axi_to_mem                             |                                     axi_to_mem |        217 |        217 |       0 |    0 |   334 |      0 |      0 |    0 |          0 |
+|       i_axi_to_detailed_mem                  |                            axi_to_detailed_mem |        217 |        217 |       0 |    0 |   334 |      0 |      0 |    0 |          0 |
+|         (i_axi_to_detailed_mem)              |                            axi_to_detailed_mem |         54 |         54 |       0 |    0 |    70 |      0 |      0 |    0 |          0 |
+|         i_mem_to_banks                       |                          mem_to_banks_detailed |          0 |          0 |       0 |    0 |   149 |      0 |      0 |    0 |          0 |
+|         i_stream_to_mem                      |                                  stream_to_mem |         80 |         80 |       0 |    0 |    68 |      0 |      0 |    0 |          0 |
+|     i_ctrl_registers                         |                                 ctrl_registers |         10 |         10 |       0 |    0 |   334 |      0 |      0 |    0 |          0 |
+|       i_axi_lite_regs                        |                                  axi_lite_regs |          8 |          8 |       0 |    0 |   326 |      0 |      0 |    0 |          0 |
+|         (i_axi_lite_regs)                    |                                  axi_lite_regs |          0 |          0 |       0 |    0 |   192 |      0 |      0 |    0 |          0 |
+|         i_r_spill_register                   |                spill_register__parameterized24 |          5 |          5 |       0 |    0 |   130 |      0 |      0 |    0 |          0 |
+|     i_l2mem_atop_filter                      |                                axi_atop_filter |         71 |         71 |       0 |    0 |    29 |      0 |      0 |    0 |          0 |
+|       (i_l2mem_atop_filter)                  |                                axi_atop_filter |         54 |         54 |       0 |    0 |    20 |      0 |      0 |    0 |          0 |
+|     i_soc_xbar                               |                                       axi_xbar |       1117 |       1117 |       0 |    0 |  1604 |      0 |      0 |    0 |          0 |
+|       gen_mst_port_mux[0].i_axi_mux          |                                        axi_mux |        278 |        278 |       0 |    0 |   422 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_ar_spill_reg            |             spill_register__parameterized2_415 |         58 |         58 |       0 |    0 |    58 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_aw_spill_reg            |                             spill_register_416 |         72 |         72 |       0 |    0 |    66 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_r_spill_reg             |             spill_register__parameterized3_418 |         71 |         71 |       0 |    0 |   138 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_w_spill_reg             |             spill_register__parameterized0_419 |         71 |         71 |       0 |    0 |   148 |      0 |      0 |    0 |          0 |
+|       gen_mst_port_mux[1].i_axi_mux          |                                    axi_mux_372 |        300 |        300 |       0 |    0 |   572 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_ar_spill_reg            |             spill_register__parameterized2_405 |         90 |         90 |       0 |    0 |   142 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_aw_spill_reg            |                             spill_register_406 |        118 |        118 |       0 |    0 |   150 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_r_spill_reg             |             spill_register__parameterized3_408 |         53 |         53 |       0 |    0 |   138 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_w_spill_reg             |             spill_register__parameterized0_409 |         35 |         35 |       0 |    0 |   130 |      0 |      0 |    0 |          0 |
+|       gen_mst_port_mux[2].i_axi_mux          |                                    axi_mux_373 |        231 |        231 |       0 |    0 |   392 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_ar_spill_reg            |             spill_register__parameterized2_395 |         55 |         55 |       0 |    0 |    44 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_aw_spill_reg            |                             spill_register_396 |         65 |         65 |       0 |    0 |    52 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_r_spill_reg             |             spill_register__parameterized3_398 |         52 |         52 |       0 |    0 |   138 |      0 |      0 |    0 |          0 |
+|         gen_no_mux.i_w_spill_reg             |             spill_register__parameterized0_399 |         52 |         52 |       0 |    0 |   148 |      0 |      0 |    0 |          0 |
+|       i_xbar_unmuxed                         |                               axi_xbar_unmuxed |        308 |        308 |       0 |    0 |   218 |      0 |      0 |    0 |          0 |
+|         gen_slv_port_demux[0].i_axi_err_slv  |                                    axi_err_slv |        119 |        119 |       0 |    0 |   118 |      0 |      0 |    0 |          0 |
+|         gen_slv_port_demux[0].i_axi_demux    |                                      axi_demux |        185 |        185 |       0 |    0 |   100 |      0 |      0 |    0 |          0 |
++----------------------------------------------+------------------------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+
+

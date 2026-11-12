@@ -1,0 +1,59 @@
+# run_board.tcl 2026-11-11 10:25:51, system counter measured: 100014154 Hz
+
+Ara + CVA6 on ZCU102: 2 lanes, VLEN 2048, PL clock 78.95 MHz
+ARA,program,exit,cycles,hwcnt_cycles,us
+  | 
+  | =============
+  | =  FMATMUL  =
+  | =============
+  | 
+  | 
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (4 x 4) x (4 x 4) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 928 cycles.
+  | The performance is 0.137931 FLOP/cycle (3.448276% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (8 x 8) x (8 x 8) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 1461 cycles.
+  | The performance is 0.700890 FLOP/cycle (17.522245% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (16 x 16) x (16 x 16) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 5077 cycles.
+  | The performance is 1.613551 FLOP/cycle (40.338783% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (32 x 32) x (32 x 32) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 21644 cycles.
+  | The performance is 3.027906 FLOP/cycle (75.697655% utilization).
+  | 
+  | ------------------------------------------------------------
+  | Calculating a (64 x 64) x (64 x 64) matrix multiplication...
+  | ------------------------------------------------------------
+  | 
+  | Calculating fmatmul...
+  | The execution took 164582 cycles.
+  | The performance is 3.185573 FLOP/cycle (79.639328% utilization).
+  | Verifying result...
+  | Passed.
+ARA,fmatmul,0,402351,0,5096.4
+ARAK,app,size,core,cycles,us,a53_us,hwcnt_cycles,errors
+RODINIA,suite,start
+ARAK,hotspot3d,512,cva6,38813903668,491642779.8,16547499.7,38813903730,0
+ARAK,hotspot3d,512,ara,1620681102,20528627.3,16547499.7,1620681164,0
+RODINIA,suite,end,0
+RESULT: PASS (0 errors)
