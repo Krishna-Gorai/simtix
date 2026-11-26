@@ -490,14 +490,20 @@ def main():
     ap.add_argument('--out', default=os.path.join(ga.ROOT, 'build_suite2'))
     ap.add_argument('--words-lg', type=int, default=20)
     ap.add_argument('--only', nargs='*')
+    ap.add_argument('--lanes', type=int, default=8, choices=(4, 8, 16))
+    ap.add_argument('--kroot', help='kernel images DIR/suite2 (sw/ps_host/build_kernels_lanes.py)')
     args = ap.parse_args()
+    ga.LANES = args.lanes                         # the stencil grids' padding (s2 grid layout)
+    kdir = os.path.join(os.path.abspath(args.kroot), 'suite2') if args.kroot else KDIR
+    if args.lanes != 8 and not args.kroot:
+        ap.error('--lanes other than 8 needs --kroot')
     ga.KERNELS, ga.OVERLAY, ga.WORDS = KERNELS, [], 1 << args.words_lg
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
-    ga.place_kernels(KDIR)
+    ga.place_kernels(kdir)
     cases = [f(random.Random(3001 + i)) for i, f in enumerate(SIZES[args.size])
              if not args.only or APPS[i] in args.only]
-    ga.write_manifest(cases, out, KDIR)
+    ga.write_manifest(cases, out, kdir)
 
 
 if __name__ == '__main__':

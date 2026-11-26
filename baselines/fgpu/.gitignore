@@ -1,0 +1,9 @@
+# FGPU-derived material stays out of this repository (FGPU is GPL v3)
+host/fgpu_image.h
+host/ws_zcu102*/
+fgpu_ps_zcu102*/
+reports_ps_zcu102*/
+*.xsa
+*.log
+*.jou
+*.err

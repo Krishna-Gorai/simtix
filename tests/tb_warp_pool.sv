@@ -25,7 +25,7 @@ module tb_warp_pool
     logic [31:0]          imem_addr, imem_data;
     logic [31:0]          dmem_addr;
     logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
-    logic                 dmem_we;
+    logic                 dmem_we;
     logic [MEM_TAGW-1:0]  dmem_tag;
     logic                 dmem_req;          // zero-latency memory: rvalid = req
     logic [LINE_BE-1:0]   dmem_be;
@@ -221,6 +221,7 @@ module tb_warp_pool
 
     int i;
     int unsigned cyc1, cyc4, txn_c, txn_s, dummy;
+    int unsigned exp_s;                              // phase 4: expected scattered line requests
     int unsigned mm_cyc_n, mm_cyc_s, mm_g_n, mm_g_s, mm_sc_n, mm_sc_s;
     // M7 energy sweep: per-kernel (issued lane-slots, active lanes, util ‰).
     int unsigned en_insn_c, en_act_c, en_util_c;   // convergent (no divergence)
@@ -278,13 +279,25 @@ module tb_warp_pool
         run_grid(32'd8, 32'd64, dummy, txn_s);        // scattered  (tid*32), kpc=word16
         for (i = 0; i < 8; i++)
             expect_c(i*8, (32'd10 + i*8) + (32'd100 + 2*i*8), "scatter");
+        // scattered: 8 threads at a 32-byte stride; a line is 4*NUM_LANES bytes, so each
+        // memory op costs one request per distinct line (8 at 8 lanes, 4 at 16 lanes)
+        begin
+            automatic int nl = 0;
+            for (int t = 0; t < 8; t++) begin
+                automatic bit first = 1;
+                for (int u = 0; u < t; u++)
+                    if ((u * 32) / (4 * NUM_LANES) == (t * 32) / (4 * NUM_LANES)) first = 0;
+                nl += int'(first);
+            end
+            exp_s = 3 * nl;
+        end
         $display("  contiguous : %0d line transactions (expect 3)", txn_c);
-        $display("  scattered  : %0d line transactions (expect %0d)", txn_s, 3*NUM_LANES);
+        $display("  scattered  : %0d line transactions (expect %0d)", txn_s, exp_s);
         if (txn_c != 3) begin
             $display("  [FAIL] contiguous access did not coalesce to 1 line/op");
             errors++;
         end
-        if (txn_s != 3*NUM_LANES) begin
+        if (txn_s != exp_s) begin
             $display("  [FAIL] scattered access did not produce 1 line/lane/op");
             errors++;
         end
@@ -313,10 +326,10 @@ module tb_warp_pool
                                        + ((i % 2 == 1) ? 32'd1000 : 32'd0);
             expect_c(i, exp, "diverge");
         end
-        $display("  divergent-branch events: %0d (expect 2, one per warp)",
-                 dbg_divergences);
-        if (dbg_divergences != 2) begin
-            $display("  [FAIL] expected exactly 2 divergent branches");
+        $display("  divergent-branch events: %0d (expect %0d, one per warp)",
+                 dbg_divergences, (16 + NUM_LANES - 1) / NUM_LANES);
+        if (dbg_divergences != (16 + NUM_LANES - 1) / NUM_LANES) begin
+            $display("  [FAIL] expected exactly one divergent branch per warp");
             errors++;
         end else begin
             $display("  [ ok ] lanes diverged and reconverged; C correct per lane");
@@ -378,24 +391,26 @@ module tb_warp_pool
         // gap below 100% is the lane-datapath dynamic energy a gating design saves.
         $display("[tb_warp_pool] phase 8: divergence-aware lane-gating energy study");
 
+        // One full warp (NUM_LANES threads) per kernel, so the convergent kernel keeps
+        // every lane busy at any lane count.
         // (a) convergent — vector add, no divergence: every lane active every instr.
-        preload(8, 1);
-        run_grid(32'd8, 32'd0, dummy, dummy);              // vadd @ word 0
+        preload(NUM_LANES, 1);
+        run_grid(NUM_LANES, 32'd0, dummy, dummy);          // vadd @ word 0
         en_insn_c = dbg_issued_insns; en_act_c = dbg_active_lanes;
         en_util_c = util_pm(en_insn_c, en_act_c);
 
         // (b) light divergence — one single-sided `if` (odd lanes), 1-instr body.
-        preload(8, 1);
-        run_grid(32'd8, 32'd128, dummy, dummy);            // div kernel @ word 32
+        preload(NUM_LANES, 1);
+        run_grid(NUM_LANES, 32'd128, dummy, dummy);        // div kernel @ word 32
         en_insn_l = dbg_issued_insns; en_act_l = dbg_active_lanes;
         en_util_l = util_pm(en_insn_l, en_act_l);
 
         // (c) heavy divergence — three single-sided ifs, 3-instr bodies each.
-        for (i = 0; i < 8; i++) mem[(BASE_C>>2) + i] = 32'hdead_beef;
-        run_grid(32'd8, HEAVY_W*4, dummy, dummy);          // heavy_div @ word 700
+        for (i = 0; i < NUM_LANES; i++) mem[(BASE_C>>2) + i] = 32'hdead_beef;
+        run_grid(NUM_LANES, HEAVY_W*4, dummy, dummy);      // heavy_div @ word 700
         en_insn_h = dbg_issued_insns; en_act_h = dbg_active_lanes;
         en_util_h = util_pm(en_insn_h, en_act_h);
-        for (i = 0; i < 8; i++) begin
+        for (i = 0; i < NUM_LANES; i++) begin
             automatic logic [31:0] exp = 32'd33  * (i & 1)
                                        + 32'd66  * ((i >> 1) & 1)
                                        + 32'd132 * ((i >> 2) & 1);

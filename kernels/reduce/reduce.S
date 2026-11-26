@@ -18,10 +18,13 @@
 #       -Wl,-Ttext=0 -o reduce.elf reduce.S
 #   riscv-none-elf-objcopy -O binary reduce.elf reduce.bin
 
+# Lane-generic since 2026-11-15: LANES (lanes.h, from kernels/sync/build.py --lanes) sets
+# the warp width; at 16 lanes lane 0 sums scratch[0..15].
+#include "lanes.h"
 .section .text
 .globl _start
 _start:
-    andi  t0, a0, 7        # lane = tid & 7
+    andi  t0, a0, LANES-1  # lane = tid & (LANES-1)
     slli  t1, t0, 2        # lane*4
     lui   t2, 0x40000      # SCRATCH_BASE (0x4000_0000)
     add   t2, t2, t1       # &scratch[lane]
@@ -49,7 +52,25 @@ _start:
     add   t6, t6, t1
     lw    t1, 28(t2)       # scratch[7]
     add   t6, t6, t1
-    srli  t3, a0, 3        # warp = tid >> 3
+#if LANES >= 16
+    lw    t1, 32(t2)       # scratch[8]
+    add   t6, t6, t1
+    lw    t1, 36(t2)       # scratch[9]
+    add   t6, t6, t1
+    lw    t1, 40(t2)       # scratch[10]
+    add   t6, t6, t1
+    lw    t1, 44(t2)       # scratch[11]
+    add   t6, t6, t1
+    lw    t1, 48(t2)       # scratch[12]
+    add   t6, t6, t1
+    lw    t1, 52(t2)       # scratch[13]
+    add   t6, t6, t1
+    lw    t1, 56(t2)       # scratch[14]
+    add   t6, t6, t1
+    lw    t1, 60(t2)       # scratch[15]
+    add   t6, t6, t1
+#endif
+    srli  t3, a0, LOG2L    # warp = tid >> log2(LANES)
     slli  t3, t3, 2        # warp*4
     add   t4, a3, t3       # &C[warp]
     sw    t6, 0(t4)        # C[warp] = sum

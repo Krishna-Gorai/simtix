@@ -1,0 +1,83 @@
+%==============================================================================
+% Supplementary material for the SIMTiX TVLSI manuscript (simtix_tvlsi.tex).
+% Build after the paper (references to it come from simtix_tvlsi.aux via xr):
+%   pdflatex simtix_tvlsi && pdflatex simtix_tvlsi_supp && pdflatex simtix_tvlsi_supp
+% Parts: supp_figs.tex (ratio figures moved from the paper), supp_lanes.tex (lane
+% scaling in full), supp_evalmem.tex (memory-system measurements of the v2 design).
+%==============================================================================
+\documentclass[journal]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{xr-hyper}
+\usepackage[hidelinks]{hyperref}
+\externaldocument[P-]{simtix_tvlsi}
+
+\graphicspath{{../figs/}}
+\newcommand{\Fmax}{$F_{\max}$}
+\renewcommand{\thesection}{S\arabic{section}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\renewcommand{\thetable}{S\Roman{table}}
+\usepackage{array}
+
+\begin{document}
+
+\title{Supplementary Material for ``SIMTiX: A Compact RISC-V SIMT Accelerator With
+Line-Aggregated Atomic Operations for FPGA Systems-on-Chip''}
+\author{Krishna~Gorai and Bikram~Paul}
+\markboth{IEEE Transactions on Very Large Scale Integration (VLSI) Systems}%
+{Gorai and Paul: SIMTiX, Supplementary Material}
+\maketitle
+
+This document holds figures and measurements that support the paper but did not fit
+its page budget. Tables, figures and sections without the prefix S are those of the
+paper.
+
+\section{Ratios of the Four Machines}\label{sup:ratios}
+Figs.~\ref{fig:rodinia} and~\ref{fig:rivec} show, for every Rodinia benchmark and
+RiVEC application, the time and the cycles of CVA6, Ara and Vortex, and the time of
+the A53, divided by SIMTiX's, from Tables~\ref{P-tab:rodinia} and~\ref{P-tab:rivec}.
+Fig.~\ref{P-fig:decomp} of the paper splits these ratios into clock, width and
+efficiency.
+
+\input{supp_figs_rd.tex}
+
+\section{Out-of-Context Comparison With Vortex}\label{sup:vortex}
+Fig.~\ref{fig:vortex} shows, per application, the run time and energy of Vortex at
+four, eight and 16 warps relative to SIMTiX, from the out-of-context builds of
+Section~\ref{P-sec:evalvortex} and Table~\ref{P-tab:vortex}.
+
+\input{supp_figs_vx.tex}
+
+\input{supp_lanes.tex}
+
+\section{Sixteen Lanes on the Board, Every Run}\label{sup:lanes16}
+Tables~\ref{tab:lanes16_board_all1} and~\ref{tab:lanes16_board_all2} list the 82
+board runs of Section~\ref{P-sec:lanes16} of the paper, summarized in
+Table~\ref{P-tab:lanes16_board} and Fig.~\ref{P-fig:lanes16_board}: the time of the
+Cortex-A53, of the eight-lane design and of the 16-lane design, and the 16-lane design's
+speed-up in time and in cycles over the eight-lane design and over the A53. The
+eight-lane runs use their own A53 times, measured in the same session.
+
+\input{supp_lanes16_board.tex}
+
+\section{Memory System and Reduction in the v2 Design}\label{sup:evalmem}
+\input{supp_evalmem_x.tex}
+
+\section{Instruction Sets}\label{sup:isa}
+Table~\ref{tab:isa} places the SIMTiX instruction set beside the GPU instruction sets
+compared in~\cite{vortex}; Section~\ref{P-sec:related} of the paper discusses the
+differences.
+
+\input{supp_isa.tex}
+
+\begin{thebibliography}{1}
+\bibitem{vortex} B.~Tine, K.~P.~Yalamarthy, F.~Elsabbagh, and H.~Kim,
+``Vortex: Extending the RISC-V ISA for GPGPU and 3D-graphics,'' in
+\emph{Proc. IEEE/ACM Int. Symp. Microarchitecture (MICRO)}, 2021, pp.~754--766.
+\end{thebibliography}
+
+\end{document}

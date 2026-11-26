@@ -9,7 +9,13 @@
 #define S2_REF_H
 #include <stdint.h>
 
-#define S2_LANES 8u                     /* padding of the stencil grids (stencil.S) */
+#ifndef S2_LANES                        /* padding of the stencil grids (stencil.S): one   */
+#ifdef SIMTIX_LANES                     /* line of LANES words each side; the host build   */
+#define S2_LANES ((uint32_t)SIMTIX_LANES)   /* passes -DSIMTIX_LANES=<L> (lanes<L>)        */
+#else
+#define S2_LANES 8u
+#endif
+#endif
 #define S2_INF   0x7FFFFFFF
 
 static inline float s2_f(uint32_t u) { union { uint32_t u; float f; } v = { .u = u }; return v.f; }

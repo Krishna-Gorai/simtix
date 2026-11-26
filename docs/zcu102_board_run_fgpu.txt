@@ -1,0 +1,16 @@
+# run_board.tcl 2026-11-19 22:53:36, system counter measured: 100016736 Hz
+
+FGPU on ZCU102: 1 CU x 8 PEs, FP32 + atomics; A53 host, DDR4 (HP0)
+FGB,kernel,n,fgpu_us,a53_us,errors
+FGB,vec_add,64,8,1,0
+FGB,add_hard_float,64,8,1,0
+FGB,vec_add,1024,55,10,0
+FGB,add_hard_float,1024,54,8,0
+FGB,vec_add,16384,799,118,0
+FGB,add_hard_float,16384,799,161,0
+FGB,vec_add,262144,12595,1878,0
+FGB,add_hard_float,262144,12624,2278,0
+FGB,vec_add,1048576,50347,7416,0
+FGB,add_hard_float,1048576,50430,9040,0
+COUNTS_PER_SECOND,99990005
+RESULT: PASS (0 errors)

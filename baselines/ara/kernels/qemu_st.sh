@@ -8,6 +8,7 @@ CF="-mabi=lp64d -mcmodel=medany -O3 -ffp-contract=off -fno-math-errno -fno-commo
 mkdir -p build/q
 "$GCC" $CF -march=rv64gc -c ak_scalar.c -o build/q/scalar.o
 "$GCC" $CF -march=rv64gcv -fno-tree-vectorize -fno-tree-slp-vectorize -c ak_vector.c -o build/q/vector.o
+MSYS_NO_PATHCONV=1 wsl -e bash -c "export LD_LIBRARY_PATH=\$HOME/clang_dl/root/usr/lib/x86_64-linux-gnu:\$HOME/clang_dl/root/usr/lib/llvm-21/lib; cd /mnt/c/work/SIMTiX-v2/baselines/ara/kernels && \$HOME/clang_dl/root/usr/lib/llvm-21/bin/clang --target=riscv64-unknown-elf -march=rv64gcv -mabi=lp64d -mcmodel=medany -O3 -ffp-contract=off -fno-math-errno -fno-vectorize -fno-slp-vectorize -fno-common -std=gnu11 -I. -I../../../kernels/rivec -c ak_vector_rv.c -o build/q/vector_rv.o"   # RiVEC: clang, as build.sh
 "$GCC" $CF -march=rv64gc -c ak_main.c -o build/q/main.o
-"$GCC" -mabi=lp64d -march=rv64gcv -mcmodel=medany -Wl,-Ttext-segment=0x80000000 build/q/main.o build/q/scalar.o build/q/vector.o -o build/q/ak_q.elf
+"$GCC" -mabi=lp64d -march=rv64gcv -mcmodel=medany -Wl,-Ttext-segment=0x80000000 build/q/main.o build/q/scalar.o build/q/vector.o build/q/vector_rv.o -o build/q/ak_q.elf
 MSYS_NO_PATHCONV=1 wsl -e bash -c "~/qemu_dl/root/usr/bin/qemu-riscv64 -cpu rv64,v=true,vlen=1024,elen=64,vext_spec=v1.0 /mnt/c/work/SIMTiX-v2/baselines/ara/kernels/build/q/ak_q.elf; echo EXIT \$?"

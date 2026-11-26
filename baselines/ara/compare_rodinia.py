@@ -7,6 +7,10 @@ builds; docs/rodinia_plan.md) and writes docs/rodinia_results.csv:
   docs/zcu102_board_run_rodinia_simtix.txt  SIMTiX v3, BOARD rows
   docs/zcu102_board_run_rodinia_ara.txt     Ara 2 lanes + CVA6, ARAK rows (cva6 and ara)
   docs/zcu102_board_run_rodinia_vortex.txt  Vortex 3.0, VXB rows
+  docs/zcu102_board_run_rodinia_fgpu.txt    FGPU (1 CU x 8 PEs), FGB rows, if present
+                                            (baselines/fgpu; FGPU has no cycle counter, so
+                                            only its time; FGREL: its largest row-relative
+                                            difference where it is checked within 1e-3)
 plus the RDULP / RDREL lines (largest error of CVA6 and Ara against the A53 reference in
 the kernels with division or square root) and RDITER (kmeans iterations).
 
@@ -20,7 +24,7 @@ import math
 import os
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-LOGS = {m: os.path.join(ROOT, 'docs', f'zcu102_board_run_rodinia_{m}.txt') for m in ('simtix', 'ara', 'vortex')}
+LOGS = {m: os.path.join(ROOT, 'docs', f'zcu102_board_run_rodinia_{m}.txt') for m in ('simtix', 'ara', 'vortex', 'fgpu')}
 OUT = os.path.join(ROOT, 'docs', 'rodinia_results.csv')
 # Later Ara/CVA6 runs of single benchmarks (Ara host built with rd_sel=<mask>); their rows
 # replace the full run's rows of the same benchmark.
@@ -33,7 +37,7 @@ BENCH = [('pathfinder', [100000]), ('backprop', [524288]), ('bfs', [65536]),
 
 
 def read():
-    sx, ak, vx, tol, iters = {}, {}, {}, {}, {}
+    sx, ak, vx, fg, tol, iters = {}, {}, {}, {}, {}, {}
     for line in open(LOGS['simtix'], errors='replace'):
         p = line.strip().split(',')
         if p[0] == 'BOARD' and len(p) >= 9 and p[1] != 'kernel':
@@ -71,6 +75,21 @@ def read():
                 dict(cyc=int(p[3]), us=float(p[4]), a53=float(p[5]), err=int(p[8]))
         elif p[0] == 'RDITER' and len(p) == 5:
             iters[('vortex', p[1], int(p[2]))] = int(p[4])
+    # FGPU: FGB,<app>,<size>,0,<us>,<a53 us>,0,0,<errors> or FGB,<app>,<size>,skip;
+    # FGREL,<what>,<size>,<ppb>,<exact words>,<words> (the larger per benchmark kept)
+    if os.path.isfile(LOGS['fgpu']):
+        for line in open(LOGS['fgpu'], errors='replace'):
+            p = line.strip().split(',')
+            if p[0] == 'FGB' and len(p) >= 4 and p[1] != 'app':
+                fg[(p[1], int(p[2]))] = None if p[3] == 'skip' else \
+                    dict(us=float(p[4]), a53=float(p[5]), err=int(p[8]))
+            elif p[0] == 'FGREL' and len(p) == 6:
+                key = (p[1].split('_')[0], int(p[2]), 'fgpu')
+                val = int(p[3]) * 1e-9
+                if key not in tol or val > tol[key][1]:
+                    tol[key] = ('RDREL', val)
+            elif p[0] == 'RDITER' and len(p) == 5:
+                iters[('fgpu', p[1], int(p[2]))] = int(p[4])
     # The SIMTiX/Vortex hosts summed kernel cycles in 32 bits before 2026-11-11 (Vortex's
     # kmeans, 8.05e9 cycles, printed as 3.76e9); the printed time is right. Add back the
     # wraps: the clock is the median cycles/us of the rows (each host's time includes
@@ -81,20 +100,21 @@ def read():
         for x in d.values():
             if x:
                 x['cyc'] += round((x['us'] * mhz - x['cyc']) / 2 ** 32) * 2 ** 32
-    return sx, ak, vx, tol, iters
+    return sx, ak, vx, fg, tol, iters
 
 
 def main():
-    sx, ak, vx, tol, iters = read()
+    sx, ak, vx, fg, tol, iters = read()
     rows, missing = [], []
     for app, sizes in BENCH:
         for n in sizes:
             s = sx.get((app, n))
             c, a, v = ak.get((app, n, 'cva6')), ak.get((app, n, 'ara')), vx.get((app, n))
+            fx = fg.get((app, n))
             if s is None:
                 missing.append(f'{app} {n} (SIMTiX)')
                 continue
-            ratio = lambda x: '%.2f' % (x['us'] / s['us']) if x and not x['err'] and x['cyc'] else ''
+            ratio = lambda x: '%.2f' % (x['us'] / s['us']) if x and not x['err'] and x.get('cyc', 1) else ''
             terr = lambda m: '' if (app, n, m) not in tol else                 ('%d ulp' % tol[(app, n, m)][1]) if tol[(app, n, m)][0] == 'RDULP' else ('%.2e rel' % tol[(app, n, m)][1])
             rows.append({
                 'app': app, 'size': n,
@@ -105,8 +125,11 @@ def main():
                 'ara_errors': a['err'] if a else '', 'ara_max_error': terr('ara'),
                 'vortex_us': '%.1f' % v['us'] if v else '', 'vortex_cycles': v['cyc'] if v else '',
                 'vortex_errors': v['err'] if v else '',
+                'fgpu_us': '%.1f' % fx['us'] if fx else '', 'fgpu_errors': fx['err'] if fx else '',
+                'fgpu_max_error': terr('fgpu'),
                 'a53_O2_us': '%.1f' % s['a53'],
                 'cva6_over_simtix': ratio(c), 'ara_over_simtix': ratio(a), 'vortex_over_simtix': ratio(v),
+                'fgpu_over_simtix': ratio(fx),
                 'a53_over_simtix': '%.2f' % (s['a53'] / s['us']),
             })
     with open(OUT, 'w', newline='') as f:
@@ -118,12 +141,12 @@ def main():
         print('missing:', ', '.join(missing))
     big = {a: s[-1] for a, s in BENCH}
     g = lambda xs: math.exp(sum(map(math.log, xs)) / len(xs)) if xs else float('nan')
-    for k in ('cva6_over_simtix', 'ara_over_simtix', 'vortex_over_simtix', 'a53_over_simtix'):
+    for k in ('cva6_over_simtix', 'ara_over_simtix', 'vortex_over_simtix', 'fgpu_over_simtix', 'a53_over_simtix'):
         xs = [float(r[k]) for r in rows if r['size'] == big[r['app']] and r[k]]
         print('%-20s geomean %.2fx over %d benchmarks' % (k, g(xs), len(xs)))
     for k, it in sorted(iters.items()):
         print('iterations: %s %s %d: %d' % (k + (it,)))
-    errs = [(r['app'], r['size'], m) for r in rows for m in ('simtix', 'cva6', 'ara', 'vortex')
+    errs = [(r['app'], r['size'], m) for r in rows for m in ('simtix', 'cva6', 'ara', 'vortex', 'fgpu')
             if r[m + '_errors'] not in ('', 0)]
     print('runs with wrong words:', errs if errs else 'none')
 

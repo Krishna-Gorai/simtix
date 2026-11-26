@@ -47,6 +47,14 @@ package simtix_pkg;
   parameter int XLEN       = 32;                  // data width
   parameter int NUM_LANES  = `SIMTIX_NUM_LANES;   // physical SIMT lanes (M2)
   parameter int WARP_SIZE  = NUM_LANES;           // one warp fills all lanes / issue
+  // Serial divide/sqrt cores (warp_pool): each serves a contiguous group of NUM_LANES /
+  // SFU_CORES lanes one lane at a time. Default one per 8 lanes (1 at 8 lanes, 2 at 16),
+  // or +define+SIMTIX_SFU_CORES=<n> (a power of two, at most NUM_LANES / 2).
+`ifdef SIMTIX_SFU_CORES
+  parameter int SFU_CORES  = `SIMTIX_SFU_CORES;
+`else
+  parameter int SFU_CORES  = (NUM_LANES >= 16) ? NUM_LANES / 8 : 1;
+`endif
   parameter int NUM_WARPS  = `SIMTIX_NUM_WARPS;   // hardware warp slots (M3)
 
   // ── Coalescing cache line (M4) ───────────────────────────────────────────────

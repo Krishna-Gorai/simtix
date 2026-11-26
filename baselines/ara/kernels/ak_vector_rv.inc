@@ -1,5 +1,6 @@
 /*
- * ak_vector_rv.inc - RiVEC batch 1 for Ara (docs/rivec_plan.md), included by ak_vector.c.
+ * ak_vector_rv.inc - RiVEC batch 1 for Ara (docs/rivec_plan.md), included by ak_vector_rv.c
+ * (compiled with clang; ak_vector.c's table refers to the v_rv_* functions).
  *
  * The user's decision (2026-11-11): Ara runs RiVEC's OWN vector code, changed only where
  * Ara has a hardware bug, for FP32, or for bare-metal input and output. Each function below
@@ -24,7 +25,7 @@
 
 /* ── axpy: RiVEC _axpy/src/axpy.c axpy_vector ──────────────────────────────────────── */
 /* a = dx dy a n */
-static void v_rv_axpy(const uint32_t *a)
+void v_rv_axpy(const uint32_t *a)
 {
     float *dx = AKP(float, a[0]), *dy = AKP(float, a[1]);   /* CHANGE: bare metal */
     const float aa = ak_f(a[2]);                            /* CHANGE: FP32 (double a) */
@@ -43,7 +44,7 @@ static void v_rv_axpy(const uint32_t *a)
 
 /* ── matmul: RiVEC _matmul/src/matmul.c matrixmul_intrinsics ─────────────────────── */
 /* a = A B C m n p   (C m x n = A m x p * B p x n) */
-static void v_rv_matmul(const uint32_t *a)
+void v_rv_matmul(const uint32_t *a)
 {
     float *pa = AKP(float, a[0]), *pb = AKP(float, a[1]), *pc = AKP(float, a[2]);   /* CHANGE: bare metal */
     const size_t m = a[3], n = a[4], p = a[5];
@@ -79,7 +80,7 @@ static inline vfloat32m1_t rv_gather_f32(const float *base, vuint32m1_t off, siz
     return r;
 }
 /* a = ia ja val x y nrows (CSR of the transpose, 0-based: docs/rivec_plan.md, spmv) */
-static void v_rv_spmv(const uint32_t *a)
+void v_rv_spmv(const uint32_t *a)
 {
     const uint32_t *ia = AKP(const uint32_t, a[0]), *ja = AKP(const uint32_t, a[1]);  /* CHANGE: bare metal; */
     const float *va = AKP(const float, a[2]), *x = AKP(const float, a[3]);           /*   32-bit indices (FP32: */
@@ -123,15 +124,18 @@ static void rv_jacobi_vector(int n, float *A, float *B)
     xConstant = _MM_SET_f32(0.20f, gvl);
     for (int j = 1; j <= size_x; j = j + gvl) {
         gvl = _MMR_VSETVL_E32M1(size_y - j + 1);
-        xUtop = _MM_LOAD_f32(&A[0 * n + j], gvl);
-        xU = _MM_LOAD_f32(&A[1 * n + j], gvl);
-        xUbottom = _MM_LOAD_f32(&A[2 * n + j], gvl);
         for (int i = 1; i <= size_y; i++) {
-            if (i != 1) {
-                xUtop = xU;
-                xU = xUbottom;
-                xUbottom = _MM_LOAD_f32(&A[(i + 1) * n + j], gvl);
-            }
+            /* CHANGE: Ara item 8 (user decision, 2026-11-12). RiVEC loads the three rows of
+               the first output row and then keeps them in registers (xUtop = xU;
+               xU = xUbottom; xUbottom = the next row). On Ara this gave wrong last elements
+               in the first rows, different from run to run, whenever another kernel had
+               run just before (spmv or matmul; alone it was correct), both with RiVEC's
+               copies (vmv1r.v) and with the copies unrolled away. Loading the three rows
+               for every output row was correct in every case: up to three times RiVEC's
+               loads; the slides and the arithmetic are RiVEC's, in RiVEC's order. */
+            xUtop = _MM_LOAD_f32(&A[(i - 1) * n + j], gvl);
+            xU = _MM_LOAD_f32(&A[i * n + j], gvl);
+            xUbottom = _MM_LOAD_f32(&A[(i + 1) * n + j], gvl);
             izq = A[i * n + j - 1];
             der = A[i * n + j + gvl];
             xUleft = _MM_VSLIDE1UP_f32(xU, izq, gvl);
@@ -146,7 +150,7 @@ static void rv_jacobi_vector(int n, float *A, float *B)
     }
 }
 /* a = A B n tsteps   (RiVEC kernel_jacobi_2d: tsteps x (A -> B, B -> A)) */
-static void v_rv_jacobi(const uint32_t *a)
+void v_rv_jacobi(const uint32_t *a)
 {
     float *A = AKP(float, a[0]), *B = AKP(float, a[1]);
     const int n = (int)a[2], tsteps = (int)a[3];
@@ -160,7 +164,7 @@ static void v_rv_jacobi(const uint32_t *a)
 
 /* ── pathfinder: RiVEC _pathfinder/src/pathfinder.cpp run_vector ──────────────────── */
 /* a = wall dst tmp rows cols runs (the result in dst; tmp is the scalar version's) */
-static void v_rv_pathfinder(const uint32_t *a)
+void v_rv_pathfinder(const uint32_t *a)
 {
     const int *wall = AKP(const int, a[0]);                 /* CHANGE: bare metal */
     int *dst = AKP(int, a[1]);
@@ -198,7 +202,12 @@ static void v_rv_pathfinder(const uint32_t *a)
 typedef float fptype;
 #define inv_sqrt_2xPI 0.39894228040143270286
 
-static vfloat32m1_t CNDF_SIMD(vfloat32m1_t xInput, unsigned long int gvl)
+/* CHANGE: Ara item 5 (whole-register reloads): as a function, CNDF_SIMD follows the
+   vector calling convention (v1-v7 callee-saved) and saves and restores v1 with vs1r.v /
+   vl1re64.v, whose reload Ara gets wrong: the caller's v1 came back corrupted (prices up
+   to 3e34 in the self-test, 2026-11-12). Inlined, it saves nothing; the operations are
+   unchanged. */
+__attribute__((always_inline)) static inline vfloat32m1_t CNDF_SIMD(vfloat32m1_t xInput, unsigned long int gvl)
 {
     vfloat32m1_t xNPrimeofX, xK2, xK2_2, xK2_3, xK2_4, xK2_5, xLocal, xLocal_1, xLocal_2, xLocal_3;
     vfloat32m1_t xVLocal_2, expValues;
@@ -233,7 +242,10 @@ static vfloat32m1_t CNDF_SIMD(vfloat32m1_t xInput, unsigned long int gvl)
     return xLocal;
 }
 
-static void BlkSchlsEqEuroNoDiv_vector(fptype *OptionPrice, int numOptions, fptype *sptprice,
+/* CHANGE: Ara item 5: kept out of line (scalar arguments only, nothing to save) so that,
+   with CNDF_SIMD inlined twice, it needs no vector spill; inlined into v_rv_bs it spilled
+   one register (vs1r.v / vl1re32.v). */
+__attribute__((noinline)) static void BlkSchlsEqEuroNoDiv_vector(fptype *OptionPrice, int numOptions, fptype *sptprice,
                                        fptype *strike, fptype *rate, fptype *volatility,
                                        fptype *time, int *otype, float timet, unsigned long int gvl)
 {
@@ -278,7 +290,7 @@ static void BlkSchlsEqEuroNoDiv_vector(fptype *OptionPrice, int numOptions, fpty
     _MM_STORE_f32(OptionPrice, xOptionPrice, gvl);
 }
 /* a = S K r v T type price n runs   (RiVEC bs_thread's vector loop: NUM_RUNS x all options) */
-static void v_rv_bs(const uint32_t *a)
+void v_rv_bs(const uint32_t *a)
 {
     fptype *S = AKP(fptype, a[0]), *K = AKP(fptype, a[1]), *R = AKP(fptype, a[2]);   /* CHANGE: bare metal */
     fptype *V = AKP(fptype, a[3]), *T = AKP(fptype, a[4]), *price = AKP(fptype, a[6]);
@@ -297,7 +309,7 @@ static void v_rv_bs(const uint32_t *a)
 /* a = rv qv fv nn nei a2 nbox   (rv: v x y z per particle; nei: 26 per box)
    CHANGE: bare metal: RiVEC's box_str array becomes nn[] and nei[] (the same neighbour
    order, rv_ref.h rv_lava_boxes); its FOUR_VECTOR arrays are the same layout. */
-static void v_rv_lavamd(const uint32_t *a)
+void v_rv_lavamd(const uint32_t *a)
 {
     const float *rv = AKP(const float, a[0]), *qv = AKP(const float, a[1]);
     float *fv = AKP(float, a[2]);

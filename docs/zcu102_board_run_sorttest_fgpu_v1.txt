@@ -1,0 +1,12 @@
+# run_board.tcl 2026-11-20 10:57:16, system counter measured: 100005469 Hz
+
+FGPU on ZCU102: 1 CU x 8 PEs, FP32 + atomics; A53 host, DDR4 (HP0)
+FGB,app,size,cycles,accel_us,a53_us,0,0,errors
+SORTTEST,post_us,0
+FGB,sort,65536,0,497225.2,16026.8,0,0,130591
+SORTTEST,post_us,20
+FGB,sort,65536,0,497239.8,15700.6,0,0,129374
+SORTTEST,post_us,200
+FGB,sort,65536,0,502322.1,15723.3,0,0,129107
+COUNTS_PER_SECOND,99990005
+RESULT: FAIL (389072 errors)

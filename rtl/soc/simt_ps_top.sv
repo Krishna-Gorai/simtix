@@ -276,6 +276,10 @@ module simt_ps_top
             else if (rd_addr[7:0] == 8'h00)     s_axil_rdata <= n_hits;
             else if (rd_addr[7:0] == 8'h04)     s_axil_rdata <= n_misses;
             else if (rd_addr[7:0] == 8'h08)     s_axil_rdata <= {31'd0, axi_err};
+            // 0x10C, configuration (read only): {0x5C, L1 KB, warps, lanes}; the host checks
+            // its own lane count against it (a bitstream older than this register reads 0)
+            else if (rd_addr[7:0] == 8'h0C)     s_axil_rdata <= {8'h5C, 8'(L1_BYTES / 1024),
+                                                                 8'(NUM_WARPS), 8'(NUM_LANES)};
             else                                s_axil_rdata <= 32'd0;
         end
 

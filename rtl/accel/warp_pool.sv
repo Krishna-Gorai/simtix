@@ -722,44 +722,10 @@ module warp_pool
     // serially through the single core, one result per ~26 (div) / 37 (sqrt) cycles.
     // This trades latency (k active lanes -> ~k x slower) for ~5k LUT and the congestion
     // relief that recovers Fmax. At most one warp's div/sqrt is in flight, as before.
-    logic [31:0]      sfu_opa [0:NL-1];   // captured per-lane dividend / radicand
-    logic [31:0]      sfu_opb [0:NL-1];   // captured per-lane divisor (unused for sqrt)
-    logic             sfu_is_sqrt_r;      // captured op (sqrt vs divide) for the warp
-    logic [1:0]       sfu_fmt_r;          // captured format (FP32 / FP16)
-    logic [LIDXW-1:0] sfu_lane;           // lane currently in the shared core
-    logic             sfu_core_start;     // 1-cycle launch pulse to the shared core
-    logic             sfu_core_done;
-    logic [31:0]      sfu_core_res;
-
-    /* verilator lint_off PINCONNECTEMPTY */
-    fp_divsqrt u_sfu (
-        .clk(clk), .rst(rst),
-        .start(sfu_core_start), .is_sqrt(sfu_is_sqrt_r), .fmt(sfu_fmt_r),
-        .a(sfu_opa[sfu_lane]), .b(sfu_opb[sfu_lane]),
-        .busy(), .done(sfu_core_done), .res(sfu_core_res)
-    );
-    /* verilator lint_on PINCONNECTEMPTY */
-
-    // Lane sequencer priority encoders (descending loop -> lowest matching index wins):
-    // sfu_first_lane = lowest active lane of the issuing warp; sfu_next_lane/sfu_more =
-    // the lowest active lane strictly above the one in flight, and whether one remains.
-    logic [NL-1:0]    sfu_mask;           // active mask of the warp parked on the SFU
-    logic [LIDXW-1:0] sfu_first_lane, sfu_next_lane;
-    logic             sfu_more;
-    always_comb begin
-        sfu_first_lane = '0;
-        for (int l = NL-1; l >= 0; l--) if (cur_mask[l]) sfu_first_lane = l[LIDXW-1:0];
-    end
-    always_comb begin
-        sfu_next_lane = sfu_lane;
-        sfu_more      = 1'b0;
-        for (int l = NL-1; l >= 0; l--)
-            if ((l[LIDXW-1:0] > sfu_lane) && sfu_mask[l]) begin
-                sfu_next_lane = l[LIDXW-1:0];
-                sfu_more      = 1'b1;
-            end
-    end
-
+    // 16 lanes: SFU_CORES (simtix_pkg, one per 8 lanes by default) such cores, core g
+    // serving lanes g*SGL .. g*SGL+SGL-1 in the same lane-by-lane way, all groups in
+    // parallel; the warp resumes when every group is done. With one core this is the M16
+    // engine cycle for cycle.
     // SFU scoreboard: which warp is parked, its active mask + dest f-reg + resume PC,
     // and the held result between `done` and its f-file writeback.
     typedef enum logic [1:0] { SFU_IDLE, SFU_RUN, SFU_WB } sfu_st_e;
@@ -769,6 +735,68 @@ module warp_pool
     logic [31:0]      sfu_resume_pc;
     logic [31:0]      sfu_hold [0:NL-1];
     logic             sfu_wb_fire;    // SFU result drives the f-file this cycle
+
+    localparam int NSFU = SFU_CORES;
+    localparam int SGL  = NL / NSFU;                     // lanes per core
+    localparam int SGW  = (SGL > 1) ? $clog2(SGL) : 1;   // lane-in-group index width
+    logic [31:0]      sfu_opa [0:NL-1];   // captured per-lane dividend / radicand
+    logic [31:0]      sfu_opb [0:NL-1];   // captured per-lane divisor (unused for sqrt)
+    logic             sfu_is_sqrt_r;      // captured op (sqrt vs divide) for the warp
+    logic [1:0]       sfu_fmt_r;          // captured format (FP32 / FP16)
+    logic [SGW-1:0]   sfu_loc   [0:NSFU-1];   // lane (within its group) in core g
+    logic [NSFU-1:0]  sfu_core_start;     // 1-cycle launch pulse to core g
+    logic [NSFU-1:0]  sfu_core_done;
+    logic [31:0]      sfu_core_res [0:NSFU-1];
+    logic [NSFU-1:0]  sfu_gact;           // group g still has lanes to compute
+
+    // Lane sequencer priority encoders per group (descending loop -> lowest index wins):
+    // sfu_first_loc = lowest active lane of the issuing warp in group g (and whether one
+    // exists); sfu_next_loc/sfu_more = the lowest active lane of the group strictly above
+    // the one in flight, and whether one remains.
+    logic [NL-1:0]    sfu_mask;           // active mask of the warp parked on the SFU
+    logic [SGW-1:0]   sfu_first_loc [0:NSFU-1];
+    logic [SGW-1:0]   sfu_next_loc  [0:NSFU-1];
+    logic [NSFU-1:0]  sfu_gany, sfu_more, sfu_gfin;
+    /* verilator lint_off PINCONNECTEMPTY */
+    for (genvar g = 0; g < NSFU; g++) begin : g_sfu
+        fp_divsqrt u_sfu (
+            .clk(clk), .rst(rst),
+            .start(sfu_core_start[g]), .is_sqrt(sfu_is_sqrt_r), .fmt(sfu_fmt_r),
+            .a(sfu_opa[g*SGL + int'(sfu_loc[g])]), .b(sfu_opb[g*SGL + int'(sfu_loc[g])]),
+            .busy(), .done(sfu_core_done[g]), .res(sfu_core_res[g])
+        );
+        always_comb begin
+            sfu_first_loc[g] = '0;
+            sfu_gany[g]      = 1'b0;
+            for (int l = SGL-1; l >= 0; l--)
+                if (cur_mask[g*SGL + l]) begin
+                    sfu_first_loc[g] = l[SGW-1:0];
+                    sfu_gany[g]      = 1'b1;
+                end
+        end
+        always_comb begin
+            sfu_next_loc[g] = sfu_loc[g];
+            sfu_more[g]     = 1'b0;
+            for (int l = SGL-1; l >= 0; l--)
+                if ((l[SGW-1:0] > sfu_loc[g]) && sfu_mask[g*SGL + l]) begin
+                    sfu_next_loc[g] = l[SGW-1:0];
+                    sfu_more[g]     = 1'b1;
+                end
+        end
+        // group g finishes this cycle: its last lane's result is back
+        assign sfu_gfin[g] = sfu_gact[g] && sfu_core_done[g] && !sfu_more[g];
+        // the group's results between `done` and the f-file writeback; one array per group,
+        // written only here, so no index is computed from a loop variable at run time
+        logic [31:0] hold_g [0:SGL-1];
+        always_ff @(posedge clk)
+            if ((sfu_state == SFU_RUN) && sfu_gact[g] && sfu_core_done[g])
+                hold_g[sfu_loc[g]] <= sfu_core_res[g];
+        for (genvar l = 0; l < SGL; l++) begin : g_hold
+            assign sfu_hold[g*SGL + l] = hold_g[l];
+        end
+    end
+    /* verilator lint_on PINCONNECTEMPTY */
+
 
     // ── M15→B2: pipelined FP-compute (add/sub/mul/FMA/cvt/cmp/...) ────────────────────
     // The FPU multiply/FMA cone was the longest path; simt_fpu is now a 5-STAGE pipeline
@@ -1397,7 +1425,8 @@ module warp_pool
             total_warps    <= 32'd0;
             rr_ptr         <= '0;
             sfu_state      <= SFU_IDLE;
-            sfu_core_start <= 1'b0;
+            sfu_core_start <= '0;
+            sfu_gact       <= '0;
             for (int k = 0; k < NW; k++) pend_x[k] <= '0;
             for (int k = 0; k < NW; k++) pend_f[k] <= '0;
             sb_wait        <= '0;
@@ -1438,7 +1467,8 @@ module warp_pool
                 next_wid       <= 32'd0;
                 rr_ptr         <= '0;
                 sfu_state      <= SFU_IDLE;
-                sfu_core_start <= 1'b0;
+                sfu_core_start <= '0;
+                sfu_gact       <= '0;
                 for (int k = 0; k < NW; k++) pend_x[k] <= '0;
                 for (int k = 0; k < NW; k++) pend_f[k] <= '0;
                 sb_wait        <= '0;
@@ -1606,8 +1636,13 @@ module warp_pool
                                 sfu_opa[l] <= frv1[l];
                                 sfu_opb[l] <= frv2[l];
                             end
-                            sfu_lane       <= sfu_first_lane;
-                            sfu_core_start <= 1'b1;        // launch the first lane next cycle
+                            // each group launches its first active lane next cycle (with
+                            // one core it always launches, as the M16 engine did)
+                            for (int g = 0; g < NSFU; g++) begin
+                                sfu_loc[g]        <= sfu_first_loc[g];
+                                sfu_core_start[g] <= sfu_gany[g] || (NSFU == 1);
+                                sfu_gact[g]       <= sfu_gany[g] || (NSFU == 1);
+                            end
                             wstate[issue_w] <= W_SFU;
                             sfu_state      <= SFU_RUN;
                         end
@@ -1701,16 +1736,21 @@ module warp_pool
                 unique case (sfu_state)
                     SFU_IDLE: ;   // armed in the issue step (captures operands, enters RUN)
                     SFU_RUN: begin
-                        sfu_core_start <= 1'b0;            // 1-cycle launch pulse default-low
-                        if (sfu_core_done) begin
-                            sfu_hold[sfu_lane] <= sfu_core_res;
-                            if (sfu_more) begin
-                                sfu_lane       <= sfu_next_lane;
-                                sfu_core_start <= 1'b1;   // launch the next active lane
-                            end else begin
-                                sfu_state <= SFU_WB;
+                        // per group: a result back -> hold it, launch the group's next
+                        // active lane or mark the group finished; WB once none is left
+                        for (int g = 0; g < NSFU; g++) begin
+                            sfu_core_start[g] <= 1'b0;     // 1-cycle launch pulse default-low
+                            if (sfu_gact[g] && sfu_core_done[g]) begin
+                                // (the result itself is held by g_sfu[g]'s own register)
+                                if (sfu_more[g]) begin
+                                    sfu_loc[g]        <= sfu_next_loc[g];
+                                    sfu_core_start[g] <= 1'b1;  // launch the next active lane
+                                end else begin
+                                    sfu_gact[g] <= 1'b0;
+                                end
                             end
                         end
+                        if ((sfu_gact & ~sfu_gfin) == '0) sfu_state <= SFU_WB;
                     end
                     SFU_WB:   if (sfu_wb_fire) begin
                         stk_npc[sfu_w][sp[sfu_w]] <= sfu_resume_pc;
@@ -1792,6 +1832,265 @@ module warp_pool
         dbg_state[3][16 +: 4]  = 4'(sfu_state);
         for (int i = 0; i < DBG_ME; i++) dbg_state[28 + i] = me_dbg[i];
     end
+
+`ifdef SIMTIX_DUALISSUE_COUNT
+`ifndef SYNTHESIS
+    // ── Dual-issue opportunity counter (simulation only, measurement for v4) ────────
+    // Question: how often could a second issue slot have issued a second warp instruction?
+    // Model of the second slot: the register files are split by warp parity, so the two
+    // warps of a pair have different parities and need no extra register ports; the two
+    // instructions go to different unit classes (one lane ALU, FPU, multiplier, dot unit,
+    // shuffle crossbar, memory engine, divide unit per lane); barriers and ecalls pair
+    // with nothing. In each cycle in which the fetch picks warp a, it is an opportunity
+    // if another warp b of the other parity is fetchable now (running, not in X, not
+    // asleep) and its next instruction passes the issue checks of the X stage (register
+    // scoreboard, loads in flight, unit not full) and goes to a different class than a's.
+    // The instruction RAM has one read port, so b's next instruction comes from a shadow
+    // of the instructions fetched so far in this launch; a candidate whose next PC was
+    // never fetched is counted as unknown, not as an opportunity. One line per launch:
+    //   DUALISSUE,pc=<kernel pc>,cycles=,fetch=,issued=,opp=,unknown=,any=,
+    //            <class pair>=<count> ...
+    localparam int DI_ALU = 0, DI_FPU = 1, DI_MUL = 2, DI_DOT = 3, DI_SHF = 4,
+                   DI_MEM = 5, DI_SFU = 6, DI_OTHER = 7;
+    function automatic string di_name(input int c);
+        case (c)
+            DI_ALU: return "alu";  DI_FPU: return "fpu";  DI_MUL: return "mul";
+            DI_DOT: return "dot";  DI_SHF: return "shf";  DI_MEM: return "mem";
+            DI_SFU: return "sfu";  default: return "oth";
+        endcase
+    endfunction
+
+    // decode of one instruction word: unit class and the registers the issue checks use
+    function automatic void di_decode(input logic [31:0] iw, output int cls,
+                                      output logic ux1, ux2, uf1, uf2, uf3, dx, df,
+                                      output logic ld, sab);
+        logic [6:0] op; logic [2:0] f3; logic [4:0] f5; logic fpop, fma, fsx, fid, amo, sfu;
+        op  = iw[6:0]; f3 = iw[14:12]; f5 = iw[31:27];
+        fpop = (op == OP_FP);
+        fma  = (op == OP_FMADD) || (op == OP_FMSUB) || (op == OP_FNMSUB) || (op == OP_FNMADD);
+        fsx  = fpop && ((f5 == FP_CVT_S) || (f5 == FP_FMVWX));
+        fid  = fpop && ((f5 == FP_CMP) || (f5 == FP_CVT_W) || (f5 == FP_FMVXW));
+        amo  = (op == OP_AMO) && (f3 == 3'b010) && (f5 != AMO_LR) && (f5 != AMO_SC);
+        sfu  = fpop && ((f5 == FP_DIV) || (f5 == FP_SQRT));
+        ld   = (op == OP_LOAD) || (op == OP_LOADFP);
+        ux1  = (op == OP_OP) || (op == OP_OPIMM) || (op == OP_JALR) || (op == OP_BRANCH) ||
+               (op == OP_LOAD) || (op == OP_STORE) || (op == OP_LOADFP) || (op == OP_STOREFP) ||
+               (op == OP_AMO) || (op == OP_CUSTOM0) || ((op == OP_SYSTEM) && (f3 != 3'b000)) || fsx;
+        ux2  = (op == OP_OP) || (op == OP_BRANCH) || (op == OP_STORE) || (op == OP_AMO) ||
+               (op == OP_CUSTOM0);
+        uf1  = (fpop && !fsx) || fma;
+        uf2  = (fpop && ((f5 == FP_ADD) || (f5 == FP_SUB) || (f5 == FP_MUL) || (f5 == FP_DIV) ||
+                         (f5 == FP_SGNJ) || (f5 == FP_MINMAX) || (f5 == FP_CMP))) ||
+               fma || (op == OP_STOREFP);
+        uf3  = fma;
+        dx   = (op == OP_OP) || (op == OP_OPIMM) || (op == OP_LUI) || (op == OP_AUIPC) ||
+               (op == OP_JAL) || (op == OP_JALR) || (op == OP_LOAD) || (op == OP_AMO) ||
+               ((op == OP_CUSTOM0) && (iw[31:25] != F7_BAR)) ||
+               ((op == OP_SYSTEM) && (f3 != 3'b000)) || fid;
+        df   = (op == OP_LOADFP) || fma || (fpop && !fid);
+        sab  = (op == OP_STORE) || (op == OP_STOREFP) || amo ||
+               ((op == OP_CUSTOM0) && (iw[31:25] == F7_BAR)) || ((op == OP_SYSTEM) && (f3 == 3'b000));
+        if (ld || (op == OP_STORE) || (op == OP_STOREFP) || amo)              cls = DI_MEM;
+        else if (sfu)                                                        cls = DI_SFU;
+        else if (fpop || fma)                                                cls = DI_FPU;
+        else if ((op == OP_OP) && (f3 == 3'b000) && iw[25])                  cls = DI_MUL;
+        else if ((op == OP_CUSTOM0) && (iw[31:25] == F7_DOT))                cls = DI_DOT;
+        else if ((op == OP_CUSTOM0) && (iw[31:25] == F7_SHFL))               cls = DI_SHF;
+        else if ((op == OP_CUSTOM0) && (iw[31:25] == F7_BAR))                cls = DI_OTHER;
+        else if (op == OP_SYSTEM)                                            cls = DI_OTHER;
+        else                                                                 cls = DI_ALU;
+    endfunction
+
+    logic [31:0] di_shadow [0:1023];
+    logic        di_known  [0:1023];
+    longint      di_cyc, di_fetch, di_opp, di_unk, di_any;
+    longint      di_pair [0:7][0:7];
+    logic        di_run_q;
+
+    // class of the slot a fetch at warp k's next PC would use (a pop uses the stack only;
+    // it is counted as ALU, so it never pairs with an ALU instruction)
+    function automatic int di_slot_class(input int k, input logic [31:0] iw);
+        int c; logic a1, a2, a3, a4, a5, a6, a7, a8, a9;
+        if ((sp[k] != '0) && (stk_npc[k][sp[k]] == stk_rpc[k][sp[k]])) return DI_ALU;
+        di_decode(iw, c, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+        return c;
+    endfunction
+
+    always_ff @(posedge clk) begin
+        if (rst || start) begin
+            for (int i = 0; i < 1024; i++) di_known[i] <= 1'b0;
+            di_cyc <= 0; di_fetch <= 0; di_opp <= 0; di_unk <= 0; di_any <= 0;
+            for (int i = 0; i < 8; i++) for (int j = 0; j < 8; j++) di_pair[i][j] <= 0;
+        end else if (running) begin
+            di_cyc <= di_cyc + 1;
+            if (fetch_valid) begin
+                automatic int  ca = di_slot_class(int'(fetch_w), imem_data);
+                automatic bit  found = 0, unk = 0, any = 0;
+                automatic int  cb_found = 0;
+                di_fetch <= di_fetch + 1;
+                di_shadow[fetch_pc[11:2]] <= imem_data;
+                di_known [fetch_pc[11:2]] <= 1'b1;
+                for (int b = 0; b < NW; b++) begin
+                    automatic logic [31:0] pcb;
+                    automatic logic [31:0] iw;
+                    automatic int  cb;
+                    automatic logic ux1, ux2, uf1, uf2, uf3, dx, df, ld, sab, haz, full;
+                    if (found) continue;
+                    if (b[0] == fetch_w[0]) continue;
+                    if (!((wstate[b] == W_RUN) && !inflight[b] && !sb_wait[b])) continue;
+                    any = 1;
+                    pcb = stk_npc[b][sp[b]];
+                    if ((sp[b] != '0) && (pcb == stk_rpc[b][sp[b]])) begin
+                        cb = DI_ALU;                                    // a pop
+                        haz = 1'b0; full = 1'b0;
+                    end else begin
+                        if (!di_known[pcb[11:2]]) begin unk = 1; continue; end
+                        iw = di_shadow[pcb[11:2]];
+                        di_decode(iw, cb, ux1, ux2, uf1, uf2, uf3, dx, df, ld, sab);
+                        haz = (ux1 && pend_x[b][iw[19:15]]) || (ux2 && pend_x[b][iw[24:20]]) ||
+                              (uf1 && pend_f[b][iw[19:15]]) || (uf2 && pend_f[b][iw[24:20]]) ||
+                              (uf3 && pend_f[b][iw[31:27]]) ||
+                              (dx && pend_x[b][iw[11:7]]) || (df && pend_f[b][iw[11:7]]) ||
+                              (ld && (ld_out[b] >= 4'(LD_MAX))) || (sab && (ld_out[b] != '0));
+                        full = ((cb == DI_FPU) && !fpc_rdy) || ((cb == DI_MUL) && !mul_rdy) ||
+                               ((cb == DI_DOT) && !dot_rdy) || ((cb == DI_SHF) && !shf_rdy);
+                    end
+                    if (haz || full) continue;
+                    if ((cb == ca) || (cb == DI_OTHER) || (ca == DI_OTHER)) continue;
+                    found = 1; cb_found = cb;
+                end
+                if (any) di_any <= di_any + 1;
+                if (found) begin
+                    di_opp <= di_opp + 1;
+                    if (ca <= cb_found) di_pair[ca][cb_found] <= di_pair[ca][cb_found] + 1;
+                    else                di_pair[cb_found][ca] <= di_pair[cb_found][ca] + 1;
+                end else if (unk) di_unk <= di_unk + 1;
+            end
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        di_run_q <= running && !rst;
+        if (di_run_q && !running && !rst) begin
+            automatic string s;
+            s = $sformatf("DUALISSUE,pc=0x%0h,cycles=%0d,fetch=%0d,issued=%0d,opp=%0d,unknown=%0d,any=%0d",
+                          arg_pc, di_cyc, di_fetch, dbg_issued_insns, di_opp, di_unk, di_any);
+            for (int i = 0; i < 8; i++)
+                for (int j = i; j < 8; j++)
+                    if (di_pair[i][j] != 0) s = {s, $sformatf(",%s+%s=%0d", di_name(i), di_name(j), di_pair[i][j])};
+            $display("%s", s);
+        end
+    end
+`endif
+`endif
+
+`ifdef SIMTIX_OPCOUNT
+`ifndef SYNTHESIS
+    // ── Useful-operation counter (simulation only) for the throughput plots ────────
+    // Per launch: FP32 arithmetic (add, sub, mul, div, sqrt: 1 per active lane; FMA: 2),
+    // INT8 multiply-accumulates of pdot8 (4 per active lane) and lane operations (issued
+    // warp instructions times their active lanes). One line per launch, before tb_apps'
+    // APPCSV line:  OPCOUNT,flop=<n>,mac8=<n>,laneops=<n>
+    longint oc_flop, oc_mac8, oc_lops;
+    logic   oc_run_q;
+    always_ff @(posedge clk) begin
+        if (rst || start) begin
+            oc_flop <= 0; oc_mac8 <= 0; oc_lops <= 0;
+        end else if (running && issue_valid) begin
+            automatic longint na = longint'(n_active);
+            if (!do_pop && !sb_stall && !(is_mem && !me_in_ready) && !squash_wb &&
+                !(is_sfu_op && sfu_state != SFU_IDLE))
+                oc_lops <= oc_lops + na;
+            if (do_fp && is_fma_op)
+                oc_flop <= oc_flop + 2 * na;
+            else if (do_fp && ((fp_funct5 == FP_ADD) || (fp_funct5 == FP_SUB) || (fp_funct5 == FP_MUL)))
+                oc_flop <= oc_flop + na;
+            else if (is_sfu_op && !do_pop && !sb_stall && (sfu_state == SFU_IDLE))
+                oc_flop <= oc_flop + na;
+            if (do_dot)
+                oc_mac8 <= oc_mac8 + 4 * na;
+        end
+    end
+    always_ff @(posedge clk) begin
+        oc_run_q <= running && !rst;
+        if (oc_run_q && !running && !rst)
+            $display("OPCOUNT,flop=%0d,mac8=%0d,laneops=%0d", oc_flop, oc_mac8, oc_lops);
+    end
+`endif
+`endif
+
+`ifdef SIMTIX_ISSUE_TRACE
+`ifndef SYNTHESIS
+    // ── Issue trace (simulation only) for the dual-issue cycle model ───────────────
+    // sim/issue_model.py replays each warp's instruction stream under single- and
+    // dual-issue rules. Lines (cycle = cycles since GO; wb = the warp's base thread id):
+    //   L <blk_lg>                      a launch starts
+    //   I <cyc> <wb> <pc> <instr> <g>   an instruction issues (g: lines of a global memory
+    //                                   op; minus its active lanes for a scratchpad op)
+    //   P <cyc> <wb>                    a reconvergence pop takes the issue slot
+    //   R <cyc> <wb> <f> <rd>           a pending result is written (f: FP file)
+    //   U <cyc> <wb>                    a warp parked on memory, divide or barrier resumes
+    //   W <cyc> <wb> <f> <rd>           a load writes a register file (f: FP file)
+    //   X <cyc> <wb> <reason>           a fetched instruction does not issue (haz, full, mem,
+    //                                   squash, sfu)
+    //   E <cyc>                         the launch ends
+    // File: issue_trace.txt in the simulation directory.
+    int          it_fd;
+    longint      it_cyc;
+    wstate_e     it_ws [0:NW-1];
+    initial it_fd = $fopen("issue_trace.txt", "w");
+
+    function automatic int it_lines(input logic [NL-1:0] m);
+        int n = 0;
+        for (int i = 0; i < NL; i++) begin
+            automatic bit first = m[i];
+            for (int j = 0; j < i; j++)
+                if (m[j] && (addr[j][31:LINE_OFF] == addr[i][31:LINE_OFF])) first = 0;
+            if (m[i] && first) n++;
+        end
+        return n;
+    endfunction
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            it_cyc <= 0;
+            for (int k = 0; k < NW; k++) it_ws[k] <= W_EMPTY;
+        end else begin
+            if (start) begin
+                it_cyc <= 0;
+                $fdisplay(it_fd, "L %0d", (block_log2 > 3'(LOGNW)) ? LOGNW : block_log2);
+            end else if (running) begin
+                it_cyc <= it_cyc + 1;
+                if (issue_valid && do_pop)
+                    $fdisplay(it_fd, "P %0d %0d", it_cyc, warp_base[issue_w]);
+                else if (issue_valid && !sb_stall && !(is_mem && !me_in_ready) && !squash_wb &&
+                         !(is_sfu_op && sfu_state != SFU_IDLE))
+                    $fdisplay(it_fd, "I %0d %0d %0h %08h %0d", it_cyc, warp_base[issue_w],
+                              cur_pc, instr, !is_mem ? 0 :          // scratchpad: -lanes
+                              issue_is_scratch ? -int'($countones(cur_mask)) : it_lines(cur_mask));
+                else if (issue_valid)                     // a lost slot and its reason
+                    $fdisplay(it_fd, "X %0d %0d %s", it_cyc, warp_base[issue_w],
+                              sb_haz ? "haz" : sb_full ? "full" : (is_mem && !me_in_ready) ? "mem" :
+                              squash_wb ? "squash" : "sfu");
+                if (me_rs_valid && me_rs_ld)
+                    $fdisplay(it_fd, "R %0d %0d %0d %0d", it_cyc, warp_base[me_rs_w], me_rs_fp, me_rs_rd);
+                if (mem_wb_act)                           // a load takes a register-file port
+                    $fdisplay(it_fd, "W %0d %0d %0d %0d", it_cyc, warp_base[me_wb_w], me_wb_fp, me_wb_rd);
+                if (fpc_wb_fire) $fdisplay(it_fd, "R %0d %0d %0d %0d", it_cyc, warp_base[fpc_w], fpc_isfp, fpc_rd);
+                if (mul_wb_fire) $fdisplay(it_fd, "R %0d %0d 0 %0d", it_cyc, warp_base[mul_w], mul_rd);
+                if (dot_wb_fire) $fdisplay(it_fd, "R %0d %0d 0 %0d", it_cyc, warp_base[dot_w], dot_rd);
+                if (shf_wb_fire) $fdisplay(it_fd, "R %0d %0d 0 %0d", it_cyc, warp_base[shf_w], shf_rd);
+                for (int k = 0; k < NW; k++)
+                    if ((wstate[k] == W_RUN) && (it_ws[k] inside {W_MEM, W_SFU, W_BAR}))
+                        $fdisplay(it_fd, "U %0d %0d", it_cyc, warp_base[k]);
+            end
+            if (done) $fdisplay(it_fd, "E %0d", it_cyc);
+            for (int k = 0; k < NW; k++) it_ws[k] <= wstate[k];
+        end
+    end
+    final $fclose(it_fd);
+`endif
+`endif
 
 endmodule : warp_pool
 

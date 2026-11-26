@@ -17,6 +17,12 @@ MUTED = "#6b6b6b"     # secondary text, tick labels
 GRID = "#dcdcdc"
 
 
+def panel_tag(ax, tag, x=0.012, y=0.985):
+    """the (a)/(b) tag of a panel, in its top-left corner; the caption names the panel"""
+    ax.text(x, y, f"({tag})", transform=ax.transAxes, fontsize=8, color=INK, ha="left",
+            va="top", zorder=6, bbox=dict(boxstyle="square,pad=0.1", fc="white", ec="none"))
+
+
 def apply():
     plt.rcParams.update({
         "font.family": "serif",

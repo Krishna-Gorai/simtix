@@ -1,0 +1,185 @@
+%==============================================================================
+% Supplementary material for the SIMTiX TVLSI manuscript (simtix_tvlsi.tex).
+% Build after the paper (references to it come from simtix_tvlsi.aux via xr):
+%   pdflatex simtix_tvlsi && pdflatex simtix_tvlsi_supp && pdflatex simtix_tvlsi_supp
+% Parts: supp_figs.tex (ratio figures moved from the paper), supp_lanes.tex (lane
+% scaling in full), supp_evalmem.tex (memory-system measurements of the v2 design).
+%==============================================================================
+\documentclass[journal]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{xr-hyper}
+\usepackage[hidelinks]{hyperref}
+\externaldocument[P-]{simtix_tvlsi}
+
+\graphicspath{{../figs/}}
+\newcommand{\Fmax}{$F_{\max}$}
+\renewcommand{\thesection}{S\arabic{section}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\renewcommand{\thetable}{S\Roman{table}}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{url}
+
+\begin{document}
+
+\title{Supplementary Material for ``SIMTiX: A Compact RISC-V SIMT Accelerator With
+Line-Aggregated Atomic Operations for FPGA Systems-on-Chip''}
+\author{Krishna~Gorai and Bikram~Paul}
+\markboth{IEEE Transactions on Very Large Scale Integration (VLSI) Systems}%
+{Gorai and Paul: SIMTiX, Supplementary Material}
+\maketitle
+
+This document holds figures and measurements that support the paper but did not fit
+its page budget. Tables, figures and sections without the prefix S are those of the
+paper.
+
+\section{Execution Time and Cycles of the Machines}\label{sup:ratios}
+Figs.~\ref{fig:rodinia} and~\ref{fig:rivec} give, for every Rodinia benchmark and
+RiVEC application at its largest input, the execution time of SIMTiX, CVA6, Ara,
+Vortex, FGPU and the A53, each at its own clock, and the clock cycles of the first
+five, from Tables~\ref{P-tab:rodinia} and~\ref{P-tab:rivec}; FGPU's cycles are its
+time times its clock. Fig.~\ref{fig:mach_time} gives the execution time of every
+machine, the eight- and 16-lane SIMTiX included, on all twelve applications of
+Table~\ref{P-tab:board}, Rodinia and RiVEC at their largest inputs, the integer
+benchmarks that Fig.~\ref{P-fig:mach_heatmap} of the paper leaves out among them; Ara
+gives wrong results on the MLP and Smith-Waterman.
+Section~\ref{P-sec:decomp} of the paper splits the time ratios into clock, width and
+efficiency.
+
+\input{supp_figs_rd.tex}
+
+\section{Energy per Run}\label{sup:energy}
+Fig.~\ref{fig:energy} gives the energy per run of the eight- and 16-lane SIMTiX on every
+benchmark of Section~\ref{P-sec:evalpower} of the paper at its largest input: the system
+power while the accelerator runs (the sum of the board's 18 monitored rails) times the
+run's measured time.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{simtix_lanes_energy.pdf}
+\caption{Energy per run of the eight- and 16-lane SIMTiX on the ZCU102.}
+\label{fig:energy}
+\end{figure*}
+
+\section{Out-of-Context Comparison With Vortex}\label{sup:vortex}
+Fig.~\ref{fig:vortex} gives, per application, the IPC, the execution time at each
+design's \Fmax\ and the energy of one run at 100~MHz, from the vectorless power, of
+SIMTiX with four warps and of Vortex with four, eight and 16 warps, from the
+out-of-context builds of Section~\ref{P-sec:evalvortex} and Table~\ref{P-tab:vortex}.
+
+\input{supp_figs_vx.tex}
+
+\section{FGPU: Build, Kernels and Hardware Limits}\label{sup:fgpu}
+FGPU~\cite{fgpu} is built from its public RTL with one compute unit (CU) of eight
+processing elements (PEs), its floating-point units, regenerated for the XCZU9EG, and its
+global atomics. A wavefront of 64 work-items issues one instruction over eight cycles, and
+up to eight wavefronts are resident. FGPU is a peripheral of the A53 like the other
+machines: an AXI4-Lite port for its control registers, kernel descriptor and code memory,
+and a 64-bit AXI4 master to S\_AXI\_HP0. The board design closes at 187.48~MHz
+($1.5$~GHz$/8$) with 1.02~ns of slack and uses 43,995 LUTs, 58,582 flip-flops, 49.5
+RAMB36 and 64 DSP blocks; Vivado estimates 1.40~W for FGPU.
+
+\emph{Kernels.} Every benchmark is written in OpenCL~C with one work-item per output,
+reads the same parameter block as the SIMTiX kernel and keeps the operation order of the
+definition; FGPU's LLVM~3.7 back end compiles it. FGPU has no fused multiply-add, no
+conversion from float to integer, converts only unsigned integers to float and compares
+floats only with ``less than''; the kernels multiply and add separately, round to an
+integer and convert signed integers with the exact constant $1.5\cdot2^{23}$, and write
+every comparison as $a<b$. Outputs that depend on a fused multiply-add of the definition
+are checked within $10^{-3}$ of each row's largest reference value; the largest
+difference on the board is $2.0\times10^{-4}$ (gaussian, whose elimination compounds
+the separate roundings over 1,024 steps) and at most $1.7\times10^{-6}$ elsewhere. Where
+the product is exact (the stencil's coefficient $1/8$, Mandelbrot's $2\,z_rz_i$ and its
+pixel coordinates, multiples of $5\cdot2^{-k}$) the separate add equals the fused one and
+the check stays exact. For the INT8 requantization the A53 reference multiplies and adds
+separately on FGPU's runs, so its bytes stay exact. On kdd\_cup, k-means without fused
+multiply-adds converges in the same 37 iterations to the same memberships and centers
+(checked offline in IEEE single precision), so its exact check also holds.
+
+\emph{Hardware limits.} Four properties of FGPU's hardware, each found in simulation of
+its RTL or on the board, change the code of five benchmarks but not their outputs.
+(i)~The atomic-add unit latches the address of the first atomic of a kernel and adds
+there until the kernel ends; an atomic to another address is never retired, so the
+kernel does not finish. k-means accumulates its cluster sums with atomics at
+$3K$ addresses; on FGPU a first kernel assigns the points and adds to per-worker partial
+sums in each worker's own memory words, and a second adds the partials.
+(ii)~Byte and halfword stores are placed in their word only when FGPU is built with
+sub-integer support, which its default configurations, and ours, leave out; otherwise
+they write the whole word. MLP and CNN, whose outputs are bytes, compute four outputs
+per work-item and store one word.
+(iii)~Each work-item has 16 words of stack (FGPU's local memory, addressed by phase,
+wavefront and a four-bit offset), and the compiler does not know the limit: lavaMD,
+whose loop invariants the compiler keeps in registers and spills to an 18-word frame,
+gave wrong forces on the board. Compiled without machine-level loop-invariant code
+motion its frame is six words and its results are correct; the code of every other
+RiVEC kernel is unchanged by the option.
+(iv)~With several wavefronts in flight, a load that closely follows a store of the same
+work-item to the same word can return the old value. The radix sort counts digits and
+advances its scatter offsets in memory; on FGPU it keeps both in registers (16 packed
+counters) and adds the digit bases in a kernel of its own. Pauses between kernels do not
+change the failure, and k-means' partial sums, whose loads follow their stores by tens
+of instructions, are correct.
+
+Before the board, every kernel ran on FGPU's RTL in simulation (xsim, the board wrapper
+and configuration) on the small inputs of the SIMTiX test suite and matched, bit for bit,
+a single-precision model of the kernel; the model in turn reproduces the SIMTiX
+reference within the tolerance above. Limits (iii) and (iv) appear only at board scale:
+the small inputs put all lanes of a wavefront in one lavaMD box and give the sort about
+one increment per counter.
+
+\input{supp_moved.tex}
+
+\section{Sixteen Lanes on the Board, Every Run}\label{sup:lanes16}
+Tables~\ref{tab:lanes16_board_all1} and~\ref{tab:lanes16_board_all2} list the 82
+board runs of Section~\ref{P-sec:lanes16} of the paper, summarized in
+Table~\ref{P-tab:lanes16_board}: the time of the
+Cortex-A53, of the eight-lane design and of the 16-lane design, and the 16-lane design's
+speedup in time and in cycles over the eight-lane design and over the A53. The
+eight-lane runs use their own A53 times, measured in the same session, and the A53 runs
+the \texttt{-O2} reference. The input is each benchmark's size argument (elements,
+matrix order, grid side or iterations); slower runs are in italics.
+
+\input{supp_lanes16_board.tex}
+
+\section{Memory System and Reduction in the v2 Design}\label{sup:evalmem}
+\input{supp_evalmem_x.tex}
+
+\section{Instruction Sets}\label{sup:isa}
+Table~\ref{tab:isa} places the SIMTiX instruction set beside the GPU instruction sets
+compared in~\cite{vortex} (Table~1 there); Section~\ref{P-sec:related} of the paper
+discusses the differences. GDS and LDS are the global and local data shares, VGPR and
+SGPR the vector and scalar general-purpose registers, CTA a cooperative thread array,
+GRF the general register file, SPF a special flag and USC the unified shading cluster.
+
+\input{supp_isa.tex}
+
+\begin{thebibliography}{9}
+\bibitem{fgpu} M.~Al~Kadi, B.~Janssen, and M.~H\"ubner, ``FGPU: An
+SIMT-architecture for FPGAs,'' in \emph{Proc. ACM/SIGDA Int. Symp.
+Field-Programmable Gate Arrays (FPGA)}, 2016, pp.~254--263.
+\bibitem{vortex} B.~Tine, K.~P.~Yalamarthy, F.~Elsabbagh, and H.~Kim,
+``Vortex: Extending the RISC-V ISA for GPGPU and 3D-graphics,'' in
+\emph{Proc. IEEE/ACM Int. Symp. Microarchitecture (MICRO)}, 2021, pp.~754--766.
+\bibitem{figueroa} S.~A.~Figueroa, ``When is double rounding innocuous?''
+\emph{ACM SIGNUM Newsl.}, vol.~30, no.~3, pp.~21--26, 1995.
+\bibitem{boldo} S.~Boldo and G.~Melquiond, ``Emulation of FMA and correctly rounded
+sums: Proved algorithms using rounding to odd,'' \emph{IEEE Trans. Comput.}, vol.~57,
+no.~4, pp.~462--471, Apr. 2008.
+\bibitem{ieee754} \emph{IEEE Standard for Floating-Point Arithmetic}, IEEE Std
+754-2019, 2019.
+\bibitem{gap} S.~Beamer, K.~Asanovi\'c, and D.~Patterson, ``The GAP benchmark suite,''
+arXiv:1508.03619, 2015.
+\bibitem{shoc} A.~Danalis, G.~Marin, C.~McCurdy, J.~S.~Meredith, P.~C.~Roth, K.~Spafford,
+V.~Tipparaju, and J.~S.~Vetter, ``The Scalable Heterogeneous Computing (SHOC) benchmark
+suite,'' in \emph{Proc. 3rd Workshop General-Purpose Comput. Graph. Process. Units
+(GPGPU-3)}, 2010, pp.~63--74.
+\bibitem{polybench} L.-N.~Pouchet, ``PolyBench/C: The polyhedral benchmark suite,''
+2012. [Online]. Available: \url{https://sourceforge.net/projects/polybench/}
+\end{thebibliography}
+
+\end{document}

@@ -43,15 +43,23 @@ app = client.create_app_component(name='ara_host', platform=xpfm,
                                   domain='standalone_a53', template='empty_application')
 app.import_files(from_loc=HERE, files=['main.c', 'apps_ara.c', 'ara_progs.h'], dest_dir_in_cmp='src')
 app.import_files(from_loc=os.path.join(HERE, '..', 'kernels'), files=['ak.h'], dest_dir_in_cmp='src')
-app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'sw', 'ps_host'), files=['suite2.inc', 'rodinia.inc'],
+app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'sw', 'ps_host'), files=['suite2.inc', 'rodinia.inc',
+                                                                                    'rivec.inc', 'power.c',
+                                                                                    'power.h'],
                  dest_dir_in_cmp='src')
 app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'kernels', 'suite2'), files=['s2_ref.h'],
                  dest_dir_in_cmp='src')
 app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'kernels', 'rodinia'), files=['rd_ref.h'],
                  dest_dir_in_cmp='src')
+app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'kernels', 'rivec'), files=['rv_ref.h'],
+                 dest_dir_in_cmp='src')
 app.set_app_config(key='USER_COMPILE_OPTIMIZATION_LEVEL', values='-O2')
-if 'rodinia' in sys.argv[1:]:                             # the Rodinia suite alone (rodinia.inc)
-    app.set_app_config(key='USER_COMPILE_DEFINITIONS', values=['RD_ONLY'])
+# one call with every definition: a second set_app_config call replaces the first
+defs = (['xil_printf=con_printf'] +                             # main.c: every file's text in the DDR console
+        (['RD_ONLY'] if 'rodinia' in sys.argv[1:] else []) +   # the Rodinia suite alone (rodinia.inc)
+        (['RV_ONLY'] if 'rivec' in sys.argv[1:] else []) +     # RiVEC batch 1 alone (rivec.inc)
+        (['PW_ONLY'] if 'power' in sys.argv[1:] else []))      # the power pass alone (docs/power_plan.md)
+app.set_app_config(key='USER_COMPILE_DEFINITIONS', values=defs)
 # rd_sel=<mask>: only those Rodinia benchmarks (RD_SEL in rodinia.inc). Vitis kept only the
 # first of several USER_COMPILE_DEFINITIONS, so the mask goes into src/rd_cfg.h, written on
 # every build (all benchmarks when no rd_sel is given).
@@ -60,6 +68,11 @@ sel = ([a.split('=', 1)[1] for a in args if a.lower().startswith('rd_sel=')] +
        [args[i + 1] for i, a in enumerate(args[:-1]) if a.lower() == 'rd_sel'] or ['0x1FFu'])[0]
 with open(os.path.join(WS, 'ara_host', 'src', 'rd_cfg.h'), 'w') as f:
     f.write(f'/* rd_cfg.h - written by build_vitis_ara.py */\n#define RD_SEL {sel}\n')
+# rv_sel=<mask>: only those RiVEC applications (RV_SEL in rivec.inc), in src/rv_cfg.h
+rsel = ([a.split('=', 1)[1] for a in args if a.lower().startswith('rv_sel=')] +
+        [args[i + 1] for i, a in enumerate(args[:-1]) if a.lower() == 'rv_sel'] or ['0x7Fu'])[0]
+with open(os.path.join(WS, 'ara_host', 'src', 'rv_cfg.h'), 'w') as f:
+    f.write(f'/* rv_cfg.h - written by build_vitis_ara.py */\n#define RV_SEL {rsel}\n')
 app.build()
 
 elf = os.path.join(WS, 'ara_host', 'build', 'ara_host.elf')

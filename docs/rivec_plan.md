@@ -90,6 +90,11 @@ Sizes are RiVEC's `run.sh` "large" sets. Where one does not fit the hosts' memor
 | all | `double` -> `float`, `e64`/`f64` intrinsics -> `e32`/`f32` | FP32 decision |
 | all | file reading and `printf` output replaced by host-supplied arrays | bare metal |
 | particlefilter, canneal | `vid.v` replaced (table of indices, as `ak_iota`) | `vid.v` deadlocks Ara (`ak_vector.c`, item 6) |
+| blackscholes | the masked subtract of `CNDF_SIMD` becomes a `vmerge` | Ara item 2, and a RiVEC bug (the mask-agnostic `_m` form) |
+| spmv | 32-bit column indices; the gather in early-clobber inline assembly | FP32 (e64 indices with e32 data need LMUL 2, item 1); item 4 |
+| jacobi-2d, pathfinder | a fence after each sweep / before each row | scalar loads read the vector stores (the Ordering rule) |
+| jacobi-2d | the three grid rows loaded for every output row instead of kept in registers from row to row (up to three times RiVEC's loads; slides and arithmetic unchanged) | Ara item 8 (user decision 2026-11-12): with RiVEC's register reuse, the last elements of the first rows were wrong, differently from run to run, whenever spmv or matmul had run just before; correct alone; the reload was correct in every case |
+| all (compiler) | RiVEC's kernels compiled with clang 21 (`ak_vector_rv.c`), `CNDF_SIMD` inlined, `BlkSchlsEqEuroNoDiv_vector` out of line | Ara item 5: GCC spilled a vector register in Black-Scholes (and `CNDF_SIMD` saved v1 as a vector-calling-convention function); Ara reloads whole-register spills wrongly. RiVEC's README builds with LLVM |
 | any with masked operations | reviewed against `ak_vector.c` item 2 | masked operations misbehave on Ara |
 
 ## Code layout (as Rodinia)

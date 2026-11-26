@@ -376,6 +376,18 @@ module mem_engine
             s_bsel[l] = c_addr[q_sel][l*32 +: 2];
             s_sd[l]   = c_sdata[q_sel][l*32 +: 32];
         end
+    // Store data of the request's lanes merged into one line (me_store_merge below;
+    // SIMTIX_ME_OLD_MERGE selects the original lane-by-lane form, for A/B checks).
+    logic [LINE_BITS-1:0] sm_wdata;
+    logic [LINE_BE-1:0]   sm_be;
+`ifdef SIMTIX_ME_OLD_MERGE
+    localparam bit SM_OLD = 1'b1;
+`else
+    localparam bit SM_OLD = 1'b0;
+`endif
+    me_store_merge #(.NL(NL), .LW(LINE_WORDS), .WOFFW(LINE_WOFFW), .OLD(SM_OLD)) u_smerge (
+        .mask(q_mask), .f3(c_f3[q_sel]), .woff(s_woff), .bsel(s_bsel), .sd(s_sd),
+        .wdata(sm_wdata), .be(sm_be));
     always_comb begin
         dmem_wdata = '0;
         dmem_we    = 1'b0;
@@ -386,29 +398,8 @@ module mem_engine
                 dmem_wdata = a_line;
                 for (int w = 0; w < LINE_WORDS; w++) dmem_be[w*4 +: 4] = {4{a_touch[w]}};
             end else begin
-                for (int l = 0; l < NL; l++) begin
-                    if (q_mask[l]) begin
-                        unique case (c_f3[q_sel])
-                            3'b000: begin  // sb
-                                dmem_wdata[s_woff[l]*32 + s_bsel[l]*8 +: 8] = s_sd[l][7:0];
-                                dmem_be[s_woff[l]*4 + s_bsel[l]]            = 1'b1;
-                            end
-                            3'b001: begin  // sh
-                                if (s_bsel[l][1]) begin
-                                    dmem_wdata[s_woff[l]*32 + 16 +: 16] = s_sd[l][15:0];
-                                    dmem_be[s_woff[l]*4 + 2 +: 2]       = 2'b11;
-                                end else begin
-                                    dmem_wdata[s_woff[l]*32 +: 16] = s_sd[l][15:0];
-                                    dmem_be[s_woff[l]*4 +: 2]      = 2'b11;
-                                end
-                            end
-                            default: begin  // sw
-                                dmem_wdata[s_woff[l]*32 +: 32] = s_sd[l];
-                                dmem_be[s_woff[l]*4 +: 4]      = 4'b1111;
-                            end
-                        endcase
-                    end
-                end
+                dmem_wdata = sm_wdata;
+                dmem_be    = sm_be;
             end
         end
     end
@@ -747,3 +738,95 @@ module mem_engine
 `endif
 
 endmodule : mem_engine
+
+// =============================================================================
+// me_store_merge - the write data and byte enables of a store request: the
+// request's lanes (mask) write their bytes into one line; where lanes overlap,
+// the highest lane wins; bytes no lane writes are 0 with their enable off.
+//
+// OLD = 1: the original form, each lane in ascending order writing its byte,
+//   half or word at a variable position of the line. Synthesis builds that as
+//   one line-wide shift/priority stage per lane: lanes x line bits, which at 16
+//   lanes was 37k LUTs, 70 % of the engine (docs/lanes16_plan.md, profile).
+// OLD = 0 (used): each lane first replicates its data across a word (byte x4,
+//   half x2) with a 4-bit byte enable, so nothing is shifted; then each byte of
+//   the line takes the highest lane that writes it, by a one-hot AND-OR select.
+// The two compute the same function (proved equivalent: sim/formal/sm_equiv).
+// =============================================================================
+/* verilator lint_off DECLFILENAME */
+module me_store_merge #(
+    parameter int NL    = 8,              // lanes
+    parameter int LW    = 8,              // words per line
+    parameter int WOFFW = 3,              // word index width
+    parameter bit OLD   = 1'b0
+) (
+    input  logic [NL-1:0]    mask,        // lanes in this request
+    input  logic [2:0]       f3,          // 000 sb, 001 sh, otherwise sw
+    input  logic [WOFFW-1:0] woff [0:NL-1],
+    input  logic [1:0]       bsel [0:NL-1],
+    input  logic [31:0]      sd   [0:NL-1],
+    output logic [LW*32-1:0] wdata,
+    output logic [LW*4-1:0]  be
+);
+    if (OLD) begin : g_old
+        always_comb begin
+            wdata = '0;
+            be    = '0;
+            for (int l = 0; l < NL; l++) begin
+                if (mask[l]) begin
+                    unique case (f3)
+                        3'b000: begin  // sb
+                            wdata[woff[l]*32 + bsel[l]*8 +: 8] = sd[l][7:0];
+                            be[woff[l]*4 + bsel[l]]            = 1'b1;
+                        end
+                        3'b001: begin  // sh
+                            if (bsel[l][1]) begin
+                                wdata[woff[l]*32 + 16 +: 16] = sd[l][15:0];
+                                be[woff[l]*4 + 2 +: 2]       = 2'b11;
+                            end else begin
+                                wdata[woff[l]*32 +: 16] = sd[l][15:0];
+                                be[woff[l]*4 +: 2]      = 2'b11;
+                            end
+                        end
+                        default: begin  // sw
+                            wdata[woff[l]*32 +: 32] = sd[l];
+                            be[woff[l]*4 +: 4]      = 4'b1111;
+                        end
+                    endcase
+                end
+            end
+        end
+    end else begin : g_new
+        logic [31:0]    rep [0:NL-1];         // the lane's data, replicated across a word
+        logic [3:0]     bl  [0:NL-1];         // the bytes of its word it writes
+        logic [NL-1:0]  hit [0:LW*4-1];       // lanes writing line byte k
+        logic [NL-1:0]  win [0:LW*4-1];       // the highest of them (one-hot)
+        logic [NL:0]    abv [0:LW*4-1];       // abv[k][l]: some lane >= l hits byte k
+        always_comb
+            for (int l = 0; l < NL; l++) begin
+                unique case (f3)
+                    3'b000:  begin rep[l] = {4{sd[l][7:0]}};  bl[l] = 4'b0001 << bsel[l]; end
+                    3'b001:  begin rep[l] = {2{sd[l][15:0]}}; bl[l] = bsel[l][1] ? 4'b1100 : 4'b0011; end
+                    default: begin rep[l] = sd[l];            bl[l] = 4'b1111; end
+                endcase
+            end
+        for (genvar k = 0; k < LW*4; k++) begin : g_byte
+            localparam int W = k / 4, B = k % 4;
+            always_comb begin
+                for (int l = 0; l < NL; l++)
+                    hit[k][l] = mask[l] && (woff[l] == WOFFW'(W)) && bl[l][B];
+                // win[l] = hit[l] and no higher lane hits (plain chain, no computed shifts)
+                abv[k][NL] = 1'b0;
+                for (int l = NL-1; l >= 0; l--) begin
+                    win[k][l] = hit[k][l] && !abv[k][l+1];
+                    abv[k][l] = abv[k][l+1] || hit[k][l];
+                end
+                wdata[k*8 +: 8] = '0;
+                for (int l = 0; l < NL; l++)
+                    wdata[k*8 +: 8] = wdata[k*8 +: 8] | ({8{win[k][l]}} & rep[l][B*8 +: 8]);
+                be[k] = |hit[k];
+            end
+        end
+    end
+endmodule : me_store_merge
+/* verilator lint_on DECLFILENAME */

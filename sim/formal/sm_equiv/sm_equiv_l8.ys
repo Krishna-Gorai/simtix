@@ -1,0 +1,6 @@
+plugin -i slang
+read_slang --top sm_equiv -G NL=8 C:\work\SIMTiX-v2\sim\formal\sm_equiv\..\..\..\rtl\accel\simtix_pkg.sv C:\work\SIMTiX-v2\sim\formal\sm_equiv\..\..\..\rtl\accel\mem_engine.sv C:\work\SIMTiX-v2\sim\formal\sm_equiv\sm_equiv.sv
+prep -top sm_equiv
+flatten
+opt_clean
+sat -prove ok 1 -verify

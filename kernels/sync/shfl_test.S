@@ -6,6 +6,7 @@
 #   C[128 + tid] = shfl_down(v, 3)
 #   C[192 + tid] = shfl_xor (v, 5)
 #   a0 = tid   a1 = &A   a3 = &C
+#include "lanes.h"
 .include "simtix_v2.inc"
 .section .text
 .globl _start
@@ -14,7 +15,7 @@ _start:
     add   t1, a1, t0
     lw    s0, 0(t1)        # v = A[tid]
     add   s1, a3, t0       # &C[tid]
-    andi  t2, a0, 7        # lane
+    andi  t2, a0, LANES-1  # lane
     slli  t3, t2, 1
     add   t3, t3, t2
     addi  t3, t3, 1        # 3*lane + 1

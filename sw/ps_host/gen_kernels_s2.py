@@ -8,9 +8,13 @@ sim/gen_apps.place_kernels does), PC_S2_<NAME> gives each one's offset, and
 s2_load_all() in apps.c writes them.
 """
 import os
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KDIR = os.path.join(HERE, '..', '..', 'kernels', 'suite2')
+sys.path.insert(0, HERE)
+import genopts                                    # --kroot DIR --out DIR (other lane counts)
+KROOT, OUT = genopts.parse()
+KDIR = os.path.join(KROOT, 'suite2')
 KERNELS = ['pathfinder', 'hotspot', 'jacobi2d', 'mv_row', 'mv_col', 'pr_contrib', 'pr_pull', 'cc_step',
            'bp_forward', 'bp_adjust', 'rs_hist', 'rs_scan', 'rs_scatter', 'blackscholes']
 IRAM_WORDS = 1024
@@ -31,5 +35,5 @@ out += ['', 'struct s2_kernel { uint32_t pc; const uint32_t *w; unsigned n; };',
         'static const struct s2_kernel s2_kernels[] = {']
 out += [f'    {{ PC_S2_{k.upper()}, k2_{k}, sizeof k2_{k} / 4u }},' for k in KERNELS]
 out += ['};', '']
-open(os.path.join(HERE, 'kernels_s2.h'), 'w', newline='\n').write('\n'.join(out))
+open(os.path.join(OUT, 'kernels_s2.h'), 'w', newline='\n').write('\n'.join(out))
 print(f'kernels_s2.h: {len(KERNELS)} kernels, {pc} of {4 * IRAM_WORDS} instruction-RAM bytes')

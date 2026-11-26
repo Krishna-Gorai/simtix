@@ -48,15 +48,20 @@ app = client.create_app_component(name='vx_host', platform=xpfm,
                                   domain='standalone_a53', template='empty_application')
 app.import_files(from_loc=HERE, files=['main_vortex.c', 'vx_image.h'], dest_dir_in_cmp='src')
 app.import_files(from_loc=PSHOST, files=['apps.c', 'power.c', 'power.h', 'kernels.h', 'suite2.inc',
-                                         'kernels_s2.h', 'rodinia.inc', 'kernels_rd.h'],
+                                         'kernels_s2.h', 'rodinia.inc', 'kernels_rd.h', 'rivec.inc',
+                                         'kernels_rv.h'],
                  dest_dir_in_cmp='src')
 app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'kernels', 'suite2'), files=['s2_ref.h'],
                  dest_dir_in_cmp='src')
 app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'kernels', 'rodinia'), files=['rd_ref.h'],
                  dest_dir_in_cmp='src')
+app.import_files(from_loc=os.path.join(HERE, '..', '..', '..', 'kernels', 'rivec'), files=['rv_ref.h'],
+                 dest_dir_in_cmp='src')
 app.set_app_config(key='USER_COMPILE_OPTIMIZATION_LEVEL', values='-O2')
 app.set_app_config(key='USER_COMPILE_DEFINITIONS', values=['xil_printf=con_printf', 'SIMTIX_VORTEX'] +
-                   (['RD_ONLY'] if 'rodinia' in sys.argv[1:] else []))   # the Rodinia suite alone
+                   (['RD_ONLY'] if 'rodinia' in sys.argv[1:] else []) +  # the Rodinia suite alone
+                   (['RV_ONLY'] if 'rivec' in sys.argv[1:] else []) +    # RiVEC batch 1 alone
+                   (['PW_ONLY'] if 'power' in sys.argv[1:] else []))     # the power pass alone
 app.build()
 
 elf = os.path.join(WS, 'vx_host', 'build', 'vx_host.elf')

@@ -254,7 +254,15 @@ def main():
     ap.add_argument('--out', default=os.path.join(ga.ROOT, 'build_rodinia'))
     ap.add_argument('--words-lg', type=int, default=20)
     ap.add_argument('--only', nargs='*')
+    ap.add_argument('--lanes', type=int, default=8, choices=(4, 8, 16))
+    ap.add_argument('--kroot', help='kernel images DIR/{suite2,rodinia} (sw/ps_host/build_kernels_lanes.py)')
     args = ap.parse_args()
+    global KDIR_S2, KDIR_RD
+    ga.LANES = args.lanes
+    if args.kroot:
+        KDIR_S2, KDIR_RD = (os.path.join(os.path.abspath(args.kroot), d) for d in ('suite2', 'rodinia'))
+    elif args.lanes != 8:
+        ap.error('--lanes other than 8 needs --kroot')
     ga.KERNELS, ga.OVERLAY, ga.WORDS = s2.KERNELS + RD_KERNELS, [], 1 << args.words_lg
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)

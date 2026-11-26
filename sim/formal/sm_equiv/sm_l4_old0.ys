@@ -1,0 +1,9 @@
+plugin -i slang
+read_slang --top sm_wrap -G NL=4 -G OLD=0 C:\work\SIMTiX-v2\rtl\accel\simtix_pkg.sv C:\work\SIMTiX-v2\rtl\accel\mem_engine.sv C:\work\SIMTiX-v2\sim\formal\sm_equiv\sm_equiv.sv
+prep -top sm_wrap
+flatten
+techmap
+opt -fast
+aigmap
+opt_clean
+write_aiger -zinit C:\work\SIMTiX-v2\sim\formal\sm_equiv\sm_l4_old0.aig

@@ -26,6 +26,7 @@
 #include "xil_printf.h"
 #include "xiltimer.h"
 #include "ak.h"            /* ../kernels/ak.h, copied in by build_vitis_ara.py */
+#include "power.h"         /* sw/ps_host/power.c, copied in by build_vitis_ara.py */
 
 /* output through main.c's console (UART + DDR buffer for run_board_ara.tcl); it
    formats with vsnprintf, so %llu works */
@@ -46,6 +47,51 @@ static inline uint32_t rd(uint32_t off) { return Xil_In32(ARA_BASE + off); }
 static inline void wr(uint32_t off, uint32_t v) { Xil_Out32(ARA_BASE + off, v); }
 
 static double us(XTime t0, XTime t1) { return (double)(t1 - t0) * 1e6 / (double)COUNTS_PER_SECOND; }
+
+/* ── Power pass (docs/power_plan.md), as sw/ps_host/apps.c's: each phase repeated for
+   PW_US with the board's rails sampled (power.c). Phases: idle (A53 polls the status
+   register, CVA6/Ara held in reset), accel (one kernel on CVA6 or Ara, ara_run repeats it),
+   a53 (the A53 reference of the shared suites, A53_BEGIN/A53_LOOP in suite2.inc). POWER
+   rows name the core after the application: <app>@cva6, <app>@ara. ─────────────────── */
+#define PW_US 2000000.0
+static int pmode;                       /* 1 during the power pass */
+static uint32_t ph_reps[PW_PHASES];
+static double   ph_ms[PW_PHASES];
+static int      ph_cur;
+static uint32_t ph_r;
+static XTime    ph_t0;
+static int      pw_idle_due = 1;        /* the next accelerator phase measures idle first */
+
+static void ph_begin(int ph)
+{
+    ph_cur = ph;
+    ph_r = 0;
+    pw_phase(pmode ? ph : PW_NONE);
+    XTime_GetTime(&ph_t0);
+}
+
+static int ph_again(void)
+{
+    XTime t;
+    if (ph_r++ == 0) return 1;
+    if (!pmode) return 0;
+    pw_sample();
+    XTime_GetTime(&t);
+    if (us(ph_t0, t) < PW_US) return 1;
+    pw_phase(PW_NONE);
+    ph_reps[ph_cur] = ph_r - 1;
+    ph_ms[ph_cur] = us(ph_t0, t) / 1000.0;
+    return 0;
+}
+
+static int ph_rep(void) { return ph_r > 1; }
+
+static void idle_phase(void)
+{
+    if (!pmode) return;
+    wr(R_CTRL, 0);
+    for (ph_begin(PW_IDLE); ph_again(); ) (void)rd(R_STATUS);
+}
 
 /* ── arena ──────────────────────────────────────────────────────────────────── */
 static uintptr_t top;
@@ -82,8 +128,12 @@ static double pl_mhz;
 static uint64_t run_cyc, run_hw;
 
 /* Starts the program on one kernel; returns 0 if it finished with exit 0. The
-   program image is copied again for every run (its stack and .bss start clean). */
-static unsigned ara_run(uint32_t app, uint32_t mode, const uint32_t *args, unsigned nargs)
+   program image is copied again for every run (its stack and .bss start clean).
+   first = 0: a repetition of the power pass, whose arena is already clean (the A53
+   has not written it since) and whose outputs are not read, so neither the arena
+   clean nor the invalidate is repeated. */
+static unsigned ara_run1(uint32_t app, uint32_t mode, const uint32_t *args, unsigned nargs,
+                         int first)
 {
     volatile struct ak_mb *mb = (volatile struct ak_mb *)(uintptr_t)AK_MB_HOST;
     wr(R_CTRL, 0);
@@ -92,7 +142,7 @@ static unsigned ara_run(uint32_t app, uint32_t mode, const uint32_t *args, unsig
     mb->magic = AK_MAGIC; mb->app = app; mb->mode = mode; mb->done = 0; mb->cycles = 0;
     for (unsigned i = 0; i < AK_NARGS; i++) mb->args[i] = i < nargs ? args[i] : 0;
     Xil_DCacheFlushRange((INTPTR)AK_MB_HOST, sizeof *mb);
-    clean_all();
+    if (first) clean_all();
     XTime t0, t1;
     XTime_GetTime(&t0);
     wr(R_CTRL, 1);
@@ -100,11 +150,12 @@ static unsigned ara_run(uint32_t app, uint32_t mode, const uint32_t *args, unsig
     for (;;) {
         st = rd(R_STATUS);
         if (st & 1u) break;
+        if (pmode) pw_sample();
         XTime_GetTime(&t1);
         if ((t1 - t0) > (XTime)TIMEOUT_S * COUNTS_PER_SECOND) break;
     }
     Xil_DCacheInvalidateRange((INTPTR)AK_MB_HOST, sizeof *mb);
-    invalidate_all();
+    if (first) invalidate_all();
     uint32_t ex = rd(R_EXIT);
     run_hw = ((uint64_t)rd(R_HW_HI) << 32) | rd(R_HW_LO);
     run_cyc = mb->cycles;
@@ -115,8 +166,36 @@ static unsigned ara_run(uint32_t app, uint32_t mode, const uint32_t *args, unsig
     return bad;
 }
 
+/* One run; in the power pass an idle phase first (once per core and application) and the
+   run repeated for PW_US (accel phase). run_cyc and run_hw are those of the last run. */
+static unsigned ara_run(uint32_t app, uint32_t mode, const uint32_t *args, unsigned nargs)
+{
+    if (!pmode) return ara_run1(app, mode, args, nargs, 1);
+    if (pw_idle_due) { idle_phase(); pw_idle_due = 0; }
+    unsigned bad = 0;
+    for (ph_begin(PW_ACCEL); ph_again(); ) {
+        bad |= ara_run1(app, mode, args, nargs, !ph_rep());
+        if (bad) break;                     /* a failed run (timeout): no repetitions */
+    }
+    if (bad) pw_phase(PW_NONE);
+    return bad;
+}
+
 static void report(const char *app, uint32_t size, uint32_t mode, double a53_us, unsigned errs)
 {
+    if (pmode) {                            /* POWER rows <app>@<core> instead of ARAK */
+        char name[32];
+        unsigned k = 0;
+        while (*app && k < 20) name[k++] = *app++;
+        const char *c = mode ? "@ara" : "@cva6";
+        while (*c) name[k++] = *c++;
+        name[k] = 0;
+        pw_report(name, size, ph_reps, ph_ms);
+        for (int i = 0; i < PW_PHASES; i++) { ph_reps[i] = 0; ph_ms[i] = 0.0; }
+        pw_idle_due = 1;
+        (void)a53_us; (void)errs;
+        return;
+    }
     /* 64-bit tenths of a microsecond: CVA6's kmeans (726 s) overflowed 32 bits */
     unsigned long long a10 = (unsigned long long)(a53_us * 10.0 + 0.5);
     unsigned long long u10 = (unsigned long long)((double)run_cyc / pl_mhz * 10.0 + 0.5);
@@ -626,9 +705,11 @@ static unsigned app_swat(uint32_t pairs, uint32_t lq, uint32_t lt)
 
 /* ── Suite: the order of apps.c run_apps() ──────────────────────────────────── */
 #define RUN(call) do { arena_reset(); errs += (call); } while (0)
+#define PRUN(call) do { arena_reset(); (void)(call); } while (0)   /* power pass: no checks */
 
 static unsigned run_suite2(void);   /* suite2.inc, at the end of this file */
 static unsigned run_rodinia(void);  /* rodinia.inc, at the end of this file */
+static unsigned run_rivec(void);    /* rivec.inc, at the end of this file */
 
 unsigned run_ara_apps(const uint32_t *img, uint32_t words, double mhz)
 {
@@ -640,6 +721,11 @@ unsigned run_ara_apps(const uint32_t *img, uint32_t words, double mhz)
     errs += run_rodinia();
     return errs;
 #endif
+#ifdef RV_ONLY                          /* RiVEC batch 1 alone (docs/rivec_plan.md) */
+    errs += run_rivec();
+    return errs;
+#endif
+#ifndef PW_ONLY                         /* PW_ONLY (build option power): the power pass alone */
     RUN(app_gemm(64, 1));          RUN(app_gemm(256, 1));
     RUN(app_spmv(4096, 16, 1));    RUN(app_spmv(65536, 16, 1));
     RUN(app_stencil(128, 4, 1));   RUN(app_stencil(512, 4, 1));
@@ -659,6 +745,26 @@ unsigned run_ara_apps(const uint32_t *img, uint32_t words, double mhz)
     RUN(app_mandel(256, 256));     RUN(app_mandel(1024, 256));
     RUN(app_swat(2048, 32, 128));  RUN(app_swat(16384, 32, 128));
     errs += run_suite2();
+#endif
+    /* Power pass on the DRAM-sized inputs, as apps.c's: CVA6 and Ara on each application
+       (idle and accel phases; the A53 phase of the applications comes from apps.c) */
+    if (pw_init() > 0) {
+        xil_printf("POWER,app,size,phase,rail,mV,mW,samples,reps,ms\r\n");
+        pmode = 1;
+        PRUN(app_gemm(256, 1));
+        PRUN(app_spmv(65536, 16, 1));
+        PRUN(app_stencil(512, 4, 1));
+        PRUN(app_kmeans(262144, 16, 1));
+        PRUN(app_bfs(262144, 8, 1));
+        PRUN(app_scan(1u << 20, 1));
+        PRUN(app_mlp(256));
+        PRUN(app_conv(128));
+        PRUN(app_embag(1u << 18, 4096, 32));
+        PRUN(app_hashj(22, 1u << 20));
+        PRUN(app_mandel(1024, 256));
+        PRUN(app_swat(16384, 32, 128));
+        pmode = 0;
+    }
     return errs;
 }
 
@@ -668,3 +774,6 @@ unsigned run_ara_apps(const uint32_t *img, uint32_t words, double mhz)
 
 /* ── The Rodinia suite (docs/rodinia_plan.md): CVA6 and Ara ──────────────────── */
 #include "rodinia.inc"
+
+/* ── RiVEC batch 1 (docs/rivec_plan.md): CVA6 (rv_ref.h) and Ara (RiVEC's own code) ── */
+#include "rivec.inc"

@@ -9,7 +9,9 @@
 //   KERNEL <slot> <hex>        kernel image -> instruction RAM at 64*slot bytes (16-word slots)
 //   CASE <name>                start a case: the DDR4 model is cleared
 //   MEM <file>                 $readmemh preload of the DDR4 model
-//   LAUNCH <tag> <slot> <param address> <threads> <block_log2>
+//   LAUNCH <tag> <slot> <param address> <threads> <block_log2> [<base B> <base C>]
+//   (the optional B and C bases, in hex, are for kernels that take three buffers in
+//   a1/a2/a3 instead of a parameter block: the synchronisation kernels)
 //   GOLD <file>                "<word index> <value>" pairs to compare
 //   END                        end of the case
 // A launch passes its parameter-block address in REG_BASE_A (a1). Each launch
@@ -96,6 +98,15 @@ module tb_apps
         .rid(m_rid), .rdata(m_rdata), .rresp(m_rresp), .rlast(m_rlast),
         .rvalid(m_rvalid), .rready(m_rready));
 
+`ifdef SIMTIX_AXICOUNT
+    // ── AXI4 data beats of the accelerator's master (read and write), free running ──
+    longint unsigned axi_rbeats = 0, axi_wbeats = 0;
+    always @(posedge clk) begin
+        if (m_rvalid && m_rready) axi_rbeats <= axi_rbeats + 1;
+        if (m_wvalid && m_wready) axi_wbeats <= axi_wbeats + 1;
+    end
+`endif
+
     // ── Host AXI4-Lite tasks ─────────────────────────────────────────────────────
     task automatic axil_wr(input logic [15:0] a, input logic [31:0] d);
         @(posedge clk); #1;
@@ -121,19 +132,28 @@ module tb_apps
 
     /* verilator lint_off UNUSEDSIGNAL */   // only bit 0 of the status words is read
     task automatic launch(input string tag, input int slot, input logic [31:0] prm,
-                          input int n, input int blk);
+                          input int n, input int blk, input logic [31:0] pb,
+                          input logic [31:0] pc);
         logic [31:0] st, cyc, hits, miss, err, insns, act;
+`ifdef SIMTIX_AXICOUNT
+        longint unsigned rb0, wb0;
+`endif
         axil_wr(16'(REG_KERNEL_PC), 32'(64*slot));
         axil_wr(16'(REG_BASE_A), prm);
-        axil_wr(16'(REG_BASE_B), 32'd0);
-        axil_wr(16'(REG_BASE_C), 32'd0);
+        axil_wr(16'(REG_BASE_B), pb);
+        axil_wr(16'(REG_BASE_C), pc);
         axil_wr(16'(REG_N), 32'(n));
         axil_wr(16'(REG_BLOCK), 32'(blk));
+`ifdef SIMTIX_AXICOUNT
+        rb0 = axi_rbeats;
+        wb0 = axi_wbeats;
+`endif
         axil_wr(16'(REG_CTRL), 32'd1);
         st = 0;
-        // up to 20M polls (about 100M cycles): the board-size Mandelbrot and
+        // up to 80M polls (about 400M cycles; was 20M, too few for RiVEC matmul 512 at
+        // four lanes, ~75M cycles): the board-size Mandelbrot and
         // Smith-Waterman launches run for more than 10M cycles
-        for (int g = 0; g < 20000000 && !st[STATUS_DONE_BIT]; g++) axil_rd(16'(REG_STATUS), st);
+        for (int g = 0; g < 80000000 && !st[STATUS_DONE_BIT]; g++) axil_rd(16'(REG_STATUS), st);
         if (!st[STATUS_DONE_BIT]) begin $display("  [FAIL] %s/%s timeout", cname, tag); errors++; end
         axil_rd(16'(REG_CYCLES), cyc);
         axil_rd(16'h0100, hits);
@@ -144,6 +164,11 @@ module tb_apps
         act   = dut.u_accel.pool_dbg_active;    // and their active lanes
         $display("APPCSV,%s,%s,%0d,%0d,%0d,%0d,%0d,%0d", cname, tag, n, cyc, hits, miss, insns,
                  act);
+`ifdef SIMTIX_AXICOUNT
+        // bytes the accelerator moved over its AXI4 master in this launch (data beats x DW/8)
+        $display("AXICSV,%s,%s,%0d,%0d", cname, tag, (axi_rbeats - rb0) * (DW / 8),
+                 (axi_wbeats - wb0) * (DW / 8));
+`endif
     endtask
     /* verilator lint_on UNUSEDSIGNAL */
 
@@ -184,7 +209,7 @@ module tb_apps
     initial begin
         int    fd, slot, n, blk;
         string line, key, a1, tag;
-        logic [31:0] prm;
+        logic [31:0] prm, pb, pc;   // pb, pc: optional B and C bases of a LAUNCH
         rst = 1; awvalid = 0; wvalid = 0; bready = 0; arvalid = 0; rready = 0;
         awaddr = 0; araddr = 0; wdata = 0;
         repeat (4) @(posedge clk);
@@ -215,8 +240,9 @@ module tb_apps
                 void'($sscanf(line, "%s %s", key, a1));
                 $readmemh(a1, u_ddr.mem);
             end else if (key == "LAUNCH") begin
-                void'($sscanf(line, "%s %s %d %h %d %d", key, tag, slot, prm, n, blk));
-                launch(tag, slot, prm, n, blk);
+                pb = 0; pc = 0;
+                void'($sscanf(line, "%s %s %d %h %d %d %h %h", key, tag, slot, prm, n, blk, pb, pc));
+                launch(tag, slot, prm, n, blk, pb, pc);
             end else if (key == "GOLD") begin
                 void'($sscanf(line, "%s %s", key, a1));
                 check_gold(a1);

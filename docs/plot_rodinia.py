@@ -58,8 +58,7 @@ def main():
 
     fig, axes = plt.subplots(1, 2, figsize=(7.16, 2.35), sharey=True,
                              gridspec_kw={"width_ratios": [1.0, 1.0]})
-    panels = ((0, "(a) Run time, each machine at its own clock", MACH),
-              (1, "(b) Clock cycles", MACH[:3]))
+    panels = ((0, "a", MACH), (1, "b", MACH[:3]))
     for ax, (k, sub, machs) in zip(axes, panels):
         w = 0.8 / len(machs)
         for i, (m, col, hat) in enumerate(machs):
@@ -84,10 +83,13 @@ def main():
         ax.set_xticks(xs)
         ax.set_xticklabels(cases, rotation=30, ha="right", rotation_mode="anchor")
         ax.tick_params(axis="x", length=0)
-        ax.set_xlabel(sub, labelpad=4)
+        ax.set_xlabel("Benchmark", labelpad=3)
+        plot_style.panel_tag(ax, sub)
+        ax.tick_params(axis="y", labelleft=True)
         ax.text(len(sel) - 0.2, 0.93, "SIMTiX = 1", fontsize=6.5, color=INK, ha="center",
                 va="top", bbox=dict(facecolor="white", edgecolor="none", pad=0.6), zorder=4)
-    axes[0].set_ylabel("Machine / SIMTiX")
+    axes[0].set_ylabel("Run time, machine / SIMTiX")
+    axes[1].set_ylabel("Cycles, machine / SIMTiX")
     h, l = axes[0].get_legend_handles_labels()
     fig.legend(h, l, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 1.07),
                handlelength=1.6, handleheight=0.9, columnspacing=1.8)

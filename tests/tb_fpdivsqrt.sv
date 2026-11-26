@@ -23,7 +23,8 @@ module tb_fpdivsqrt
     logic [31:0]          imem_addr, imem_data;
     logic [31:0]          dmem_addr;
     logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
-    logic                 dmem_we;
+    logic                 dmem_we;
+
     logic [MEM_TAGW-1:0]  dmem_tag;
     logic                 dmem_req;          // zero-latency memory: rvalid = req
     logic [LINE_BE-1:0]   dmem_be;
@@ -127,10 +128,12 @@ module tb_fpdivsqrt
         rst = 0;
         load_kernel();
 
-        for (int ni = 0; ni < 4; ni++) begin
+        for (int ni = 0; ni < 7; ni++) begin
             int unsigned N;
             int unsigned phase_err;
-            N = (8 << ni);            // 8, 16, 32, 64
+            // 8, 16, 32, 64, then ragged grids: a last warp with only some lanes active
+            // (at 16 lanes with two divide/sqrt cores: one group partial, or empty)
+            N = (ni < 4) ? (8 << ni) : (ni == 4) ? 3 : (ni == 5) ? 13 : 27;
             phase_err = 0;
             for (int i = 0; i < 64; i++) begin
                 mem[widx(BASE_A) + i] = fa(i);
@@ -150,6 +153,13 @@ module tb_fpdivsqrt
                     phase_err++;
                 end
             end
+            for (int i = N; i < 64; i++)      // inactive lanes must not store anything
+                if (mem[widx(BASE_C) + i] !== 32'hdead_beef) begin
+                    if (phase_err < 8)
+                        $display("  [FAIL] C[%0d] = %08h written by an inactive thread (N=%0d)",
+                                 i, mem[widx(BASE_C) + i], N);
+                    phase_err++;
+                end
             if (phase_err == 0) $display("  [ ok ] N=%0d bit-exact vs DPI sqrt(div)", N);
             else                $display("  [FAIL] N=%0d: %0d mismatches", N, phase_err);
             errors += phase_err;

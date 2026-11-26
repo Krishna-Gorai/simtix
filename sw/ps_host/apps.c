@@ -66,7 +66,10 @@
    suite runs, so an application that uses the window loads its kernel there at its
    start (stencil_rb, conv8, embag, hashj). */
 #define PC_OVL         0x000u
-#define LANES          8u          /* the host drives the 8-lane accelerator */
+#ifndef SIMTIX_LANES               /* build_vitis.py lanes<L> passes -DSIMTIX_LANES=<L> */
+#define SIMTIX_LANES   8
+#endif
+#define LANES          ((uint32_t)SIMTIX_LANES)   /* the accelerator's lane count */
 
 #define ARENA_BASE     0x10000000u
 #define ARENA_SIZE     0x10000000u
@@ -105,7 +108,10 @@ static XTime    ph_t0;
 
 /* for (ph_begin(ph); ph_again(); ) <code>  runs the code once; in the power pass
    it repeats it for PW_US, sampling the rails after every repetition, and keeps
-   the number of repetitions and the time they took. */
+   the number of repetitions and the time they took. Inside such a loop, ph_rep()
+   is 1 from the second repetition on: a kernel that changes its own inputs (BFS's
+   levels) resets them then, so every repetition does the work of the first. */
+static int ph_rep(void);
 static void ph_begin(int ph)
 {
     ph_cur = ph;
@@ -130,6 +136,8 @@ static int ph_again(void)
     ph_ms[ph_cur] = us(ph_t0, t) / 1000.0;
     return 0;
 }
+
+static int ph_rep(void) { return ph_r > 1; }
 
 /* Idle reference for the power pass: the A53 polls the status register, as it
    does while the accelerator runs, and the accelerator is idle. */
@@ -197,7 +205,8 @@ static uint32_t run_hits, run_miss;
 enum { VX_GEMM, VX_SPMV, VX_STENCIL, VX_KMEANS, VX_BFS, VX_SCAN, VX_SCAN_ADD, VX_MLP,
        VX_CONV8, VX_EMBAG, VX_HASHJ, VX_MANDEL, VX_SWAT,
        VX_PATHFINDER, VX_BP_FORWARD, VX_BP_ADJUST, VX_HOTSPOT_RD, VX_NN, VX_HOTSPOT3D,
-       VX_GAUSS_FAN1, VX_GAUSS_FAN2, VX_KMEANS_RD };    /* Rodinia (rodinia.inc) */
+       VX_GAUSS_FAN1, VX_GAUSS_FAN2, VX_KMEANS_RD,      /* Rodinia (rodinia.inc) */
+       VX_AXPY_RV, VX_JACOBI_RV, VX_BS_RV, VX_LAVAMD_RV };   /* RiVEC (rivec.inc) */
 #define VX_CTRL     0x00u
 #define VX_START    0x04u
 #define VX_STATUS   0x08u
@@ -213,11 +222,14 @@ static uint32_t vx_img_base, vx_main_pc, run_flush;
 static int vx_ovl_app = -1, vx_skip;
 static int vx_rodinia;                     /* run_rodinia(): suite 2 + Rodinia kernel PCs */
 static int vx_app_of_rd(uint32_t pc);      /* after rodinia.inc's kernels_rd.h */
+static int vx_rivec;                       /* run_rivec(): the RiVEC kernel PCs */
+static int vx_app_of_rv(uint32_t pc);      /* after rivec.inc's kernels_rv.h */
 void vx_set_image(uint32_t base, uint32_t main_pc) { vx_img_base = base; vx_main_pc = main_pc; }
 
 static int vx_app_of(uint32_t pc)
 {
     if (vx_rodinia) return vx_app_of_rd(pc);
+    if (vx_rivec) return vx_app_of_rv(pc);
     switch (pc) {
     case PC_GEMM: return VX_GEMM;          case PC_SPMV: return VX_SPMV;
     case PC_STENCIL: return VX_STENCIL;    case PC_KMEANS: return VX_KMEANS;
@@ -268,6 +280,92 @@ static uint32_t vx_launch(int app, uint32_t params, uint32_t n, uint32_t blk)
 }
 #endif
 
+#ifdef SIMTIX_FGPU
+/* SIMTIX_FGPU builds this file for FGPU (baselines/fgpu: fgpu_ps_wrap at SIMT_BASE, host
+   baselines/fgpu/host/main_fgpu.c; docs/fgpu_plan.md). The kernels are OpenCL ports reading the
+   same parameter blocks (baselines/fgpu/kernels/rodinia.cl), one code image (fgpu_image.h) that
+   fg_load_code() writes to FGPU's code RAM once. A launch writes FGPU's kernel descriptor (as
+   FGPU's own host, kernel_descriptor.cpp): the entry word, the global size (the work-items
+   rounded up to whole 64-work-item wavefronts; work-items past n return at once), 64-work-item
+   work-groups, two parameters (the block's address and n); then INITIATE and CLEAN_CACHE (FGPU
+   invalidates its cache at the start and writes it back at the end), START, and polls STATUS.
+   FGPU has no cycle counter: run_cycles stays 0, the time is the A53's (S2_ACC_BEGIN/END).
+   A kernel without an FGPU port skips its run (fg_skip, "FGB,<app>,<size>,skip"). */
+#include "fgpu_image.h"
+#define FG_CRAM        0x4000u
+#define FG_STATUS      0x8000u
+#define FG_START       0x8004u
+#define FG_CLEAN_CACHE 0x8008u
+#define FG_INITIATE    0x800Cu
+#define FG_NONE        0xFFFFFFFFu
+static int fg_skip;
+enum { FG_RD = 1, FG_RV = 2, FG_AP = 3, FG_S2 = 4 };  /* one code image per suite, as SIMTiX's IRAM */
+static int fg_suite;
+static uint32_t fg_entry_of(uint32_t pc);  /* after rivec.inc's kernels_rv.h */
+static uint32_t fg_ovl_entry = 0xFFFFFFFFu;    /* the overlay kernel load() last named (suite 1) */
+static void fg_use_suite(int s)            /* run_apps / run_rodinia / run_rivec: the suite's image */
+{
+    const uint32_t *c = fgpu_code_rodinia;
+    unsigned n = FG_RODINIA_LEN;
+    if (s == FG_RV) { c = fgpu_code_rivec; n = FG_RIVEC_LEN; }
+#ifdef FG_APPS_LEN                         /* suite 1 (phase 2), when fgpu_image.h has it */
+    if (s == FG_AP) { c = fgpu_code_apps; n = FG_APPS_LEN; }
+#endif
+#ifdef FG_S2_LEN                           /* suite 2 (phase 3), when fgpu_image.h has it */
+    if (s == FG_S2) { c = fgpu_code_s2; n = FG_S2_LEN; }
+#endif
+    for (unsigned i = 0; i < n; i++) wr(FG_CRAM + 4u * i, c[i]);
+    fg_suite = s;
+}
+void fg_load_code(void) { fg_use_suite(FG_RD); }
+/* A launch that has not finished after FG_TIMEOUT_S (no single launch of the suites needs more
+   than a few seconds at 150 MHz) is a hang: it counts as one error (run_apps), the run reports
+   skip, and every later FGPU run is skipped, so the rest of the suite still prints its rows. */
+#define FG_TIMEOUT_S 300u
+static unsigned fg_hung;
+static uint32_t fg_post_us;                /* FG_SORT_TEST: a pause after each launch (0 = none) */
+static void fg_launch(uint32_t entry, uint32_t params, uint32_t n)
+{
+    if (fg_hung) { fg_skip = 1; return; }
+    uint32_t sz = (n + 63u) / 64u * 64u;
+    for (unsigned i = 0; i < 12; i++) wr(4u * i, 0);
+    wr(0x00, entry);                       /* nWF_WG-1 = 0 (64-work-item groups), entry word */
+    wr(0x04, sz);                          /* size0 */
+    wr(0x1C, 64u);                         /* nDim-1 = 0, wg_size0 */
+    wr(0x20, sz / 64u - 1u);               /* n_wg0-1 */
+    wr(0x24, 0xFFFFFFFFu);                 /* n_wg1-1, n_wg2-1: 1-D */
+    wr(0x28, 0xFFFFFFFFu);
+    wr(0x2C, (2u << 28) | 64u);            /* nParams = 2, wg_size */
+    wr(0x40, params);
+    wr(0x44, n);
+    wr(FG_INITIATE, 0xFFFFu);
+    wr(FG_CLEAN_CACHE, 0xFFFFu);
+    wr(FG_START, 1u);
+    /* STATUS rises once FGPU's end-of-kernel cache sweep has queued the last dirty lines; their
+       writes finish tens of FGPU cycles later, well inside the next launch's ~15 AXI-Lite
+       descriptor writes or the A53's cache invalidate before a check, so no wait is added here
+       (the testbench, which reads its memory model at once, waits for write idle instead) */
+    XTime t0, t;
+    XTime_GetTime(&t0);
+    while (rd(FG_STATUS) == 0u) {
+        if (pmode) pw_sample();
+        XTime_GetTime(&t);
+        if (t - t0 > (XTime)FG_TIMEOUT_S * COUNTS_PER_SECOND) {
+            xil_printf("FGPU: the kernel at word %u (n = %u) did not finish in %u s; "
+                       "the remaining FGPU runs are skipped\r\n", (unsigned)entry, (unsigned)n, FG_TIMEOUT_S);
+            fg_hung = 1;
+            fg_skip = 1;
+            return;
+        }
+    }
+    if (fg_post_us) {                      /* FG_SORT_TEST only: let FGPU's write-back finish */
+        XTime a, b;
+        XTime_GetTime(&a);
+        do XTime_GetTime(&b); while ((b - a) * 1000000ull < (XTime)fg_post_us * COUNTS_PER_SECOND);
+    }
+}
+#endif
+
 static void launch(uint32_t pc, const uint32_t *params, uint32_t n, uint32_t blk)
 {
 #ifdef SIMTIX_A53_ONLY
@@ -278,6 +376,13 @@ static void launch(uint32_t pc, const uint32_t *params, uint32_t n, uint32_t blk
     int app = vx_app_of(pc);
     if (app < 0) { vx_skip = 1; return; }
     run_cycles += vx_launch(app, addr(params), n, blk);
+    return;
+#endif
+#ifdef SIMTIX_FGPU
+    (void)blk;
+    uint32_t entry = fg_entry_of(pc);
+    if (entry == FG_NONE) { fg_skip = 1; return; }
+    fg_launch(entry, addr(params), n);
     return;
 #endif
     wr(REG_KERNEL_PC, pc);
@@ -300,6 +405,8 @@ static void report(const char *app, uint32_t size, double acc_us, double cpu_us,
 {
 #ifdef SIMTIX_VORTEX
     if (pmode) { if (!vx_skip) pw_report(app, size, ph_reps, ph_ms); return; }
+#elif defined(SIMTIX_FGPU)
+    if (pmode) { if (!fg_skip) pw_report(app, size, ph_reps, ph_ms); return; }
 #else
     if (pmode) { pw_report(app, size, ph_reps, ph_ms); return; }
 #endif
@@ -324,6 +431,13 @@ static void report(const char *app, uint32_t size, double acc_us, double cpu_us,
                a10 / 10, a10 % 10, c10 / 10, c10 % 10, run_flush, errs);
     return;
 #endif
+#ifdef SIMTIX_FGPU
+    /* FGB,<app>,<size>,0,<accel us (A53 timer, incl. FGPU's cache write-back)>,<a53 us>,0,0,<errors> */
+    if (fg_skip) { xil_printf("FGB,%s,%u,skip\r\n", app, size); return; }
+    xil_printf("FGB,%s,%u,0,%llu.%llu,%llu.%llu,0,0,%u\r\n", app, size,
+               a10 / 10, a10 % 10, c10 / 10, c10 % 10, errs);
+    return;
+#endif
     xil_printf("BOARD,%s,%u,%llu,%llu.%llu,%llu.%llu,%u,%u,%u\r\n", app, size, (unsigned long long)run_cycles,
                a10 / 10, a10 % 10, c10 / 10, c10 % 10, run_hits, run_miss, errs);
 }
@@ -334,6 +448,51 @@ static unsigned diff(const uint32_t *a, const uint32_t *b, size_t n)
     for (size_t i = 0; i < n; i++) e += (a[i] != b[i]);
     return e;
 }
+
+/* FP outputs of definitions with fused multiply-adds (suite2.inc backprop; rodinia.inc
+   hotspot, hotspot3D, gaussian): exact (diff) on every system that has an FMA. FGPU has none
+   and multiplies and adds separately (docs/fgpu_plan.md), so under SIMTIX_FGPU a row of cols
+   words fails only when some |got - ref| exceeds 1e-3 of the row's largest |ref| (the limit
+   of CVA6's and Ara's divider checks); the largest ratio is printed in parts per billion as
+   FGREL,<what>,<size>,<ppb>,<exact words>,<words>. */
+#ifdef SIMTIX_FGPU
+static float fg_fabs(float x) { return x < 0.0f ? -x : x; }
+static unsigned fg_diff_rel(const char *what, uint32_t size, const float *got, const float *ref,
+                            size_t rows, size_t cols)
+{
+    unsigned e = 0, exact = 0;
+    float worst = 0.0f;
+    for (size_t i = 0; i < rows; i++) {
+        float rmax = 0.0f, dmax = 0.0f;
+        for (size_t j = 0; j < cols; j++) {
+            float r = fg_fabs(ref[i * cols + j]), d = fg_fabs(got[i * cols + j] - ref[i * cols + j]);
+            exact += (((const uint32_t *)got)[i * cols + j] == ((const uint32_t *)ref)[i * cols + j]);
+            if (r > rmax) rmax = r;
+            if (!(d <= dmax)) dmax = d;                    /* NaN counts as the largest */
+        }
+        float q = rmax > 0.0f ? dmax / rmax : (dmax > 0.0f ? 1.0f : 0.0f);
+        if (!(q <= 1e-3f)) e++;
+        if (!(q <= worst)) worst = q;
+    }
+    xil_printf("FGREL,%s,%u,%u,%u,%u\r\n", what, size,
+               worst < 4.0f ? (unsigned)(worst * 1e9f) : 0xFFFFFFFFu, exact, (unsigned)(rows * cols));
+    return e;
+}
+#define FG_FP_DIFF(what, size, got, ref, rows, cols) \
+    fg_diff_rel(what, size, (const float *)(got), (const float *)(ref), rows, cols)
+#else
+#define FG_FP_DIFF(what, size, got, ref, rows, cols) \
+    diff((const uint32_t *)(got), (const uint32_t *)(ref), (size_t)(rows) * (cols))
+#endif
+/* The INT8 requantization (mlp, conv8) rounds fmaf((float)acc, scale, zp) to a byte. FGPU has
+   no fused multiply-add and its kernels multiply then add (baselines/fgpu/kernels/apps.cl), so
+   under SIMTIX_FGPU the A53 reference does the same two roundings (fp-contract is off in this
+   file) and the bytes stay compared exactly; every other build keeps fmaf. */
+#ifdef SIMTIX_FGPU
+#define RQ_FMA(a, b, c) ((a) * (b) + (c))
+#else
+#define RQ_FMA(a, b, c) fmaf(a, b, c)
+#endif
 
 /* ── GEMM: C = A * B, FP32, n x n ───────────────────────────────────────────── */
 /* blocked: gemm_rb.S (v3), a 4x4 block of C per thread; same FMA order over k, so
@@ -368,7 +527,7 @@ static unsigned app_gemm(uint32_t n, int blocked)
             }
         }
     XTime_GetTime(&t3);
-    unsigned e = diff((uint32_t *)c, (uint32_t *)ref, n * n);
+    unsigned e = FG_FP_DIFF("gemm", n, c, ref, n, n);
     report(blocked ? "gemmrb" : "gemm", n, us(t0, t1), us(t2, t3), e);
     return e;
 }
@@ -407,7 +566,7 @@ static unsigned app_spmv(uint32_t rows, uint32_t maxnnz, int zba)
             ref[r] = acc;
         }
     XTime_GetTime(&t3);
-    unsigned e = diff((uint32_t *)y, (uint32_t *)ref, rows);
+    unsigned e = FG_FP_DIFF("spmv", rows, y, ref, 1, rows);
     report(zba ? "spmvz" : "spmv", rows, us(t0, t1), us(t2, t3), e);
     return e;
 }
@@ -417,7 +576,7 @@ static void stencil_ref(const float *in, float *out, uint32_t n, uint32_t s, flo
 {
     for (uint32_t i = 0; i < n; i++)
         for (uint32_t j = 0; j < n; j++) {
-            uint32_t q = (i + 1) * s + 8 + j;
+            uint32_t q = (i + 1) * s + LANES + j;          /* LANES words of padding */
             float sm = (in[q - s] + in[q + s]) + (in[q - 1] + in[q + 1]);
             out[q] = fmaf(c1, sm, c0 * in[q]);
         }
@@ -426,7 +585,7 @@ static void stencil_ref(const float *in, float *out, uint32_t n, uint32_t s, flo
 static unsigned app_stencil(uint32_t n, uint32_t sweeps, uint32_t rows)
 {
     XTime t0, t1, t2, t3;
-    uint32_t s = n + 16, words = (n + 2) * s, lg = 0;
+    uint32_t s = n + 2u * LANES, words = (n + 2) * s, lg = 0;   /* a line of padding each side */
     while ((1u << lg) < n) lg++;
     float *g[2] = { alloc(4u * words), alloc(4u * words) };
     float *r[2] = { alloc(4u * words), alloc(4u * words) };
@@ -474,11 +633,30 @@ static unsigned app_kmeans(uint32_t npts, uint32_t k, uint32_t two)
     uint32_t *p = params(9);
     p[0] = addr(px); p[1] = addr(py); p[2] = addr(cx); p[3] = addr(cy); p[4] = k;
     p[5] = addr(as); p[6] = addr(sx); p[7] = addr(sy); p[8] = addr(cn);
+#if defined(SIMTIX_FGPU) && defined(FG_APPS_KMEANS_PART_POS)
+    /* FGPU (docs/fgpu_plan.md, k-means option (a)): its atomic add serves one address per
+       kernel, so kmeans_part assigns the points and sums into per-worker partials and
+       kmeans_reduce adds them up: the same as, sx, sy and cn; both launches are timed */
+#define FG_KM_W 512u                       /* kmeans_part's workers (gen_fgpu_cases.py KM_W) */
+    const uint32_t fw = npts < FG_KM_W ? npts : FG_KM_W;
+    uint32_t *part = alloc_u32(3u * k * fw), *pf = params(9), *pr = params(6);
+    pf[0] = addr(px); pf[1] = addr(py); pf[2] = addr(cx); pf[3] = addr(cy); pf[4] = k;
+    pf[5] = addr(as); pf[6] = addr(part); pf[7] = npts; pf[8] = fw;
+    pr[0] = addr(part); pr[1] = addr(sx); pr[2] = addr(sy); pr[3] = addr(cn); pr[4] = k; pr[5] = fw;
+#endif
     clean_all();
     idle_phase();
     XTime_GetTime(&t0);
-    for (ph_begin(PW_ACCEL); ph_again(); )
+    for (ph_begin(PW_ACCEL); ph_again(); ) {
+#if defined(SIMTIX_FGPU) && defined(FG_APPS_KMEANS_PART_POS)
+        if (!two) {
+            fg_launch(FG_APPS_KMEANS_PART_POS, addr(pf), fw);
+            fg_launch(FG_APPS_KMEANS_REDUCE_POS, addr(pr), 3u * k);
+            continue;
+        }
+#endif
         launch(two ? PC_KMEANS_U : PC_KMEANS, p, two ? npts / 2u : npts, 0);   /* two: kmeans_u.S */
+    }
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -538,12 +716,18 @@ static unsigned app_bfs(uint32_t nv, uint32_t deg)
     clean_all();
     idle_phase();
     XTime_GetTime(&t0);
-    for (ph_begin(PW_ACCEL); ph_again(); )
+    for (ph_begin(PW_ACCEL); ph_again(); ) {
+        if (ph_rep()) {                     /* power pass: every repetition from level 0 */
+            for (uint32_t v = 0; v < nv; v++) lev[v] = UNSEEN;
+            lev[0] = 0;
+            Xil_DCacheFlushRange((INTPTR)lev, 4u * nv);
+        }
         for (uint32_t L = 0; L < 64; L++) {
             launch(PC_BFS, p[L], nv, 0);
             Xil_DCacheInvalidateRange((INTPTR)flag[L], 32);
             if (!flag[L][0]) break;
         }
+    }
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -566,7 +750,7 @@ static unsigned app_bfs(uint32_t nv, uint32_t deg)
     return e;
 }
 
-/* ── Scan: inclusive prefix sum, recursive over 32-thread blocks ────────────── */
+/* ── Scan: inclusive prefix sum, recursive over blocks of four warps ────────── */
 /* The launches are planned (buffers and parameter blocks allocated) before the
    timed run: scan of the block totals, then scan_add, at every level. */
 struct step { uint32_t pc, n, blk; const uint32_t *p; };
@@ -575,7 +759,9 @@ static unsigned nplan;
 
 static uint32_t *scan_level(const uint32_t *src, uint32_t m)
 {
-    uint32_t *out = alloc_u32(m), nb = m / 32u, nbp = (nb + 31u) & ~31u;
+    /* blocks of four warps: 4*LANES threads (32 at 8 lanes, 64 at 16), as gen_apps.py scan() */
+    const uint32_t b = 4u * LANES;
+    uint32_t *out = alloc_u32(m), nb = m / b, nbp = (nb + b - 1u) / b * b;
     uint32_t *bs = alloc_u32(nbp);
     for (uint32_t i = 0; i < nbp; i++) bs[i] = 0;
     uint32_t *p = params(3);
@@ -689,7 +875,15 @@ static unsigned app_mlp(uint32_t batch)
     idle_phase();
     XTime_GetTime(&t0);
     for (ph_begin(PW_ACCEL); ph_again(); )
-        for (unsigned l = 0; l < nl; l++) launch(PC_MLP, p[l], batch * npad[l], 0);
+        for (unsigned l = 0; l < nl; l++) {
+#if defined(SIMTIX_FGPU) && defined(FG_APPS_MLPW_POS)
+            /* FGPU stores every byte store as a whole word (SUB_INTEGER_IMPLEMENT = 0): mlpw
+               computes four outputs per work-item and stores words (apps.cl) */
+            fg_launch(FG_APPS_MLPW_POS, addr(p[l]), batch * npad[l] / 4u);
+            continue;
+#endif
+            launch(PC_MLP, p[l], batch * npad[l], 0);
+        }
     XTime_GetTime(&t1);
     invalidate_all();
 
@@ -710,7 +904,7 @@ static unsigned app_mlp(uint32_t batch)
                     if (last) {
                         logit[b * npad[l] + n] = acc;
                     } else {
-                        float v = fmaf((float)acc, scale, zp);
+                        float v = RQ_FMA((float)acc, scale, zp);
                         v = v > 127.0f ? 127.0f : (v < 0.0f ? 0.0f : v);
                         nxt[b * npad[l] + n] = rne_u8(v);
                     }
@@ -751,7 +945,7 @@ static unsigned app_mlp(uint32_t batch)
                     if (last) {
                         logit2[b * npad[l] + n] = acc;
                     } else {
-                        float v = fmaf((float)acc, scale, zp);
+                        float v = RQ_FMA((float)acc, scale, zp);
                         v = v > 127.0f ? 127.0f : (v < 0.0f ? 0.0f : v);
                         nxt[b * npad[l] + n] = rne_u8(v);
                     }
@@ -845,7 +1039,7 @@ static unsigned app_conv(uint32_t n)
                                 const int8_t *b = wt[l] + ((o * 3u + ky) * 3u + kx) * ci;
                                 for (uint32_t c = 0; c < ci; c++) acc += (int32_t)a[c] * b[c];
                             }
-                        float v = fmaf((float)acc, scale, zp);
+                        float v = RQ_FMA((float)acc, scale, zp);
                         v = v > 127.0f ? 127.0f : (v < 0.0f ? 0.0f : v);
                         out[((y + 1) * wp + x + 1) * co + o] = (int8_t)rne_u8(v);
                     }
@@ -1065,6 +1259,40 @@ static unsigned app_swat(uint32_t pairs, uint32_t lq, uint32_t lt)
 }
 
 /* ── Suite ──────────────────────────────────────────────────────────────────── */
+#ifdef SIMTIX_FGPU
+/* the entry words of baselines/fgpu/kernels/apps.cl (phase 2: suite 1); without that image in
+   fgpu_image.h every suite-1 run skips. The v3 variants (gemm_rb, scan_seg, stencil_rb,
+   kmeans_u, spmv_z) have no FGPU port, as on Vortex. */
+#ifdef FG_APPS_LEN
+static uint32_t fg_ovl_of(const uint32_t *w)
+{
+    /* conv8: conv8w, the word-store version (FGPU stores every byte store as a whole word) */
+    return (w == k_conv8) ? FG_APPS_CONV8W_POS : (w == k_embag) ? FG_APPS_EMBAG_POS :
+           (w == k_hashj) ? FG_APPS_HASHJ_POS : (w == k_mandel) ? FG_APPS_MANDEL_POS :
+           (w == k_swat) ? FG_APPS_SWAT_POS : FG_NONE;
+}
+static uint32_t fg_entry_of_ap(uint32_t pc)
+{
+    switch (pc) {
+    case PC_GEMM:     return FG_APPS_GEMM_POS;      case PC_SPMV:     return FG_APPS_SPMV_POS;
+    /* kmeans: not through here. kmeans.S's cluster sums use atomic adds at 3 x K addresses,
+       and FGPU's atomic-add unit (gmem_atomics.vhd) serves one address per kernel: it latches
+       the first atomic's address and accumulates there until the kernel finishes, so an atomic
+       to any other address is never retired and the kernel hangs (xsim, 2026-11-20; FGPU's
+       known_bugs.md: "changing the address of atomic operation ... never been tested").
+       app_kmeans launches kmeans_part + kmeans_reduce instead. */
+    case PC_STENCIL:  return FG_APPS_STENCIL_POS;   case PC_KMEANS:   return FG_NONE;
+    case PC_BFS:      return FG_APPS_BFS_POS;       case PC_SCAN:     return FG_APPS_SCAN_POS;
+    case PC_SCAN_ADD: return FG_APPS_SCAN_ADD_POS;  case PC_MLP:      return FG_NONE;  /* app_mlp: mlpw */
+    case PC_OVL:      return fg_ovl_entry;
+    default:          return FG_NONE;
+    }
+}
+#else
+static uint32_t fg_ovl_of(const uint32_t *w) { (void)w; return FG_NONE; }
+static uint32_t fg_entry_of_ap(uint32_t pc) { (void)pc; return FG_NONE; }
+#endif
+#endif
 static void load(uint32_t pc, const uint32_t *w, unsigned n)
 {
 #ifdef SIMTIX_A53_ONLY
@@ -1081,6 +1309,13 @@ static void load(uint32_t pc, const uint32_t *w, unsigned n)
                      (w == k_swat) ? VX_SWAT : -1;
     return;
 #endif
+#ifdef SIMTIX_FGPU
+    /* FGPU's suite image holds every kernel (fg_use_suite): only note which kernel the
+       overlay window now stands for, as on Vortex */
+    (void)n;
+    if (pc == PC_OVL) fg_ovl_entry = fg_ovl_of(w);
+    return;
+#endif
     for (unsigned i = 0; i < n; i++) wr(IRAM + pc + 4u * i, w[i]);
 }
 
@@ -1089,6 +1324,11 @@ static void load(uint32_t pc, const uint32_t *w, unsigned n)
 #define RUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = run_flush = 0; vx_skip = 0;                        unsigned e_ = (call); errs += vx_skip ? 0u : e_; vx_skip = 0; } while (0)
 #define PRUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = run_flush = 0; vx_skip = 0;                         (void)(call); vx_skip = 0; } while (0)
 #define VARIANT(x) x                       /* run (inputs stay in step), POWER rows dropped */
+#elif defined(SIMTIX_FGPU)
+/* a run without an FGPU port (fg_skip) checks outputs nobody wrote: not an error */
+#define RUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = 0; fg_skip = 0;                        unsigned e_ = (call); errs += fg_skip ? 0u : e_; fg_skip = 0; } while (0)
+#define PRUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = 0; fg_skip = 0;                         (void)(call); fg_skip = 0; } while (0)
+#define VARIANT(x) x
 #else
 #define RUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = 0; errs += (call); } while (0)
 #define PRUN(call) do { arena_reset(); run_cycles = run_hits = run_miss = 0; (void)(call); } while (0)
@@ -1096,14 +1336,39 @@ static void load(uint32_t pc, const uint32_t *w, unsigned n)
 #endif
 
 static unsigned run_suite2(void);   /* suite2.inc, at the end of this file */
+static unsigned app_s2_sort(uint32_t n, uint32_t W);
 static unsigned run_rodinia(void);  /* rodinia.inc, at the end of this file */
+static unsigned run_rivec(void);    /* rivec.inc, at the end of this file */
 
 unsigned run_apps(void)
 {
     unsigned errs = 0;
+#ifdef SIMTIX_FGPU
+#define FG_HANGS fg_hung                /* a launch that timed out: one error */
+#else
+#define FG_HANGS 0u
+#endif
+#if defined(SIMTIX_FGPU) && defined(FG_SORT_TEST) && defined(FG_S2_LEN)
+    /* suite 2's radix sort alone, same inputs, with 0 / 20 / 200 us after each FGPU launch:
+       does the next kernel read data FGPU's end-of-kernel write-back has not stored yet? */
+    fg_use_suite(FG_S2);
+    static const uint32_t waits[] = { 0u, 20u, 200u };
+    for (unsigned i = 0; i < 3; i++) {
+        fg_post_us = waits[i];
+        rng = 3001u;
+        xil_printf("SORTTEST,post_us,%u\r\n", (unsigned)fg_post_us);
+        RUN(app_s2_sort(65536, 256));
+    }
+    fg_post_us = 0;
+    return errs + FG_HANGS;
+#endif
 #ifdef RD_ONLY                          /* the Rodinia suite alone (docs/rodinia_plan.md) */
     errs += run_rodinia();
-    return errs;
+    return errs + FG_HANGS;
+#endif
+#ifdef RV_ONLY                          /* RiVEC batch 1 alone (docs/rivec_plan.md) */
+    errs += run_rivec();
+    return errs + FG_HANGS;
 #endif
     load(PC_GEMM,     k_gemm,     sizeof k_gemm / 4u);
     load(PC_SPMV,     k_spmv,     sizeof k_spmv / 4u);
@@ -1122,11 +1387,25 @@ unsigned run_apps(void)
     load(PC_KMEANS_U,    k_kmeans_u,    sizeof k_kmeans_u / 4u);
     _Static_assert(sizeof k_spmv <= 0x80u && sizeof k_spmv_z <= 0x80u, "spmv / spmv_z overflow 0x300-0x3FF");
     load(PC_SPMV_Z,      k_spmv_z,      sizeof k_spmv_z / 4u);
+    /* every fixed slot, bounded by the next kernel's address (the kernels grow with the
+       lane count: e.g. scan 52 -> 58 words at 16 lanes) */
+    _Static_assert(sizeof k_gemm <= 0x80u, "gemm overflows 0x200-0x27F (amo_contend at 0x280)");
+    _Static_assert(sizeof k_stencil <= 0x100u && sizeof k_kmeans <= 0x100u &&
+                   sizeof k_bfs <= 0x100u && sizeof k_scan <= 0x100u && sizeof k_mlp <= 0x100u,
+                   "a base kernel overflows its 0x100-byte slot");
+    _Static_assert(sizeof k_scan_add <= 0x40u, "scan_add overflows 0x800-0x83F (hist_shared at 0x840)");
+    _Static_assert(sizeof k_gemm_rb <= 0x200u, "gemm_rb overflows 0xA00-0xBFF");
+    _Static_assert(sizeof k_scan_seg <= 0x100u && sizeof k_scan_segadd <= 0x100u,
+                   "scan_seg / scan_segadd overflow 0xC00-0xDFF");
     _Static_assert(sizeof k_conv8 <= 0x200u && sizeof k_embag <= 0x200u &&
                    sizeof k_hashj <= 0x200u && sizeof k_stencil_rb <= 0x200u &&
                    sizeof k_mandel <= 0x200u && sizeof k_swat <= 0x200u,
                    "an overlay kernel exceeds 0x000-0x1FF");
 
+#ifdef SIMTIX_FGPU
+    fg_use_suite(FG_AP);                /* FGPU's suite-1 image (apps.cl), fg_entry_of_ap */
+#endif
+#ifndef PW_ONLY                         /* PW_ONLY (build_vitis.py power): the power pass alone */
     RUN(app_gemm(64, 0));       RUN(app_gemm(256, 0));
     RUN(app_spmv(4096, 16, 0)); RUN(app_spmv(65536, 16, 0));
     RUN(app_stencil(128, 4, 0));   RUN(app_stencil(512, 4, 0));
@@ -1148,6 +1427,7 @@ unsigned run_apps(void)
     RUN(app_mandel(256, 256));  RUN(app_mandel(1024, 256));
     RUN(app_swat(2048, 32, 128)); RUN(app_swat(16384, 32, 128));
 
+#endif /* PW_ONLY */
     /* Power pass on the DRAM-sized inputs */
     if (pw_init() > 0) {
         xil_printf("POWER,app,size,phase,rail,mV,mW,samples,reps,ms\r\n");
@@ -1171,10 +1451,20 @@ unsigned run_apps(void)
         PRUN(app_swat(16384, 32, 128));
         pmode = 0;
     }
+#ifdef PW_ONLY
+    return errs + FG_HANGS;             /* no suite 2 in a power-only run */
+#endif
+#ifdef SIMTIX_FGPU
+#ifdef FG_S2_LEN
+    fg_use_suite(FG_S2);                /* FGPU's suite-2 image (s2.cl), fg_entry_of_s2 */
+#else
+    fg_suite = 0;                       /* no suite-2 image in fgpu_image.h: its runs skip */
+#endif
+#endif
 #ifndef SIMTIX_VORTEX                   /* suite 2 has no Vortex ports yet */
     errs += run_suite2();
 #endif
-    return errs;
+    return errs + FG_HANGS;
 }
 
 /* ── Suite 2 (docs/suite2_plan.md): its kernels replace suite 1's in the instruction
@@ -1184,7 +1474,7 @@ unsigned run_apps(void)
    offsets (0x1000 + ...) reach its control block, which decodes only the low 8 address
    bits: the kernel words landed on CTRL.reset, START and the DCR registers, and the
    first launch then waited for a flush that never came (board, 2026-11-10). */
-#if defined(SIMTIX_A53_ONLY) || defined(SIMTIX_VORTEX)
+#if defined(SIMTIX_A53_ONLY) || defined(SIMTIX_VORTEX) || defined(SIMTIX_FGPU)
 #define s2_load_all() ((void)0)
 #define S2_NO_LOAD
 #endif
@@ -1209,5 +1499,91 @@ static int vx_app_of_rd(uint32_t pc)
     case PC_RD_KMEANS_RD:  return VX_KMEANS_RD;
     default: return -1;                /* no Vortex port yet */
     }
+}
+#endif
+#ifdef SIMTIX_FGPU
+/* the entry words of baselines/fgpu/kernels/s2.cl (phase 3: suite 2), when fgpu_image.h has it */
+static uint32_t fg_entry_of_s2(uint32_t pc)
+{
+#ifdef FG_S2_LEN
+    switch (pc) {
+    case PC_S2_PATHFINDER:   return FG_S2_PATHFINDER_POS;
+    case PC_S2_HOTSPOT:      return FG_S2_HOTSPOT_POS;
+    case PC_S2_JACOBI2D:     return FG_S2_JACOBI2D_POS;
+    case PC_S2_MV_ROW:       return FG_S2_MV_ROW_POS;
+    case PC_S2_MV_COL:       return FG_S2_MV_COL_POS;
+    case PC_S2_PR_CONTRIB:   return FG_S2_PR_CONTRIB_POS;
+    case PC_S2_PR_PULL:      return FG_S2_PR_PULL_POS;
+    case PC_S2_CC_STEP:      return FG_S2_CC_STEP_POS;
+    case PC_S2_BP_FORWARD:   return FG_S2_BP_FORWARD_POS;
+    case PC_S2_BP_ADJUST:    return FG_S2_BP_ADJUST_POS;
+    case PC_S2_RS_HIST:      return FG_S2_SORT_HIST2_POS;     /* s2.cl: sort_*, register counts */
+    case PC_S2_RS_SCAN:      return FG_S2_SORT_SCAN_POS;
+    case PC_S2_RS_SCATTER:   return FG_S2_SORT_SCATTER2_POS;  /* after sort_base (suite2.inc) */
+    case PC_S2_BLACKSCHOLES: return FG_S2_BLACKSCHOLES_POS;
+    default:                 return FG_NONE;
+    }
+#else
+    (void)pc;
+    return FG_NONE;
+#endif
+}
+/* the entry words of baselines/fgpu/kernels/rodinia.cl (phase 1: Rodinia) */
+static uint32_t fg_entry_of_rd(uint32_t pc)
+{
+    switch (pc) {
+    case PC_S2_PATHFINDER: return FG_RODINIA_PATHFINDER_POS;
+    case PC_S2_BP_FORWARD: return FG_RODINIA_BP_FORWARD_POS;
+    case PC_S2_BP_ADJUST:  return FG_RODINIA_BP_ADJUST_POS;
+    case PC_RD_BFS:        return FG_RODINIA_BFS_POS;
+    case PC_RD_HOTSPOT_RD: return FG_RODINIA_HOTSPOT_RD_POS;
+    case PC_RD_NN:         return FG_RODINIA_NN_POS;
+    case PC_RD_HOTSPOT3D:  return FG_RODINIA_HOTSPOT3D_POS;
+    case PC_RD_GAUSS_FAN1: return FG_RODINIA_GAUSS_FAN1_POS;
+    case PC_RD_GAUSS_FAN2: return FG_RODINIA_GAUSS_FAN2_POS;
+    case PC_RD_KMEANS_RD:  return FG_RODINIA_KMEANS_RD_POS;
+    default: return FG_NONE;           /* no FGPU port yet */
+    }
+}
+#endif
+
+/* ── RiVEC batch 1 (docs/rivec_plan.md): its own kernels in the instruction RAM; built
+   with RV_ONLY it is the whole run ──────────────────────────────────────────────── */
+#include "rivec.inc"
+#ifdef SIMTIX_VORTEX
+static int vx_app_of_rv(uint32_t pc)
+{
+    switch (pc) {
+    case PC_RV_GEMM:       return VX_GEMM;          /* Vortex runs the base kernels */
+    case PC_RV_SPMV:       return VX_SPMV;
+    case PC_RV_PATHFINDER: return VX_PATHFINDER;
+    case PC_RV_AXPY_RV:    return VX_AXPY_RV;
+    case PC_RV_JACOBI_RV:  return VX_JACOBI_RV;
+    case PC_RV_BS_RV:      return VX_BS_RV;
+    case PC_RV_LAVAMD_RV:  return VX_LAVAMD_RV;
+    default: return -1;
+    }
+}
+#endif
+#ifdef SIMTIX_FGPU
+/* the entry words of baselines/fgpu/kernels/rivec.cl (base gemm and spmv, as Vortex) */
+static uint32_t fg_entry_of_rv(uint32_t pc)
+{
+    switch (pc) {
+    case PC_RV_GEMM:       return FG_RIVEC_GEMM_POS;
+    case PC_RV_SPMV:       return FG_RIVEC_SPMV_POS;
+    case PC_RV_PATHFINDER: return FG_RIVEC_PATHFINDER_POS;
+    case PC_RV_AXPY_RV:    return FG_RIVEC_AXPY_RV_POS;
+    case PC_RV_JACOBI_RV:  return FG_RIVEC_JACOBI_RV_POS;
+    case PC_RV_BS_RV:      return FG_RIVEC_BS_RV_POS;
+    case PC_RV_LAVAMD_RV:  return FG_RIVEC_LAVAMD_RV_POS;
+    default: return FG_NONE;
+    }
+}
+/* the kernel IDs of different suites can share values: the suite now loaded decides */
+static uint32_t fg_entry_of(uint32_t pc)
+{
+    return fg_suite == FG_RV ? fg_entry_of_rv(pc) : fg_suite == FG_RD ? fg_entry_of_rd(pc) :
+           fg_suite == FG_AP ? fg_entry_of_ap(pc) : fg_suite == FG_S2 ? fg_entry_of_s2(pc) : FG_NONE;
 }
 #endif

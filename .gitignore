@@ -137,3 +137,25 @@ baselines/ara/*.xsa
 baselines/vortex/tb/xsim_proj_*/
 baselines/vortex/tb/xcase_*/
 baselines/vortex/tb/sim_xcase_*
+
+# 2026-11-26: generated cases of the lane studies and the power runs, the 16-lane workspace
+build_b4/
+build_b8/
+build_b16/
+build_dram8/
+build_apps_reg_l16/
+build_apps_tp_l4/
+build_apps_tp_l8/
+build_apps_tp_l16/
+build_apps_w8_l16/
+build_apps_w8_reg_l16/
+sw/ps_host/ws_zcu102_l*/
+fpga/reports_*/*_funcsim.v
+docs/power_runs/*.partial
+docs/power_runs/progress_*.txt
+docs/figs/*_old.pdf
+docs/figs/*_old.png
+docs/figs/lanes_throughput_heatmap_blue.*
+docs/figs/lanes_throughput_heatmap_green.*
+docs/figs/lanes_throughput_heatmap_warm.*
+docs/figs/lanes_throughput_heatmap_viridis.*

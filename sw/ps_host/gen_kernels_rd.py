@@ -8,10 +8,14 @@ sim/gen_rodinia.place_kernels does), PC_RD_<NAME> gives each one's offset, and
 rd_load_all() in rodinia.inc writes them.
 """
 import os
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KDIR_S2 = os.path.join(HERE, '..', '..', 'kernels', 'suite2')
-KDIR = os.path.join(HERE, '..', '..', 'kernels', 'rodinia')
+sys.path.insert(0, HERE)
+import genopts                                    # --kroot DIR --out DIR (other lane counts)
+KROOT, OUT = genopts.parse()
+KDIR_S2 = os.path.join(KROOT, 'suite2')
+KDIR = os.path.join(KROOT, 'rodinia')
 S2_KERNELS = ['pathfinder', 'hotspot', 'jacobi2d', 'mv_row', 'mv_col', 'pr_contrib', 'pr_pull', 'cc_step',
               'bp_forward', 'bp_adjust', 'rs_hist', 'rs_scan', 'rs_scatter', 'blackscholes']
 KERNELS = ['bfs', 'hotspot_rd', 'nn', 'hotspot3d', 'gauss_fan1', 'gauss_fan2', 'kmeans_rd']
@@ -36,5 +40,5 @@ out += ['', 'struct rd_kernel { uint32_t pc; const uint32_t *w; unsigned n; };',
         'static const struct rd_kernel rd_kernels[] = {']
 out += [f'    {{ PC_RD_{k.upper()}, krd_{k}, sizeof krd_{k} / 4u }},' for k in KERNELS]
 out += ['};', '']
-open(os.path.join(HERE, 'kernels_rd.h'), 'w', newline='\n').write('\n'.join(out))
+open(os.path.join(OUT, 'kernels_rd.h'), 'w', newline='\n').write('\n'.join(out))
 print(f'kernels_rd.h: {len(KERNELS)} kernels from byte {base}, {pc} of {4 * IRAM_WORDS} instruction-RAM bytes')

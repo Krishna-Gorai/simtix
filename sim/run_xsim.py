@@ -38,6 +38,8 @@ TESTS = {
     'pool':      ('tb_warp_pool', POOL + ['tests/tb_warp_pool.sv'], [], False),
     'pdot8':     ('tb_pdot8', POOL + ['tests/tb_pdot8.sv'], [], False),
     'qgemm':     ('tb_qgemm', POOL + ['tests/tb_qgemm.sv'], [], False),
+    # the two forms of the store merge (mem_engine.sv me_store_merge) on random requests
+    'smerge':    ('tb_sm_equiv', PKG + [A + 'mem_engine.sv', 'tests/tb_sm_equiv.sv'], [], False, ['NV=200000']),
     'requant':   ('tb_requant', POOL + ['tests/tb_requant.sv'], [], False),
     'qgemv':     ('tb_qgemv', POOL + ['tests/tb_qgemv.sv'], [], False),
     'fp':        ('tb_fp', POOL + ['tests/tb_fp.sv'], [], False),
@@ -99,6 +101,32 @@ PLUSARGS = {n: [f'MANIFEST={APPS_W8}/apps.manifest'.replace('\\', '/')]
             for n in ('apps_w8', 'apps_w8_b34')}
 
 
+APPS_TESTS = ('apps', 'apps_b34', 'apps_b34_late', 'apps_w8', 'apps_w8_b34')
+_FRESH = set()                                    # lane data regenerated in this invocation
+
+
+def lane_manifest(name, lanes):
+    """tb_apps input data for a lane count other than 8: the kernels assembled for L lanes
+    and the cases generated for L lanes (like sim/lane_sweep.py), once per data set:
+    build_apps_reg_l<L> (the small set, for apps*) and build_apps_w8_reg_l<L> (GEMM-RB at
+    board size, for apps_w8*); regenerated once per run_xsim invocation, so the kernels are
+    never stale (sim/lane_sweep.py keeps its own build_apps_l<L>). Returns the +MANIFEST
+    plusarg."""
+    w8 = name.startswith('apps_w8')
+    data = os.path.join(ROOT, ('build_apps_w8_reg_l%d' if w8 else 'build_apps_reg_l%d') % lanes)
+    if data not in _FRESH:
+        _FRESH.add(data)
+        shutil.rmtree(data, ignore_errors=True)
+        kdir = os.path.join(data, 'kernels')
+        subprocess.run([sys.executable, os.path.join(ROOT, 'kernels', 'apps', 'build.py'),
+                        '--lanes', str(lanes), '--out', kdir], check=True, stdout=subprocess.DEVNULL)
+        cmd = [sys.executable, os.path.join(ROOT, 'sim', 'gen_apps.py'), '--lanes', str(lanes),
+               '--kdir', kdir, '--out', data]
+        cmd += ['--size', 'board', '--only', 'gemmrb'] if w8 else ['--size', 'small']
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+    return [f'MANIFEST={data}/apps.manifest'.replace('\\', '/')]
+
+
 def prepare(name):
     """Generate a test's input data if it is missing."""
     if name in ('apps_w8', 'apps_w8_b34') and not os.path.isfile(os.path.join(APPS_W8, 'apps.manifest')):
@@ -113,11 +141,24 @@ def tool(name):
     return os.path.join(VIVADO_BIN, name + ('.bat' if os.name == 'nt' else ''))
 
 
+TIMEOUT_S = int(os.environ.get('SIMTIX_SIM_TIMEOUT', '7200'))   # wall-clock limit per tool run
+
+
 def run(cmd, cwd, log):
     env = dict(os.environ)
     env.pop('NoDefaultCurrentDirectoryInExePath', None)   # breaks Vivado's process spawn
     with open(log, 'w', encoding='utf-8', errors='replace') as fh:
-        return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT, env=env).returncode
+        try:
+            return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT, env=env,
+                                  timeout=TIMEOUT_S).returncode
+        except subprocess.TimeoutExpired:
+            # a hung simulation must not block the rest of a regression; the .bat wrapper's
+            # child (xsimk) can outlive the timeout, so stop it explicitly
+            if os.name == 'nt':
+                subprocess.run(['taskkill', '/F', '/T', '/IM', 'xsimk.exe'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            fh.write(f'\nFAIL: wall-clock timeout after {TIMEOUT_S} s (run_xsim.py)\n')
+            return 1
 
 
 def run_test(name, defines=(), plusargs=()):
@@ -140,7 +181,11 @@ def run_test(name, defines=(), plusargs=()):
     steps = []
     if v:
         steps.append(('xvlog_v', [tool('xvlog')] + dopt + ab(v)))
-    inc = sum((['-i', p] for p in ab(INCDIRS)), [])
+    # the sync kernels are assembled per warp width (kernels/sync/build.py --lanes L):
+    # a SIMTIX_NUM_LANES=L define (L != 8) selects kernels/sync/l<L>
+    lanes = next((d.split('=')[1] for d in defines if d.startswith('SIMTIX_NUM_LANES=')), '8')
+    incs = [p + '/l' + lanes if (p == 'kernels/sync' and lanes != '8') else p for p in INCDIRS]
+    inc = sum((['-i', p] for p in ab(incs)), [])
     steps.append(('xvlog_sv', [tool('xvlog'), '-sv'] + dopt + inc + ab(sv)))
     elab = [tool('xelab'), '-debug', 'off', top, '-s', 'sim']
     if gen:
@@ -167,16 +212,30 @@ def main(argv):
     if '--list' in argv:
         print('\n'.join(TESTS))
         return 0
-    names = [a for a in argv if not a.startswith('-')] or list(TESTS)
+    # --define NAME=VALUE (repeatable): added to every test's own defines, e.g. the 16-lane
+    # board configuration: --define SIMTIX_NUM_LANES=16 --define SIMTIX_NUM_WARPS=8 ...
+    extra, rest, i = [], [], 0
+    while i < len(argv):
+        if argv[i] == '--define' and i + 1 < len(argv):
+            extra.append(argv[i + 1])
+            i += 2
+        else:
+            rest.append(argv[i])
+            i += 1
+    names = [a for a in rest if not a.startswith('-')] or list(TESTS)
     bad = [n for n in names if n not in TESTS]
     if bad:
         print('unknown test(s):', ', '.join(bad))
         return 2
+    lanes = int(next((d.split('=')[1] for d in extra if d.startswith('SIMTIX_NUM_LANES=')), '8'))
     fails = 0
     for n in names:
         t0 = time.time()
         prepare(n)
-        ok, msg = run_test(n, defines=DEFINES.get(n, ()), plusargs=PLUSARGS.get(n, ()))
+        plus = PLUSARGS.get(n, ())
+        if lanes != 8 and n in APPS_TESTS:       # kernels and cases for this lane count
+            plus = lane_manifest(n, lanes)
+        ok, msg = run_test(n, defines=list(DEFINES.get(n, ())) + extra, plusargs=plus)
         fails += not ok
         print(f"{'PASS' if ok else 'FAIL'}  {n:10s} {time.time() - t0:6.1f}s  {msg}", flush=True)
     print(f"\n{len(names) - fails}/{len(names)} passed")

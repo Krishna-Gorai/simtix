@@ -1,0 +1,33 @@
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{rodinia_ratio.pdf}
+\caption{Rodinia on the ZCU102. (a) Run time of CVA6, Ara, Vortex and the A53, each at
+its own clock, divided by SIMTiX's run time. (b) Clock cycles of CVA6, Ara and Vortex
+divided by SIMTiX's cycles. Bars above 1 favor SIMTiX; the axis is logarithmic, and
+the last group is the geometric mean over the eight benchmarks (Table~\ref{tab:rodinia}).}
+\label{fig:rodinia}
+\end{figure*}
+
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{rivec_ratio.pdf}
+\caption{RiVEC on the ZCU102. (a) Run time of CVA6, Ara, Vortex and the A53, each at
+its own clock, divided by SIMTiX's run time. (b) Clock cycles of CVA6, Ara and Vortex
+divided by SIMTiX's cycles. Bars above 1 favor SIMTiX; the axis is logarithmic, and
+the last group is the geometric mean over the seven applications
+(Table~\ref{tab:rivec}).}
+\label{fig:rivec}
+\end{figure*}
+
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{vortex_ratio.pdf}
+\caption{Vortex run time (a) and energy (b) relative to SIMTiX for each
+application and their geometric mean, with Vortex at 4, 8 and 16 warps of eight
+threads. Run time uses each design's \Fmax; energy uses the vectorless power at
+100~MHz. Bars above 1 favor SIMTiX, bars below 1 favor Vortex.}
+\label{fig:vortex}
+\end{figure*}
+

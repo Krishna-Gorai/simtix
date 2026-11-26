@@ -83,6 +83,9 @@ static void t_rv_spmv(uint32_t nrows, uint32_t maxnnz)
 /* PolyBench's init_array, RiVEC's vector order per point: exact */
 static void t_rv_jacobi(uint32_t n, uint32_t tsteps)
 {
+#ifdef AK_ST_JAC_SKIP
+    (void)alloc(AK_ST_JAC_SKIP);     /* debug: the arrays past the earlier tests' buffers */
+#endif
     float *A[2], *B[2];
     uint64_t cy[2];
     for (int m = 0; m < 2; m++) {

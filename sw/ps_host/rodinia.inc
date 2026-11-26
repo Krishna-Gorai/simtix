@@ -56,7 +56,7 @@ static uint32_t *rd_get(const char *name, uint32_t *n)
 #include "kernels_rd.h"
 static void rd_load_all(void)
 {
-#if defined(SIMTIX_A53_ONLY) || defined(SIMTIX_VORTEX)
+#if defined(SIMTIX_A53_ONLY) || defined(SIMTIX_VORTEX) || defined(SIMTIX_FGPU)
     return;                     /* no SIMTiX instruction RAM (apps.c, before suite2.inc) */
 #endif
     for (unsigned k = 0; k < sizeof rd_kernels / sizeof rd_kernels[0]; k++)
@@ -93,9 +93,9 @@ static unsigned app_rd_bfs(const char *rowptr_name, const char *col_name, uint32
     }
     const uint32_t nv = nr - 1;
     uint32_t *lev = alloc_u32(nv), *rlev = alloc_u32(nv), *queue = alloc_u32(nv);
-    XTime_GetTime(&t2);
+    A53_BEGIN();
     rd_bfs_ref(rowptr, col, rlev, queue, nv);
-    XTime_GetTime(&t3);
+    A53_END();
 #ifdef S2_ARA
     uint32_t *q2 = alloc_u32(nv);
     for (uint32_t m = 0; m < 2; m++) {
@@ -117,6 +117,11 @@ static unsigned app_rd_bfs(const char *rowptr_name, const char *col_name, uint32
         p[L][3] = L; p[L][4] = addr(flag[L]);
     }
     S2_ACC_BEGIN();
+    if (ph_rep()) {                                   /* power pass: every repetition from level 0 */
+        for (uint32_t v = 0; v < nv; v++) lev[v] = RD_UNSEEN;
+        lev[0] = 0;
+        Xil_DCacheFlushRange((INTPTR)lev, 4u * nv);
+    }
     for (uint32_t L = 0; L < 64; L++) {
         launch(PC_RD_BFS, p[L], nv, 0);
         Xil_DCacheInvalidateRange((INTPTR)flag[L], 32);
@@ -146,9 +151,9 @@ static unsigned app_rd_hotspot(uint32_t n, uint32_t steps)
     rd_hotspot_consts(n, k);
     float *rg[2] = { (float *)s2_dup(tin, words), (float *)s2_dup(tin, words) };
     float *g[2] = { (float *)alloc_u32(words), (float *)alloc_u32(words) };
-    XTime_GetTime(&t2);
+    A53_BEGIN();
     rd_hotspot(rg[0], rg[1], pw, n, k, steps);
-    XTime_GetTime(&t3);
+    A53_END();
     const int r = (int)(steps & 1);
 #ifdef S2_ARA
     for (uint32_t m = 0; m < 2; m++) {
@@ -171,7 +176,7 @@ static unsigned app_rd_hotspot(uint32_t n, uint32_t steps)
     for (uint32_t st = 0; st < steps; st++)
         launch(PC_RD_HOTSPOT_RD, p[st & 1], n * n, 0);
     S2_ACC_END();
-    errs_ = diff((uint32_t *)g[r], (uint32_t *)rg[r], words);
+    errs_ = FG_FP_DIFF("hotspot", n, g[r], rg[r], n, n);
     report("hotspot", n, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;
@@ -241,9 +246,9 @@ static unsigned app_rd_gaussian(const char *blob_name, uint32_t n)
     float *ra = (float *)s2_dup(a0, (size_t)n * s), *rm = (float *)alloc_u32((size_t)n * n);
     float *A = (float *)alloc_u32((size_t)n * s), *M = (float *)alloc_u32((size_t)n * n);
     for (size_t i = 0; i < (size_t)n * n; i++) rm[i] = 0.0f;
-    XTime_GetTime(&t2);
+    A53_BEGIN();
     rd_gaussian(ra, rm, n);
-    XTime_GetTime(&t3);
+    A53_END();
 #ifdef S2_ARA
     for (uint32_t m = 0; m < 2; m++) {
         s2_copy(A, a0, (size_t)n * s);
@@ -269,7 +274,7 @@ static unsigned app_rd_gaussian(const char *blob_name, uint32_t n)
         launch(PC_RD_GAUSS_FAN2, p + 4 * t, n + 1 - t, 0);
     }
     S2_ACC_END();
-    errs_ = diff((uint32_t *)A, (uint32_t *)ra, (size_t)n * s) + diff((uint32_t *)M, (uint32_t *)rm, (size_t)n * n);
+    errs_ = FG_FP_DIFF("gaussian_a", n, A, ra, n, s) + FG_FP_DIFF("gaussian_m", n, M, rm, n, n);
     report("gaussian", n, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;
@@ -294,19 +299,23 @@ static unsigned app_rd_kmeans(const char *blob_name, uint32_t k, uint32_t nf)
     float *rc = (float *)alloc_u32(k * nf), *cc = (float *)alloc_u32(k * nf), *nc = (float *)alloc_u32(k * nf);
     int32_t *rmem = (int32_t *)alloc_u32(n), *rnew = (int32_t *)alloc_u32(n), *len = (int32_t *)alloc_u32(k);
     int32_t *mem = (int32_t *)alloc_u32(n), *mnew = (int32_t *)alloc_u32(n);
-    /* A53 reference: Rodinia's whole loop; centres start at the first k points */
-    for (uint32_t i = 0; i < k * nf; i++) rc[i] = pm[i];
-    for (uint32_t p = 0; p < n; p++) rmem[p] = -1;
+    /* A53 reference: Rodinia's whole loop; centres start at the first k points (in the power
+       pass, repeated from the start for PW_US: A53_LOOP) */
     XTime ta, tb, a53 = 0;
     uint32_t rit = 0, loop = 0, delta;
-    do {
-        XTime_GetTime(&ta);
-        rd_kmeans_assign(pm, rc, rnew, n, k, nf);
-        XTime_GetTime(&tb);
-        a53 += tb - ta;
-        delta = rd_kmeans_update(pm, rnew, rmem, rc, nc, len, n, k, nf);
-        rit++;
-    } while (delta > 0 && loop++ < 500);
+    A53_LOOP() {
+        for (uint32_t i = 0; i < k * nf; i++) rc[i] = pm[i];
+        for (uint32_t p = 0; p < n; p++) rmem[p] = -1;
+        a53 = 0; rit = 0; loop = 0;
+        do {
+            XTime_GetTime(&ta);
+            rd_kmeans_assign(pm, rc, rnew, n, k, nf);
+            XTime_GetTime(&tb);
+            a53 += tb - ta;
+            delta = rd_kmeans_update(pm, rnew, rmem, rc, nc, len, n, k, nf);
+            rit++;
+        } while (delta > 0 && loop++ < 500);
+    }
     const double a53_us = us(0, a53);
 #ifdef S2_ARA
     for (uint32_t m = 0; m < 2; m++) {
@@ -329,24 +338,29 @@ static unsigned app_rd_kmeans(const char *blob_name, uint32_t k, uint32_t nf)
         report("kmeans", n, m, a53_us, e); errs_ += e;
     }
 #else
-    for (uint32_t i = 0; i < k * nf; i++) cc[i] = pm[i];
-    for (uint32_t p = 0; p < n; p++) mem[p] = -1;
     uint32_t *p = params(6);
     p[0] = addr(fm); p[1] = addr(cc); p[2] = addr(mnew); p[3] = n; p[4] = k; p[5] = nf;
     clean_all();                                               /* features and parameters */
     XTime acc = 0;
     uint32_t it = 0;
-    loop = 0;
-    do {
-        Xil_DCacheFlushRange((INTPTR)cc, 4u * k * nf);         /* the centres of this iteration */
-        XTime_GetTime(&ta);
-        launch(PC_RD_KMEANS_RD, p, n, 0);
-        XTime_GetTime(&tb);
-        acc += tb - ta;
-        Xil_DCacheInvalidateRange((INTPTR)mnew, 4u * n);
-        delta = rd_kmeans_update(pm, mnew, mem, cc, nc, len, n, k, nf);
-        it++;
-    } while (delta > 0 && loop++ < 500);
+    idle_phase();
+    /* once; in the power pass the whole loop (accelerator assigns, A53 updates) is repeated
+       from the first centres for PW_US */
+    for (ph_begin(PW_ACCEL); ph_again(); ) {
+        for (uint32_t i = 0; i < k * nf; i++) cc[i] = pm[i];
+        for (uint32_t q = 0; q < n; q++) mem[q] = -1;
+        acc = 0; it = 0; loop = 0;
+        do {
+            Xil_DCacheFlushRange((INTPTR)cc, 4u * k * nf);     /* the centres of this iteration */
+            XTime_GetTime(&ta);
+            launch(PC_RD_KMEANS_RD, p, n, 0);
+            XTime_GetTime(&tb);
+            acc += tb - ta;
+            Xil_DCacheInvalidateRange((INTPTR)mnew, 4u * n);
+            delta = rd_kmeans_update(pm, mnew, mem, cc, nc, len, n, k, nf);
+            it++;
+        } while (delta > 0 && loop++ < 500);
+    }
     errs_ = diff((uint32_t *)mem, (uint32_t *)rmem, n) + diff((uint32_t *)cc, (uint32_t *)rc, k * nf) + (it != rit);
     xil_printf("RDITER,kmeans,%u,0,%u\r\n", n, it);
     report("kmeans", n, us(0, acc), a53_us, errs_);
@@ -365,9 +379,9 @@ static unsigned app_rd_nn(const char *blob_name)
     const uint32_t n = nw / 2;
     const float lat = 30.0f, lng = 90.0f;               /* Rodinia's run: -lat 30 -lng 90 */
     float *rd = (float *)alloc_u32(n), *d = (float *)alloc_u32(n);
-    XTime_GetTime(&t2);
+    A53_BEGIN();
     rd_nn(loc, rd, n, lat, lng);
-    XTime_GetTime(&t3);
+    A53_END();
 #ifdef S2_ARA
     for (uint32_t m = 0; m < 2; m++) {
         for (uint32_t i = 0; i < n; i++) ((uint32_t *)d)[i] = 0xA5A5A5A5u;
@@ -402,9 +416,9 @@ static unsigned app_rd_hotspot3d(const char *tname, const char *pname, uint32_t 
     rd_hotspot3d_consts(n, nz, k);
     float *rg[2] = { (float *)s2_dup(tin, words), (float *)s2_dup(tin, words) };
     float *g[2] = { (float *)alloc_u32(words), (float *)alloc_u32(words) };
-    XTime_GetTime(&t2);
+    A53_BEGIN();
     rd_hotspot3d(rg[0], rg[1], pw, n, nz, k, iters);
-    XTime_GetTime(&t3);
+    A53_END();
     const int r = (int)(iters & 1);
 #ifdef S2_ARA
     for (uint32_t m = 0; m < 2; m++) {
@@ -427,7 +441,7 @@ static unsigned app_rd_hotspot3d(const char *tname, const char *pname, uint32_t 
     for (uint32_t it = 0; it < iters; it++)
         launch(PC_RD_HOTSPOT3D, p[it & 1], n * n, 0);
     S2_ACC_END();
-    errs_ = diff((uint32_t *)g[r], (uint32_t *)rg[r], words);
+    errs_ = FG_FP_DIFF("hotspot3d", n, g[r], rg[r], n * nz, n);
     report("hotspot3d", n, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;
@@ -447,6 +461,9 @@ static unsigned run_rodinia(void)
 #ifdef SIMTIX_VORTEX
     vx_rodinia = 1;                                   /* vx_app_of: suite 2 + Rodinia PCs */
 #endif
+#ifdef SIMTIX_FGPU
+    fg_use_suite(FG_RD);                              /* FGPU's Rodinia image, fg_entry_of */
+#endif
 #ifndef S2_RUN
 #define S2_RUN(call) do { arena_reset(); errs += (call); } while (0)
 #endif
@@ -462,6 +479,7 @@ static unsigned run_rodinia(void)
 #define RD_SEL 0x1FFu
 #endif
 #define RD_RUN(i, call) do { if (RD_SEL & (1u << (i))) S2_RUN(call); } while (0)
+#ifndef PW_ONLY                     /* PW_ONLY (build option power): the power pass alone */
     RD_RUN(0, app_s2_pathfinder(100, 100000));           /* Rodinia: 100,000 columns, 100 rows */
     RD_RUN(1, app_s2_backprop(1u << 19));                /* Rodinia's 2^21 does not fit the Ara arena */
     RD_RUN(2, app_rd_bfs("bfs65536_rowptr", "bfs65536_col", 65536));   /* graph65536.txt */
@@ -471,6 +489,25 @@ static unsigned run_rodinia(void)
     RD_RUN(6, app_rd_hotspot3d("hs3d512x8_temp", "hs3d512x8_power", 512, 8, 100));   /* 512 8 100 */
     RD_RUN(7, app_rd_gaussian("gauss1024_a", 1024));     /* gaussian -s 1024 */
     RD_RUN(8, app_rd_kmeans("kdd_cup_feat", 5, 34));     /* kmeans -i kdd_cup (k = 5) */
+#endif
+    /* Power pass (docs/power_plan.md): every benchmark once more at the size of the paper
+       (hotspot 1024), each phase repeated for PW_US with the board's rails sampled; POWER
+       rows instead of the timing rows, outputs not checked (repetitions move them on) */
+    if (pw_init() > 0) {
+        xil_printf("POWER,app,size,phase,rail,mV,mW,samples,reps,ms\r\n");
+        pmode = 1;
+        rng = 4001u;                                      /* the inputs of the timing pass */
+#define RD_PRUN(i, call) do { if (RD_SEL & (1u << (i))) PRUN(call); } while (0)
+        RD_PRUN(0, app_s2_pathfinder(100, 100000));
+        RD_PRUN(1, app_s2_backprop(1u << 19));
+        RD_PRUN(2, app_rd_bfs("bfs65536_rowptr", "bfs65536_col", 65536));
+        RD_PRUN(4, app_rd_hotspot(1024, 2));
+        RD_PRUN(5, app_rd_nn("nn42764_loc"));
+        RD_PRUN(6, app_rd_hotspot3d("hs3d512x8_temp", "hs3d512x8_power", 512, 8, 100));
+        RD_PRUN(7, app_rd_gaussian("gauss1024_a", 1024));
+        RD_PRUN(8, app_rd_kmeans("kdd_cup_feat", 5, 34));
+        pmode = 0;
+    }
 #ifdef SIMTIX_VORTEX
     vx_rodinia = 0;
 #endif

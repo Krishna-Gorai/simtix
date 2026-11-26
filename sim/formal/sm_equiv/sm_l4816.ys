@@ -1,0 +1,14 @@
+plugin -i slang
+read_slang --top sm_equiv -G NL=4816 C:\work\SIMTiX-v2\rtl\accel\simtix_pkg.sv C:\work\SIMTiX-v2\rtl\accel\mem_engine.sv C:\work\SIMTiX-v2\sim\formal\sm_equiv\sm_equiv.sv
+prep -top sm_equiv
+flatten
+setundef -zero
+techmap
+opt -fast
+aigmap
+setundef -zero
+opt_clean
+select -module sm_equiv w:ok
+delete -output
+select -clear
+write_aiger -zinit C:\work\SIMTiX-v2\sim\formal\sm_equiv\sm_l4816.aig

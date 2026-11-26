@@ -672,3 +672,19 @@ Private, never committed: `docs/v2_plan.md`.
   to be rerun in two parts.
 - **Next:** Ara model self-test rerun, host driver `sw/ps_host/rivec.inc` and the `rivec`
   build/board arguments, board session; then batch 2.
+
+## 2026-11-12 (evening) - RiVEC batch 1 on the board, all four machines
+
+- Board runs (ZCU102): SIMTiX and Vortex all 7 apps exact (15:22-15:33); Ara/CVA6 all 7
+  (15:45-16:04), Ara's last fixes (clang build, jacobi row reload) verified in the Verilator
+  model first. Logs: docs/zcu102_board_run_rivec_{simtix,vortex,ara}.txt.
+- blackscholes on CVA6/Ara: 264 prices beyond the host's 1e-4 limit (max 5.68e-4, CVA6 and
+  Ara identical). kernels/rivec/qtest/bs_sens.c (one-ulp quotient/sqrt errors at CVA6's
+  rates, 200 trials) gives the same bound, 5.68e-4 -> final tolerance 1e-3 (FINAL_TOL in
+  baselines/ara/compare_rivec.py).
+- baselines/ara/compare_rivec.py -> docs/rivec_results.csv; docs/plot_rivec.py ->
+  docs/figs/rivec_ratio.pdf; docs/rivec_results.md.
+- Geometric means, time (cycles) over SIMTiX: CVA6 20.1 (13.8), Ara 3.76 (2.59),
+  Vortex 3.27 (3.53), A53 0.88. Ara faster on blackscholes (0.61), Vortex level (0.98).
+- Paper: Section VI-H "RiVEC on Four Machines", Table IX, Fig. 6, \bibitem{rivec}
+  (TACO 2020; article number to check). Compiles, 14 pages.

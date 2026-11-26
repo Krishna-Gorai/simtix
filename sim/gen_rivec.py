@@ -350,8 +350,16 @@ def main():
     ap.add_argument('--only', nargs='*')
     ap.add_argument('--base', action='store_true', help='gemm and spmv instead of gemm_rb and spmv_z')
     ap.add_argument('--mm-rows', type=int, help='matmul: only the first rows of C (Vortex testbench)')
+    ap.add_argument('--lanes', type=int, default=8, choices=(4, 8, 16))
+    ap.add_argument('--kroot', help='kernel images DIR/{apps,suite2,rivec} (sw/ps_host/build_kernels_lanes.py)')
     args = ap.parse_args()
-    global MM, SP
+    global MM, SP, KDIR_APPS, KDIR_S2, KDIR_RV
+    ga.LANES = args.lanes
+    if args.kroot:
+        KDIR_APPS, KDIR_S2, KDIR_RV = (os.path.join(os.path.abspath(args.kroot), d)
+                                       for d in ('apps', 'suite2', 'rivec'))
+    elif args.lanes != 8:
+        ap.error('--lanes other than 8 needs --kroot')
     if args.base:
         MM, SP = 'gemm', 'spmv'
     if args.mm_rows:

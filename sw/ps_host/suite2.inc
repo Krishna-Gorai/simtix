@@ -24,9 +24,25 @@ static void s2_load_all(void)
             wr(IRAM + s2_kernels[k].pc + 4u * i, s2_kernels[k].w[i]);
 }
 #endif
+#ifdef SIMTIX_A53_ONLY
 #define S2_ACC_BEGIN()  XTime t0, t1; clean_all(); XTime_GetTime(&t0)
 #define S2_ACC_END()    XTime_GetTime(&t1); invalidate_all()
+#else
+/* The accelerator's part, once; in apps.c's power pass (pmode) an idle phase first, then
+   the part repeated for PW_US with the rails sampled (ph_begin/ph_again). t0..t1 is the
+   last repetition. */
+#define S2_ACC_BEGIN()  XTime t0, t1; clean_all(); idle_phase(); \
+                        for (ph_begin(PW_ACCEL); ph_again(); ) { XTime_GetTime(&t0)
+#define S2_ACC_END()    XTime_GetTime(&t1); } invalidate_all()
 #endif
+#endif
+
+/* The A53 reference between XTime t2 and t3: once, or in the power pass repeated for PW_US
+   (A53 phase). Both hosts provide ph_begin/ph_again (apps.c, apps_ara.c). A53_LOOP() is the
+   loop alone, for a reference with its own timers (Rodinia k-means). */
+#define A53_BEGIN()     for (ph_begin(PW_A53); ph_again(); ) { XTime_GetTime(&t2)
+#define A53_END()       XTime_GetTime(&t3); }
+#define A53_LOOP()      for (ph_begin(PW_A53); ph_again(); )
 
 static uint32_t *s2_dup(const void *src, size_t nw)
 {
@@ -52,9 +68,9 @@ static unsigned app_s2_pathfinder(uint32_t rows, uint32_t cols)
 #define PF_PREP(x) do { for (int k_ = 0; k_ < 2; k_++) { x[k_][0] = x[k_][cols + 1] = S2_INF; \
                           for (uint32_t c_ = 0; c_ < cols; c_++) x[k_][c_ + 1] = k_ ? 0 : wall[c_]; } } while (0)
     PF_PREP(rb);
-    XTime_GetTime(&t2);
+    A53_BEGIN();
     s2_pathfinder(wall, rb[0], rb[1], rows, cols);
-    XTime_GetTime(&t3);
+    A53_END();
     const int r = (int)((rows - 1) & 1);
 #ifdef S2_ARA
     for (uint32_t m = 0; m < 2; m++) {
@@ -133,7 +149,8 @@ static unsigned app_s2_grid(int hot, uint32_t n, uint32_t steps)
     for (uint32_t st = 0; st < sweeps; st++)
         launch(hot ? PC_S2_HOTSPOT : PC_S2_JACOBI2D, p[st & 1], n * n, 0);
     S2_ACC_END();
-    errs_ = diff((uint32_t *)g[r], (uint32_t *)rg[r], words);
+    /* hotspot's fmas: within FGPU's tolerance (FG_FP_DIFF); jacobi2d has none, exact */
+    errs_ = hot ? FG_FP_DIFF(name, n, g[r], rg[r], n + 2u, s) : diff((uint32_t *)g[r], (uint32_t *)rg[r], words);
     report(name, n, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;
@@ -170,7 +187,7 @@ static unsigned app_s2_mv(int bicg, uint32_t n)
     launch(PC_S2_MV_ROW, p1, n, 0);
     launch(PC_S2_MV_COL, p2, n, 0);
     S2_ACC_END();
-    errs_ = diff((uint32_t *)o0, (uint32_t *)r0, n) + diff((uint32_t *)o1, (uint32_t *)r1, n);
+    errs_ = FG_FP_DIFF(name, n, o0, r0, 1, n) + FG_FP_DIFF(name, n, o1, r1, 1, n);
     report(name, n, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;
@@ -250,7 +267,7 @@ static unsigned app_s2_pagerank(uint32_t nv, uint32_t deg, uint32_t iters)
         launch(PC_S2_PR_PULL, pp[k_ & 1], nv, 0);
     }
     S2_ACC_END();
-    errs_ = diff((uint32_t *)pr[r], (uint32_t *)rp[r], nv);
+    errs_ = FG_FP_DIFF("pagerank", nv, pr[r], rp[r], 1, nv);
     report("pagerank", nv, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;
@@ -314,10 +331,10 @@ static unsigned app_s2_backprop(uint32_t n)
     for (int j = 0; j < 16; j++) ed[j] = s2_range(-0.1f, 0.1f);
     const float m_ = 0.3f;
     float *rw = (float *)s2_dup(w0, 16u * (size_t)n), *row = (float *)s2_dup(ow0, 16u * (size_t)n), *rps = alloc(4u * n);
-    XTime_GetTime(&t2);
+    A53_BEGIN();
     s2_bp_forward(in, rw, rps, n);
     s2_bp_adjust(in, rw, row, ed, n, m_);
-    XTime_GetTime(&t3);
+    A53_END();
 #ifdef S2_ARA
     /* Ara's arena is 192 MB: at n = 2^19 a further copy of both weight arrays (396 bytes per
        input in all) does not fit, so each run works on w0/ow0, redrawn from the same state. */
@@ -344,8 +361,8 @@ static unsigned app_s2_backprop(uint32_t n)
     launch(PC_S2_BP_FORWARD, pf, n, 0);
     launch(PC_S2_BP_ADJUST, pa, 16u * n, 0);
     S2_ACC_END();
-    errs_ = diff((uint32_t *)ps, (uint32_t *)rps, n) + diff((uint32_t *)w, (uint32_t *)rw, 16u * n) +
-            diff((uint32_t *)ow, (uint32_t *)row, 16u * n);
+    errs_ = FG_FP_DIFF("backprop_ps", n, ps, rps, 1, n) + FG_FP_DIFF("backprop_w", n, w, rw, 1, 16u * n) +
+            FG_FP_DIFF("backprop_ow", n, ow, row, 1, 16u * n);
     report("backprop", n, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;
@@ -392,6 +409,11 @@ static unsigned app_s2_sort(uint32_t n, uint32_t W)
     for (uint32_t p = 0; p < 8; p++) {
         launch(PC_S2_RS_HIST, ph[p], W, 0);
         launch(PC_S2_RS_SCAN, ps_[p], 16, 0);
+#if defined(SIMTIX_FGPU) && defined(FG_S2_SORT_BASE_POS)
+        /* FGPU: the digit bases in a kernel of their own (s2.cl sort_base), so the scatter
+           reads off without writing it (no in-kernel read-after-write; docs/fgpu_plan.md) */
+        fg_launch(FG_S2_SORT_BASE_POS, addr(pz[p]), 16u * W);
+#endif
         launch(PC_S2_RS_SCATTER, pz[p], W, 0);
     }
     S2_ACC_END();
@@ -435,7 +457,7 @@ static unsigned app_s2_blackscholes(uint32_t n)
     S2_ACC_BEGIN();
     launch(PC_S2_BLACKSCHOLES, p, n, 0);
     S2_ACC_END();
-    errs_ = diff((uint32_t *)oc, (uint32_t *)rc, n) + diff((uint32_t *)op, (uint32_t *)rpt, n);
+    errs_ = FG_FP_DIFF("blackscholes_call", n, oc, rc, 1, n) + FG_FP_DIFF("blackscholes_put", n, op, rpt, 1, n);
     report("blackscholes", n, us(t0, t1), us(t2, t3), errs_);
 #endif
     return errs_;

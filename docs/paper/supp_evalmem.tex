@@ -1,0 +1,16 @@
+\subsection{Memory System and Reduction}\label{sec:evalmem}
+We measured the L1 and the memory contexts as they were added, with a set of
+synchronization kernels and a memory model of fixed latency. With a 20-cycle
+memory, the L1 makes a 16-bin histogram $5.6\times$ faster, its block-shared form
+$2.4\times$ and a whole-array sum (a shuffle butterfly and one AMO per warp)
+$1.5\times$, while reductions that read each line once change by less than 5\%.
+With a 7-cycle memory, four contexts instead of one reduce the cycles of the
+whole-array sum by 15\% and of the histogram by 14\%.
+
+In our earlier design without shuffles, a reduction of 1,024 values to one sum
+per warp took 6,023 cycles through the scratchpad, 1.38 times the 4,363 cycles of
+the same computation on a five-stage RV32I core at the same clock with
+single-cycle memory. With a butterfly of three \texttt{shfl.xor} steps, which
+leaves the sum in every lane, the reduction takes 2,911 cycles, 1.50 times faster
+than that core, and 3,908 cycles behind the L1 and the AXI4 memory model.
+

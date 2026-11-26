@@ -36,6 +36,9 @@ module tb_ps_top
 
     logic clk = 0;
     logic rst;
+`ifdef NETLIST
+    int unsigned hb_cyc = 0, hb_ar = 0, hb_aw = 0;   // heartbeat counters (see below)
+`endif
     /* verilator lint_off BLKSEQ */
     always #5 clk = ~clk;
     /* verilator lint_on BLKSEQ */
@@ -70,6 +73,64 @@ module tb_ps_top
     logic [WIDW-1:0] w_awid, w_arid;
     assign m_awid = IDW'(w_awid);
     assign m_arid = IDW'(w_arid);
+`ifdef NETLIST
+    // +define NETLIST: the routed (or synthesised) gate-level simt_ps_wrap from a funcsim
+    // netlist (no parameters; its ID width is the build's). Its outputs reach the test
+    // 0.5 ns after the clock edge, as real outputs would, so the test's sampling at the
+    // edge sees the values of the previous cycle (zero-delay netlist outputs race it).
+    logic        n_awready, n_wready, n_bvalid, n_arready, n_rvalid;
+    logic [1:0]  n_bresp, n_rresp;
+    logic [31:0] n_rdata;
+    logic [WIDW-1:0] n_awid, n_arid;
+    logic [31:0] n_awaddr, n_araddr;
+    logic [7:0]  n_awlen, n_arlen;
+    logic [2:0]  n_awsize, n_arsize, n_awprot, n_arprot;
+    logic [1:0]  n_awburst, n_arburst;
+    logic [3:0]  n_awcache, n_arcache;
+    logic        n_awvalid, n_wlast, n_wvalid, n_bready, n_arvalid, n_rready;
+    logic [DW-1:0]   n_wdata;
+    logic [DW/8-1:0] n_wstrb;
+    // The routed design ties the cell's constant AXI outputs at the PS (HP0) inputs and drives
+    // s_axi_wready from the awready LUT, so the extracted cell netlist leaves those ports
+    // unconnected; they are driven here with the values fpga/check_ps_hp0_pins.tcl and
+    // check_const_pins.tcl read from the routed design (2026-11-17): ARLEN/AWLEN 3, SIZE 4,
+    // BURST INCR, CACHE 0011, PROT 0, AWID 1 << (IDW-1), RREADY 1, WREADY = AWREADY.
+    assign #0.5 awready = n_awready;  assign #0.5 wready = n_awready;
+    assign #0.5 bvalid = n_bvalid;    assign #0.5 bresp = 2'b00;
+    assign #0.5 arready = n_arready;  assign #0.5 rvalid = n_rvalid;
+    assign #0.5 rresp = 2'b00;        assign #0.5 rdata = n_rdata;
+    assign #0.5 w_awid = WIDW'(1) << (WIDW - 1);  assign #0.5 m_awaddr = n_awaddr;
+    assign #0.5 m_awlen = 8'(LINE_BITS / DW - 1);  assign #0.5 m_awsize = 3'($clog2(DW / 8));
+    assign #0.5 m_awburst = 2'b01;    assign #0.5 m_awcache = 4'b0011;
+    assign #0.5 m_awprot = 3'b000;    assign #0.5 m_awvalid = n_awvalid;
+    assign #0.5 m_wdata = n_wdata;    assign #0.5 m_wstrb = n_wstrb;
+    assign #0.5 m_wlast = n_wlast;    assign #0.5 m_wvalid = n_wvalid;
+    assign #0.5 m_bready = n_bready;
+    assign #0.5 w_arid = n_arid;      assign #0.5 m_araddr = n_araddr;
+    assign #0.5 m_arlen = 8'(LINE_BITS / DW - 1);  assign #0.5 m_arsize = 3'($clog2(DW / 8));
+    assign #0.5 m_arburst = 2'b01;    assign #0.5 m_arcache = 4'b0011;
+    assign #0.5 m_arprot = 3'b000;    assign #0.5 m_arvalid = n_arvalid;
+    assign #0.5 m_rready = 1'b1;
+    simt_ps_wrap dut (
+        .clk(clk), .aresetn(!rst),
+        .s_axi_awaddr(awaddr), .s_axi_awprot(3'd0), .s_axi_awvalid(awvalid), .s_axi_awready(n_awready),
+        .s_axi_wdata(wdata), .s_axi_wstrb(4'hF), .s_axi_wvalid(wvalid), .s_axi_wready(n_wready),
+        .s_axi_bresp(n_bresp), .s_axi_bvalid(n_bvalid), .s_axi_bready(bready),
+        .s_axi_araddr(araddr), .s_axi_arprot(3'd0), .s_axi_arvalid(arvalid), .s_axi_arready(n_arready),
+        .s_axi_rdata(n_rdata), .s_axi_rresp(n_rresp), .s_axi_rvalid(n_rvalid), .s_axi_rready(rready),
+        .m_axi_awid(n_awid), .m_axi_awaddr(n_awaddr), .m_axi_awlen(n_awlen),
+        .m_axi_awsize(n_awsize), .m_axi_awburst(n_awburst), .m_axi_awcache(n_awcache),
+        .m_axi_awprot(n_awprot), .m_axi_awvalid(n_awvalid), .m_axi_awready(m_awready),
+        .m_axi_wdata(n_wdata), .m_axi_wstrb(n_wstrb), .m_axi_wlast(n_wlast),
+        .m_axi_wvalid(n_wvalid), .m_axi_wready(m_wready),
+        .m_axi_bid(m_bid[WIDW-1:0]), .m_axi_bresp(m_bresp), .m_axi_bvalid(m_bvalid),
+        .m_axi_bready(n_bready),
+        .m_axi_arid(n_arid), .m_axi_araddr(n_araddr), .m_axi_arlen(n_arlen),
+        .m_axi_arsize(n_arsize), .m_axi_arburst(n_arburst), .m_axi_arcache(n_arcache),
+        .m_axi_arprot(n_arprot), .m_axi_arvalid(n_arvalid), .m_axi_arready(m_arready),
+        .m_axi_rid(m_rid[WIDW-1:0]), .m_axi_rdata(m_rdata), .m_axi_rresp(m_rresp),
+        .m_axi_rlast(m_rlast), .m_axi_rvalid(m_rvalid), .m_axi_rready(n_rready));
+`else
     simt_ps_wrap #(.IDW(WIDW)) dut (
         .clk(clk), .aresetn(!rst),
         .s_axi_awaddr(awaddr), .s_axi_awprot(3'd0), .s_axi_awvalid(awvalid), .s_axi_awready(awready),
@@ -89,6 +150,7 @@ module tb_ps_top
         .m_axi_arprot(m_arprot), .m_axi_arvalid(m_arvalid), .m_axi_arready(m_arready),
         .m_axi_rid(m_rid[WIDW-1:0]), .m_axi_rdata(m_rdata), .m_axi_rresp(m_rresp),
         .m_axi_rlast(m_rlast), .m_axi_rvalid(m_rvalid), .m_axi_rready(m_rready));
+`endif
 `else
     simt_ps_top #(.AXI_DW(DW)) dut (
         .clk(clk), .rst(rst),
@@ -171,8 +233,28 @@ module tb_ps_top
         axil_wr(16'(REG_N), N);
         axil_wr(16'(REG_BLOCK), 0);
         axil_wr(16'(REG_CTRL), 32'd1);
+`ifdef NETLIST
+        $display("[hb] %0t cycle %0d: %s launched", $time, hb_cyc, tag);
+`endif
         st = 0;
+`ifdef NETDBG
+        // Differential debug (RTL vs gates, same test): the 64-word debug window at polls 20
+        // and 60 of the first kernel, then stop (DBG,<poll>,<word>,<value> lines to compare).
+        for (int g = 0; g < 100000 + 4*N && !st[STATUS_DONE_BIT]; g++) begin
+            axil_rd(16'(REG_STATUS), st);
+            if (g == 20 || g == 60) begin
+                logic [31:0] dw;
+                $display("[hb] %0t cycle %0d: debug dump at poll %0d", $time, hb_cyc, g);
+                for (int i = 0; i < 64; i++) begin
+                    axil_rd(16'h0200 + 16'(4*i), dw);
+                    $display("DBG,%0d,%0d,%08h", g, i, dw);
+                end
+                if (g == 60) begin $display("[tb_ps_top] debug dumps done (NETLIST)"); $finish; end
+            end
+        end
+`else
         for (int g = 0; g < 100000 + 4*N && !st[STATUS_DONE_BIT]; g++) axil_rd(16'(REG_STATUS), st);
+`endif
         if (!st[STATUS_DONE_BIT]) begin $display("  [FAIL] %s timeout", tag); errors++; end
         axil_rd(16'(REG_CYCLES), cyc);
         axil_rd(16'h0100, hits);
@@ -209,6 +291,14 @@ module tb_ps_top
         end
     endtask
 
+    task automatic chk_val(input string tag, input logic [31:0] got, input logic [31:0] exp);
+        checks++;
+        if (got !== exp) begin
+            $display("  [FAIL] %s got=%h exp=%h", tag, got, exp);
+            errors++;
+        end
+    endtask
+
     task automatic preload_a(input int gen);
         for (int i = 0; i < N; i++) begin
             logic [31:0] v;
@@ -218,13 +308,25 @@ module tb_ps_top
     endtask
 
     task automatic check_reduce(input string tag, input int gen);
-        for (int w = 0; w < N/8; w++) begin
+        for (int w = 0; w < N/NUM_LANES; w++) begin   // reduce_shfl: one sum per warp
             logic [31:0] s;
             s = 0;
-            for (int l = 0; l < 8; l++) s += aval(8*w + l, gen);
+            for (int l = 0; l < NUM_LANES; l++) s += aval(NUM_LANES*w + l, gen);
             chk(tag, C_DDR + 32'(4*w), s);
         end
     endtask
+
+`ifdef NETLIST
+    // Heartbeat for the (slow) gate-level run: the cycle count every 500 cycles, with the
+    // accelerator's busy state as seen on the AXI4 ports, so a slow run and a hung one differ.
+    always @(posedge clk) begin
+        hb_cyc <= hb_cyc + 1;
+        if (m_arvalid && m_arready) hb_ar <= hb_ar + 1;
+        if (m_awvalid && m_awready) hb_aw <= hb_aw + 1;
+        if (hb_cyc % 500 == 0)
+            $display("[hb] %0t cycle %0d: AXI4 reads %0d writes %0d", $time, hb_cyc, hb_ar, hb_aw);
+    end
+`endif
 
     initial begin
         rst = 1; awvalid = 0; wvalid = 0; bready = 0; arvalid = 0; rready = 0;
@@ -232,12 +334,28 @@ module tb_ps_top
         for (int i = 0; i < 512; i++) mem[i] = 32'h0000_0013;   // nop
         at = 0;  `include "reduce_shfl.svh"
         at = 64; `include "histogram.svh"
+`ifdef NETLIST
+        repeat (16) @(posedge clk);      // past the netlist's 100 ns global set/reset
+`else
         repeat (4) @(posedge clk);
+`endif
         rst = 0;
 `ifdef PS_WRAP
         repeat (8) @(posedge clk);       // the wrapper's reset synchroniser
 `endif
 
+        // 0. the configuration register the host checks first: {0x5C, L1 KB, warps, lanes}
+        begin
+            logic [31:0] cfg;
+            axil_rd(16'h010C, cfg);
+            chk_val("config", cfg, {8'h5C, 8'(L1_BYTES / 1024), 8'(NUM_WARPS), 8'(NUM_LANES)});
+            $display("[tb_ps_top] config 0x%08h: %0d lanes, %0d warps, %0d KB L1",
+                     cfg, cfg[7:0], cfg[15:8], cfg[23:16]);
+        end
+
+`ifdef NETLIST
+        $display("[hb] %0t cycle %0d: loading kernels", $time, hb_cyc);
+`endif
         // 1. kernels into the instruction RAM, as the host would
         for (int i = 0; i < 128; i++) axil_wr(16'h1000 + 16'(4*i), mem[i]);
 

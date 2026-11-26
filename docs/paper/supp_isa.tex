@@ -1,0 +1,42 @@
+\begin{table*}[t]
+\caption{GPU Instruction Sets and SIMTiX}
+\label{tab:isa}
+\centering\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{l*{9}{>{\raggedright\arraybackslash}p{0.087\textwidth}}}
+\toprule
+ISA & Memory model & Threading model & Register file & Thread control &
+Synchro\-nization & Flow control & ALU operations & Memory operations & GPU operations\\
+\midrule
+RDNA & GDS, LDS, constants, global & Workgroup, wavefront, 32/64 threads &
+Vector/scalar, 256 VGPRs, 106 SGPRs & End threads, thread mask &
+Barrier, wait\_cnt, data dep. & Branch, thread mask & Arithmetic, conditional, bitwise &
+Load, store, prefetch & Interpolate, texture sampler\\
+GCN & GDS, LDS, constants, global & Compute unit, wavefront, 64 threads &
+Vector/scalar, 256 VGPRs, 102 SGPRs & End threads, thread mask &
+Barrier, wait\_cnt, data dep. & Branch, thread mask, split/join &
+Arithmetic, conditional, bitwise & Load, store, prefetch & Interpolate, texture sampler\\
+PTX & Shared, texture, constants, global & Grid/CTA, warp, 32 threads & Scalar &
+Predicate & Barrier, membar & Branch, predicate & Arithmetic, conditional, bitwise &
+Load, store, prefetch & Texture sampler, load, query\\
+GEN & Software managed & Root thread, child thread &
+256-bit vector, 128 GRFs, predicate & Send message & Wait, fence &
+Branch, SPF registers, split/join & Arithmetic, conditional, bitwise & Load, store &
+Interpolate, texture sampler\\
+PowerVR & Global, common store, unified store & USC, 32 threads & Vector, 128-bit &
+Predicate & Fence & Branch, predicate & Arithmetic, conditional, bitwise & Load, store &
+Texture sampler, iteration, alpha/depth\\
+Vortex & Shared, global & Compute unit, wavefront & Scalar, 32-bit & Thread mask &
+Barrier, flush & Split/join & Arithmetic, conditional, bitwise & Load, store &
+Texture sampler\\
+\midrule
+SIMTiX & Global (L1), block-shared, warp-private & Kernel, block of $2^b$ warps, warp
+of 8 threads & Scalar, 32-bit, 32 integer + 32 FP & Hardware spawn, \texttt{ecall},
+thread mask & Barrier (\texttt{bar}), RV32A AMOs & Branch, hardware reconvergence
+stack & Arithmetic, conditional, bitwise, FP32/FP16, Zba, Zbb min/max, Zicond &
+Load, store, line-aggregated AMOs & Shuffle, INT8 dot product (\texttt{pdot8})\\
+\bottomrule
+\end{tabular}
+
+\end{table*}

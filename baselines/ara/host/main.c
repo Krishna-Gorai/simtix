@@ -50,6 +50,11 @@ unsigned run_ara_apps(const uint32_t *img, uint32_t words, double mhz);   /* app
 #define MB_DONE  0x444F4E45u               /* "DONE" */
 static uint32_t outlen, flushed;
 
+/* build_vitis_ara.py compiles every file with -Dxil_printf=con_printf (power.c's POWER
+   rows reach the DDR console too); here xil_printf is the BSP's, to UART0 */
+#undef xil_printf
+void xil_printf(const char8 *ctrl1, ...);
+
 void con_printf(const char8 *fmt, ...)
 {
     char buf[256];

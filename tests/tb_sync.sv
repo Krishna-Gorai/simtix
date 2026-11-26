@@ -408,6 +408,8 @@ module tb_sync
                  dbg_mem_txns, dbg_scratch_txns);
     endtask
 
+    int errs_by [string];                        // errors per sub-test, summarised at the end
+
     task automatic chk(input string tag, input int idx, input logic [31:0] exp);
         logic [31:0] got;
         got = mem[widx(C_BASE) + idx];
@@ -416,6 +418,8 @@ module tb_sync
             if (errors < 20)
                 $display("  [FAIL] %-12s C[%0d]: got=%08h exp=%08h", tag, idx, got, exp);
             errors++;
+            if (errs_by.exists(tag) != 0) errs_by[tag]++;
+            else                     errs_by[tag] = 1;
         end
     endtask
 
@@ -447,13 +451,15 @@ module tb_sync
         n = 16;
         clear_c();
         run("shfl_test", K_SHFL, n, 0, B_BASE);
+        // The RTL's shuffle (warp_pool.sv): source lane idx & (L-1), l-k, l+k, l^k; a lane
+        // whose source is outside 0..L-1 keeps its own value.
         for (int t = 0; t < n; t++) begin
             int l, w, s;
-            l = t % 8; w = t / 8;
-            s = (3*l + 1) % 8;                    chk("shfl.idx",  t,       aval(8*w + s));
-            s = (l >= 2) ? l - 2 : l;             chk("shfl.up",   64 + t,  aval(8*w + s));
-            s = (l + 3 < 8) ? l + 3 : l;          chk("shfl.down", 128 + t, aval(8*w + s));
-            s = l ^ 5;                            chk("shfl.xor",  192 + t, aval(8*w + s));
+            l = t % NUM_LANES; w = t / NUM_LANES;
+            s = (3*l + 1) % NUM_LANES;                  chk("shfl.idx",  t,       aval(NUM_LANES*w + s));
+            s = (l >= 2) ? l - 2 : l;                   chk("shfl.up",   64 + t,  aval(NUM_LANES*w + s));
+            s = (l + 3 < NUM_LANES) ? l + 3 : l;        chk("shfl.down", 128 + t, aval(NUM_LANES*w + s));
+            s = ((l ^ 5) < NUM_LANES) ? (l ^ 5) : l;    chk("shfl.xor",  192 + t, aval(NUM_LANES*w + s));
         end
     endtask
 
@@ -462,11 +468,13 @@ module tb_sync
         clear_c();
         run("reduce_v1", K_ROLD, n, 0, B_BASE);
         c_old = last_cycles;
-        for (int w = 0; w < n/8; w++) chk("reduce_v1", w, range_sum(8*w, 8*w + 8));
+        for (int w = 0; w < n/NUM_LANES; w++)
+            chk("reduce_v1", w, range_sum(NUM_LANES*w, NUM_LANES*w + NUM_LANES));
         clear_c();
         run("reduce_shfl", K_RSHFL, n, 0, B_BASE);
         c_new = last_cycles;
-        for (int w = 0; w < n/8; w++) chk("reduce_shfl", w, range_sum(8*w, 8*w + 8));
+        for (int w = 0; w < n/NUM_LANES; w++)
+            chk("reduce_shfl", w, range_sum(NUM_LANES*w, NUM_LANES*w + NUM_LANES));
         $display("  reduce N=%0d: v1 %0d cycles -> shuffle %0d cycles (%.2fx)",
                  n, c_old, c_new, real'(c_old) / real'(c_new));
     endtask
@@ -477,12 +485,17 @@ module tb_sync
         chk("reduce_all", 0, range_sum(0, n));
     endtask
 
-    // Block reduction: lg = log2(threads per block), block_log2 = lg - 3.
+    // Block reduction: lg = log2(threads per block), block_log2 = lg - log2(NUM_LANES);
+    // a block smaller than one warp does not exist at this lane count (skipped).
     task automatic test_reduce_block(input int n, input int lg);
         int bt;
         bt = 1 << lg;
+        if (lg < $clog2(NUM_LANES)) begin
+            $display("  reduce_block%0d skipped: a block is smaller than a warp", bt);
+            return;
+        end
         clear_c();
-        run($sformatf("reduce_block%0d", bt), K_RBLK, n, lg - 3, lg);
+        run($sformatf("reduce_block%0d", bt), K_RBLK, n, lg - $clog2(NUM_LANES), lg);
         for (int b = 0; b < (n + bt - 1) / bt; b++)
             chk("reduce_block", b, range_sum(b*bt, (b*bt + bt < n) ? b*bt + bt : n));
     endtask
@@ -503,7 +516,8 @@ module tb_sync
     task automatic test_scan(input int n);
         clear_c();
         run("scan_warp", K_SCAN, n, 0, B_BASE);
-        for (int t = 0; t < n; t++) chk("scan_warp", t, range_sum(8*(t/8), t + 1));
+        for (int t = 0; t < n; t++)
+            chk("scan_warp", t, range_sum(NUM_LANES*(t/NUM_LANES), t + 1));
     endtask
 
     task automatic test_amo(input int n);
@@ -585,9 +599,10 @@ module tb_sync
         test_reduce_block(1024, 3);              // 1-warp blocks
         test_reduce_block(1004, 5);              // partial last block (2 of 4 warps)
         test_hist("histogram", K_HIST, 1024, 0);
-        test_hist("hist_shared", K_HSH, 1024, 2);
+        test_hist("hist_shared", K_HSH, 1024, 5 - $clog2(NUM_LANES));   // 32-thread blocks
 
         $display("  %0d checks, %0d errors", checks, errors);
+        foreach (errs_by[t]) $display("  errors in %-12s: %0d", t, errs_by[t]);
         $display("=============================================================================");
         if (axi_err) begin $display("  [FAIL] AXI error response"); errors++; end
         if (errors != 0) begin $display("RESULT: FAIL (%0d errors)", errors); $fatal(1); end

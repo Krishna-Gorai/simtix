@@ -26,7 +26,7 @@ module tb_pdot8
     logic [31:0]          imem_addr, imem_data;
     logic [31:0]          dmem_addr;
     logic [LINE_BITS-1:0] dmem_wdata, dmem_rdata;
-    logic                 dmem_we;
+    logic                 dmem_we;
     logic [MEM_TAGW-1:0]  dmem_tag;
     logic                 dmem_req;          // zero-latency memory: rvalid = req
     logic [LINE_BE-1:0]   dmem_be;
@@ -96,11 +96,21 @@ module tb_pdot8
         mem[6]  = 32'h0094198b;   // pdot8u  s3, s0, s1   (funct3=1, UU)
         mem[7]  = 32'h00942a0b;   // pdot8su s4, s0, s1   (funct3=2, SU)
         mem[8]  = 32'h00568fb3;   // add  t6, a3, t0
-        mem[9]  = 32'h012fa023;   // sw   s2,  0(t6)
-        mem[10] = 32'h033fa023;   // sw   s3, 32(t6)
-        mem[11] = 32'h054fa023;   // sw   s4, 64(t6)
+        mem[9]  = 32'h012fa023;   // sw   s2, 0(t6)
+        mem[10] = sw_enc(5'd19, 5'd31, 4 * NUM_LANES);       // sw s3, 4L(t6)  (UU region)
+        mem[11] = sw_enc(5'd20, 5'd31, 8 * NUM_LANES);       // sw s4, 8L(t6)  (SU region)
         mem[12] = 32'h00000073;   // ecall
     endtask
+
+    // sw rs2, imm(rs1): the three result regions are NUM_LANES words apart, so they do not
+    // overlap at any lane count (at 8 lanes: 32 and 64, the original encodings)
+    /* verilator lint_off UNUSEDSIGNAL */   // only imm[11:0] is encoded
+    function automatic logic [31:0] sw_enc(input logic [4:0] rs2, input logic [4:0] rs1,
+                                           input int imm);
+        logic [11:0] i = 12'(imm);
+        return {i[11:5], rs2, rs1, 3'b010, i[4:0], 7'b0100011};
+    endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // ── Per-lane packed-INT8 test operands (distinct per lane; cover 0x80/0xFF) ──
     function automatic logic [31:0] avec(input int i);
@@ -180,9 +190,9 @@ module tb_pdot8
         run(NUM_LANES);
 
         for (int l = 0; l < NUM_LANES; l++) begin
-            chk("pdot8  ", l,  0, dot_ss(avec(l), bvec(l)));   // SS region, word[l]
-            chk("pdot8u ", l,  8, dot_uu(avec(l), bvec(l)));   // UU region, word[8+l]
-            chk("pdot8su", l, 16, dot_su(avec(l), bvec(l)));   // SU region, word[16+l]
+            chk("pdot8  ", l, 0,             dot_ss(avec(l), bvec(l)));   // SS: word[l]
+            chk("pdot8u ", l, NUM_LANES,     dot_uu(avec(l), bvec(l)));   // UU: word[L+l]
+            chk("pdot8su", l, 2 * NUM_LANES, dot_su(avec(l), bvec(l)));   // SU: word[2L+l]
         end
 
         if (errors == 0)

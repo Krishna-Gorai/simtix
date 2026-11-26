@@ -43,6 +43,20 @@
  *     Ara deadlocked in it (busy until the 5M-cycle limit). Fan1 runs on CVA6's scalar divider
  *     (v_rd_gaussian; -DAK_RD_GAUSS_VDIV restores the vector form), which gives the same
  *     quotients; it is O(n) per step against Fan2's O(n^2).
+ *  8. RiVEC's jacobi-2d keeps its three grid rows in registers from one output row to the
+ *     next (xUtop = xU; xU = xUbottom; xUbottom = a new load). On Ara the last 4-5 elements
+ *     of the first rows came out 1-3% wrong, different from run to run, whenever another
+ *     kernel (spmv or matmul) had run just before; run alone it was correct, and so were
+ *     its slides, loads and arithmetic in isolation, and the same kernel at fresh
+ *     addresses after spmv (2026-11-12, dbg_rv*.c). Removing the copies (unrolling the
+ *     row loop by three) did not help; loading the three rows for every output row did
+ *     (the timing-dependent cause in Ara was not isolated). ak_vector_rv.inc loads them
+ *     so: up to three times RiVEC's loads for this kernel.
+ *     Item 5 also applies to RiVEC's code: its CNDF_SIMD, a function with vector arguments,
+ *     follows the vector calling convention and saved and restored v1 with vs1r.v /
+ *     vl1re64.v, and the caller's v1 came back corrupted (Black-Scholes prices up to 3e34).
+ *     RiVEC's kernels are compiled with clang (ak_vector_rv.c), which allocates them without
+ *     any vector spill, with CNDF_SIMD inlined.
  */
 #include <riscv_vector.h>
 #include "ak.h"
@@ -539,8 +553,14 @@ static void v_swat(const uint32_t *a)
 #include "s2_ref.h"
 #include "ak_vector_s2.inc"
 #include "ak_vector_rd.inc"
-#include "rv_ref.h"                  /* RV_LAVA_NP */
-#include "ak_vector_rv.inc"
+/* RiVEC batch 1: ak_vector_rv.c (RiVEC's own code, compiled with clang) */
+void v_rv_axpy(const uint32_t *a);
+void v_rv_matmul(const uint32_t *a);
+void v_rv_spmv(const uint32_t *a);
+void v_rv_jacobi(const uint32_t *a);
+void v_rv_pathfinder(const uint32_t *a);
+void v_rv_bs(const uint32_t *a);
+void v_rv_lavamd(const uint32_t *a);
 
 const ak_fn ak_vector[AK_NAPPS] = {
     [AK_GEMM] = v_gemm, [AK_SPMV] = v_spmv, [AK_STENCIL] = v_stencil, [AK_KMEANS] = v_kmeans,

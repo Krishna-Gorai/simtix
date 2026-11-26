@@ -77,6 +77,13 @@ if {[lsearch -exact $argv rodinia] >= 0} {
     puts "data blob: $blob"
     dow -data $blob 0x70000000
 }
+# RiVEC batch 1 (argument rivec): the data blob of sim/rv_data.py at the same address
+if {[lsearch -exact $argv rivec] >= 0} {
+    set blob [file normalize [file join $here .. .. .. build_rivec rv_data.bin]]
+    if {![file exists $blob]} { error "missing $blob (run python sim/rv_data.py first)" }
+    puts "data blob: $blob"
+    dow -data $blob 0x70000000
+}
 configparams force-mem-access 0
 con
 puts "running: the console also goes to DDR and is written to $out at the end"

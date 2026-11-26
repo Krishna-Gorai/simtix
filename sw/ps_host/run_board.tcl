@@ -11,6 +11,10 @@
 
 set here [file dirname [file normalize [info script]]]
 set ws   [file join $here [expr {[lsearch -exact $argv zcu104] >= 0 ? "ws" : "ws_zcu102"}]]
+# lanes<L> (L != 8): the L-lane build's workspace (build_vitis.py lanes<L>: ws_zcu102_l<L>,
+# whose platform holds the L-lane bitstream); the host refuses a lane-count mismatch itself
+foreach a $argv { if {[regexp {^lanes(\d+)$} $a -> l] && $l != 8} { append ws "_l$l" } }
+puts "workspace: $ws"
 # Console text of the run (also on the UART): docs/<board>_board_run.txt or a .txt argument
 set brd  [expr {[lsearch -exact $argv zcu104] >= 0 ? "zcu104" : "zcu102"}]
 set out  [file normalize [file join $here .. .. docs ${brd}_board_run.txt]]
@@ -74,6 +78,13 @@ dow $elf
 if {[lsearch -exact $argv rodinia] >= 0} {
     set blob [file normalize [file join $here .. .. build_rodinia rd_data.bin]]
     if {![file exists $blob]} { error "missing $blob (run python sim/rd_data.py first)" }
+    puts "data blob: $blob"
+    dow -data $blob 0x70000000
+}
+# RiVEC batch 1 (argument rivec): the data blob of sim/rv_data.py at the same address
+if {[lsearch -exact $argv rivec] >= 0} {
+    set blob [file normalize [file join $here .. .. build_rivec rv_data.bin]]
+    if {![file exists $blob]} { error "missing $blob (run python sim/rv_data.py first)" }
     puts "data blob: $blob"
     dow -data $blob 0x70000000
 }

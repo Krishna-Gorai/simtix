@@ -23,6 +23,63 @@ set sfx [expr {$board eq "zcu104" ? "" : "_$board"}]
 # Optional tag<name> (no '=': cmd.exe splits arguments there) keeps a variant's
 # project, reports and XSA apart, e.g. "tagv3b2" -> simtix_ps_v3b2/.
 foreach a $argv { if {[regexp {^tag(\w+)$} $a -> t]} { append sfx "_$t" } }
+
+# Staged build for a host with too little RAM to keep a Vivado holding the project open
+# while synthesis or implementation runs in its child process (16 lanes on the 7.8 GB
+# laptop: synthesis alone peaks near 5 GB). Each stage exits; the runs execute alone
+# from their generated runme.bat (launch_runs -scripts_only):
+#   prep      create the project and block design, write synth_1's scripts
+#   (run simtix_ps<sfx>/simtix_ps.runs/synth_1/runme.bat)
+#   implprep  open the project, write impl_1's scripts (to write_bitstream)
+#   (run simtix_ps<sfx>/simtix_ps.runs/impl_1/runme.bat)
+#   finish    open the routed design: reports, XSA, and the routed accelerator cell as a
+#             funcsim netlist (reports_ps<sfx>/simt_0_routed_funcsim.v) for gate-level sims
+# lowmem: synthesis with -flatten_hierarchy none and the RuntimeOptimized directive (the
+# flattened, timing-driven 16-lane synthesis stalled for hours at 5.25 GB on the laptop).
+set lowmem [expr {[lsearch -exact $argv lowmem] >= 0}]
+set stage ""
+foreach s {prep implprep finish} { if {[lsearch -exact $argv $s] >= 0} { set stage $s } }
+proc thread_pre {path} {
+    set f [open $path w]
+    puts $f "set_param synth.maxThreads 1"
+    puts $f "set_param general.maxThreads 2"
+    close $f
+}
+if {$stage in {implprep finish}} {
+    set_param general.maxThreads 2
+    set proj_dir [file normalize ./simtix_ps$sfx]
+    open_project $proj_dir/simtix_ps.xpr
+    if {$stage eq "implprep"} {
+        if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} { error "synth_1 is not complete" }
+        set pre [file join $proj_dir impl_pre.tcl]
+        thread_pre $pre
+        set_property STEPS.OPT_DESIGN.TCL.PRE $pre [get_runs impl_1]
+        set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]
+        set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE AggressiveExplore [get_runs impl_1]
+        launch_runs impl_1 -to_step write_bitstream -scripts_only
+        puts "IMPL SCRIPTS: [get_property DIRECTORY [get_runs impl_1]]/runme.bat"
+    } else {
+        if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} { error "impl_1 is not complete" }
+        open_run impl_1
+        set out [file normalize ./reports_ps$sfx]
+        file mkdir $out
+        report_utilization    -file $out/post_route_util.rpt
+        report_utilization -hierarchical -hierarchical_depth 4 -file $out/post_route_util_hier.rpt
+        report_timing_summary -max_paths 10 -file $out/post_route_timing.rpt
+        report_power          -file $out/post_route_power.rpt
+        set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
+        set per [get_property PERIOD [lindex [get_clocks] 0]]
+        puts [format "========== BOARD BUILD ($board): WNS %+.3f ns at %.2f MHz (Fmax ~ %.1f MHz) ==========" \
+                  $wns [expr {1000.0 / $per}] [expr {1000.0 / ($per - $wns)}]]
+        set cell [lindex [get_cells -hier -filter {NAME =~ "*simt_0" && IS_PRIMITIVE == 0}] 0]
+        write_verilog -mode funcsim -force -cell $cell $out/simt_0_routed_funcsim.v
+        puts "ROUTED NETLIST: $out/simt_0_routed_funcsim.v (cell $cell)"
+        write_hw_platform -fixed -include_bit -force [file normalize ./simtix_ps$sfx.xsa]
+        puts "XSA written: [file normalize ./simtix_ps$sfx.xsa]"
+    }
+    close_project
+    return
+}
 # Optional warps<n> (SIMTIX_NUM_WARPS, default 4), l1kb<n> (SIMTIX_L1_KB, 16), mshr<n>
 # (SIMTIX_L1_MSHR, 4), mtags<n> (SIMTIX_MEM_TAGS, 8), e.g. "warps8 l1kb64 mshr16 mtags16".
 # Also lanes<n> (SIMTIX_NUM_LANES, 8), agg<0|1> (SIMTIX_AMO_AGG, 1: line-aggregated
@@ -132,6 +189,20 @@ add_files -norecurse [file normalize $proj_dir/simtix_ps.gen/sources_1/bd/system
 set_property top system_wrapper [current_fileset]
 update_compile_order -fileset sources_1
 
+if {$lowmem} {
+    set_property STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY none [get_runs synth_1]
+    set_property STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE RuntimeOptimized [get_runs synth_1]
+}
+if {$stage eq "prep"} {
+    set pre [file join $proj_dir synth_pre.tcl]
+    thread_pre $pre
+    set_property STEPS.SYNTH_DESIGN.TCL.PRE $pre [get_runs synth_1]
+    if {$retime} { set_property STEPS.SYNTH_DESIGN.ARGS.RETIMING true [get_runs synth_1] }
+    launch_runs synth_1 -scripts_only
+    puts "SYNTH SCRIPTS: [get_property DIRECTORY [get_runs synth_1]]/runme.bat"
+    close_project
+    return
+}
 if {!$build} { puts "BD created (no build requested)"; return }
 
 # ── Build ────────────────────────────────────────────────────────────────────────

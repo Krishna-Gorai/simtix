@@ -1,0 +1,2 @@
+lanes,warps,retime,LUT_cells,LUTRAM_cells,FF,DSP,BRAM,WNS_ns,Fmax_est_MHz
+16,4,0,0,0,71194,1296,32,0.586,106.2

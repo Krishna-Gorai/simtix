@@ -26,6 +26,12 @@
 
 unsigned run_apps(void);   /* apps.c */
 
+#ifndef SIMTIX_LANES               /* build_vitis.py lanes<L> passes -DSIMTIX_LANES=<L> */
+#define SIMTIX_LANES   8
+#endif
+#define LANES          ((uint32_t)SIMTIX_LANES)   /* the accelerator's lane count */
+#define LOG2_LANES     ((LANES == 16u) ? 4u : (LANES == 4u) ? 2u : 3u)
+
 #define SIMT_BASE      0xA0000000u
 #define REG_KERNEL_PC  0x00u
 #define REG_BASE_A     0x04u
@@ -39,6 +45,7 @@ unsigned run_apps(void);   /* apps.c */
 #define REG_L1_HITS    0x100u
 #define REG_L1_MISSES  0x104u
 #define REG_AXI_ERR    0x108u
+#define REG_CONFIG     0x10Cu          /* {0x5C, L1 KB, warps, lanes} (simt_ps_top.sv) */
 #define IRAM           0x1000u
 
 #define PC_REDUCE      0x000u          /* instruction-RAM byte offsets */
@@ -104,7 +111,7 @@ static void report(const char *k, uint32_t n, uint32_t cyc, double acc_us, doubl
                c10 / 10, c10 % 10, rd(REG_L1_HITS), rd(REG_L1_MISSES), errs);
 }
 
-/* reduce_shfl: C[w] = sum of A[8w .. 8w+7] */
+/* reduce_shfl: C[w] = sum of A[LANES*w .. LANES*w + LANES-1] (one sum per warp) */
 static unsigned run_reduce(uint32_t n)
 {
     XTime t0, t1;
@@ -112,19 +119,19 @@ static unsigned run_reduce(uint32_t n)
     unsigned errs = 0;
     for (uint32_t i = 0; i < n; i++) A[i] = hash(i);
     Xil_DCacheFlushRange((INTPTR)A, n * 4u);
-    Xil_DCacheFlushRange((INTPTR)C, (n / 8u) * 4u);
+    Xil_DCacheFlushRange((INTPTR)C, (n / LANES) * 4u);
 
     uint32_t cyc = launch(PC_REDUCE, n, &acc_us);
-    Xil_DCacheInvalidateRange((INTPTR)C, (n / 8u) * 4u);
+    Xil_DCacheInvalidateRange((INTPTR)C, (n / LANES) * 4u);
 
     XTime_GetTime(&t0);
-    for (uint32_t w = 0; w < n / 8u; w++) {
+    for (uint32_t w = 0; w < n / LANES; w++) {
         uint32_t s = 0;
-        for (uint32_t l = 0; l < 8u; l++) s += A[8u * w + l];
+        for (uint32_t l = 0; l < LANES; l++) s += A[LANES * w + l];
         REF[w] = s;
     }
     XTime_GetTime(&t1);
-    for (uint32_t w = 0; w < n / 8u; w++) errs += (C[w] != REF[w]);
+    for (uint32_t w = 0; w < n / LANES; w++) errs += (C[w] != REF[w]);
     report("reduce_shfl", n, cyc, acc_us, us(t0, t1), errs);
     return errs;
 }
@@ -164,7 +171,8 @@ static unsigned run_hist_shared(uint32_t n)
     Xil_DCacheFlushRange((INTPTR)A, n * 4u);
     Xil_DCacheFlushRange((INTPTR)C, 64u);
 
-    uint32_t cyc = launch_ab(PC_HSHARED, n, A, 0, C, 2u, &acc_us);
+    /* 32-thread blocks (hist_shared.S): log2(32 / LANES) warps per block, 2 at 8 lanes */
+    uint32_t cyc = launch_ab(PC_HSHARED, n, A, 0, C, 5u - LOG2_LANES, &acc_us);
     Xil_DCacheInvalidateRange((INTPTR)C, 64u);
 
     XTime_GetTime(&t0);
@@ -259,6 +267,26 @@ int main(void)
 #else
     xil_printf("\r\nSIMTiX v2 on ZCU102: A53 host, DDR4 through L1 + AXI4 (HP0)\r\n");
 #endif
+    /* The accelerator's configuration register (0x10C): {0x5C, L1 KB, warps, lanes}. A
+       bitstream older than the register reads 0 and was built for 8 lanes. The host's
+       kernels and data layouts are for LANES lanes: refuse any other accelerator. */
+    {
+        uint32_t cfg = rd(REG_CONFIG);
+        uint32_t hw_lanes = ((cfg >> 24) == 0x5Cu) ? (cfg & 0xFFu) : 8u;
+        if ((cfg >> 24) == 0x5Cu)
+            xil_printf("CONFIG,lanes,%u,warps,%u,l1_kb,%u\r\n", (unsigned)(cfg & 0xFFu),
+                       (unsigned)((cfg >> 8) & 0xFFu), (unsigned)((cfg >> 16) & 0xFFu));
+        if (hw_lanes != LANES) {
+            xil_printf("host built for %u lanes, the accelerator has %u: not run\r\n",
+                       (unsigned)LANES, (unsigned)hw_lanes);
+            xil_printf("RESULT: FAIL (lane count mismatch)\r\n");
+            MB[2] = MB_DONE;
+            Xil_DCacheFlushRange((INTPTR)MB, 64);
+            return 1;
+        }
+    }
+    _Static_assert(sizeof k_reduce_shfl <= 0x80u, "reduce_shfl overflows 0x000-0x07F");
+    _Static_assert(sizeof k_histogram <= 0x80u, "histogram overflows 0x080-0x0FF");
     load_kernel(PC_REDUCE, k_reduce_shfl, sizeof k_reduce_shfl / 4u);
     load_kernel(PC_HIST,   k_histogram,   sizeof k_histogram / 4u);
     _Static_assert(sizeof k_amo_contend <= 0x80u, "amo_contend overflows 0x280-0x2FF");

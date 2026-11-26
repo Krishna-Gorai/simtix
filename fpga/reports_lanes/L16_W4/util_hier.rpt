@@ -1,0 +1,58 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
+| Date         : Mon Nov 16 10:04:38 2026
+| Host         : Krishna_NITjsr running 64-bit major release  (build 9200)
+| Command      : report_utilization -hierarchical -hierarchical_depth 3 -file C:/work/SIMTiX-v2/fpga/reports_lanes/L16_W4/util_hier.rpt
+| Design       : simt_ps_top
+| Device       : xczu9eg-ffvb1156-2-e
+| Speed File   : -2
+| Design State : Synthesized
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++-----------------------+-------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+|        Instance       |          Module         | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | URAM | DSP Blocks |
++-----------------------+-------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+| simt_ps_top           |                   (top) |     190184 |     175179 |    8660 | 6345 | 71194 |     32 |      0 |    0 |        144 |
+|   (simt_ps_top)       |                   (top) |       1307 |         27 |    1280 |    0 |   236 |      0 |      0 |    0 |          0 |
+|   u_accel             |              simt_accel |     174841 |     161888 |    6608 | 6345 | 58462 |      0 |      0 |    0 |        144 |
+|     (u_accel)         |              simt_accel |         17 |         17 |       0 |    0 |    66 |      0 |      0 |    0 |          0 |
+|     u_pool            |               warp_pool |     174622 |     161669 |    6608 | 6345 | 58232 |      0 |      0 |    0 |        144 |
+|       (u_pool)        |               warp_pool |      29110 |      22710 |    6400 |    0 | 19373 |      0 |      0 |    0 |        112 |
+|       g_fpu[0].u_fpu  |                simt_fpu |       6585 |       6183 |       0 |  402 |   864 |      0 |      0 |    0 |          2 |
+|       g_fpu[10].u_fpu |              simt_fpu_0 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[11].u_fpu |              simt_fpu_1 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[12].u_fpu |              simt_fpu_2 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[13].u_fpu |              simt_fpu_3 |       4000 |       3607 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[14].u_fpu |              simt_fpu_4 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[15].u_fpu |              simt_fpu_5 |       4000 |       3607 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[1].u_fpu  |              simt_fpu_6 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[2].u_fpu  |              simt_fpu_7 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[3].u_fpu  |              simt_fpu_8 |       4031 |       3637 |       0 |  394 |   842 |      0 |      0 |    0 |          2 |
+|       g_fpu[4].u_fpu  |              simt_fpu_9 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[5].u_fpu  |             simt_fpu_10 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[6].u_fpu  |             simt_fpu_11 |       4000 |       3607 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[7].u_fpu  |             simt_fpu_12 |       4001 |       3608 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[8].u_fpu  |             simt_fpu_13 |       4000 |       3607 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       g_fpu[9].u_fpu  |             simt_fpu_14 |       4002 |       3609 |       0 |  393 |   800 |      0 |      0 |    0 |          2 |
+|       u_dot_q         |                 wp_resq |       1337 |       1318 |      16 |    3 |  2593 |      0 |      0 |    0 |          0 |
+|       u_fpc_q         |              wp_resq_15 |       1963 |       1927 |      16 |   20 |  4151 |      0 |      0 |    0 |          0 |
+|       u_mem           |              mem_engine |      69530 |      69386 |     144 |    0 | 10628 |      0 |      0 |    0 |          0 |
+|       u_mul_q         | wp_resq__parameterized0 |       1177 |       1137 |      16 |   24 |  4181 |      0 |      0 |    0 |          0 |
+|       u_sfu           |              fp_divsqrt |        983 |        983 |       0 |    0 |   246 |      0 |      0 |    0 |          0 |
+|       u_shf_q         | wp_resq__parameterized1 |       3904 |       3888 |      16 |    0 |  4154 |      0 |      0 |    0 |          0 |
+|     u_regs            |               mmio_regs |        202 |        202 |       0 |    0 |   164 |      0 |      0 |    0 |          0 |
+|   u_axi               |         axi_line_master |       1129 |        741 |     388 |    0 |   711 |      0 |      0 |    0 |          0 |
+|   u_l1                |               l1_dcache |      12907 |      12523 |     384 |    0 | 11785 |     32 |      0 |    0 |          0 |
++-----------------------+-------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+
+

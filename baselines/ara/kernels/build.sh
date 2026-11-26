@@ -39,11 +39,14 @@ if [ "$VCC" = clang ]; then   # VCC=clang ./build.sh: the vector kernels with cl
 else
     obj vector.o   "$V" ak_vector.c "-fno-tree-vectorize -fno-tree-slp-vectorize"
 fi
+# RiVEC batch 1 (ak_vector_rv.c): RiVEC's own vector code, always with clang 21 (RiVEC's
+# compiler; GCC spilled a vector register in its Black-Scholes, which Ara reloads wrongly)
+MSYS_NO_PATHCONV=1 wsl -e bash -c "export LD_LIBRARY_PATH=\$HOME/clang_dl/root/usr/lib/x86_64-linux-gnu:\$HOME/clang_dl/root/usr/lib/llvm-21/lib; cd /mnt/c/work/SIMTiX-v2/baselines/ara/kernels && \$HOME/clang_dl/root/usr/lib/llvm-21/bin/clang --target=riscv64-unknown-elf -march=rv64gcv -mabi=lp64d -mcmodel=medany -O3 -ffp-contract=off -fno-math-errno -fno-vectorize -fno-slp-vectorize -fno-common -std=gnu11 -I. -I../../../kernels/rivec -DNR_LANES=2 -DVLEN=2048 $* -c ak_vector_rv.c -o build/vector_rv.o"
 obj main.o     "$S" ak_main.c
 obj main_st.o  "$S" ak_main.c -DAK_SELFTEST
 
 LF="-mabi=lp64d -march=rv64gcv -mcmodel=medany -nostdlib -nostartfiles -T $LD -Wl,--gc-sections"
 B=build
-"$GCC" $LF $B/crt0.o $B/main.o    $B/scalar.o $B/vector.o $B/printf.o $B/string.o $B/serial.o -lgcc -o $B/ak.elf
-"$GCC" $LF $B/crt0.o $B/main_st.o $B/scalar.o $B/vector.o $B/printf.o $B/string.o $B/serial.o -lgcc -o $B/ak_st.elf
+"$GCC" $LF $B/crt0.o $B/main.o    $B/scalar.o $B/vector.o $B/vector_rv.o $B/printf.o $B/string.o $B/serial.o -lgcc -o $B/ak.elf
+"$GCC" $LF $B/crt0.o $B/main_st.o $B/scalar.o $B/vector.o $B/vector_rv.o $B/printf.o $B/string.o $B/serial.o -lgcc -o $B/ak_st.elf
 /c/toolchains/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-size $B/ak.elf $B/ak_st.elf
