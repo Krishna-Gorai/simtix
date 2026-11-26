@@ -249,3 +249,14 @@ User: "rewrite the paper focusing only on the important things". Paper 20 -> 13 
   59-66, no issue 58-100); Fig. 3(c) (y lines one every 3 cycles, f2 written a cycle after the
   last beat; w0: FMA 101, store held 103, FPU write 108, store 110, parked from 111, L1 113, AW
   115, W 116-117); Fig. 2(b) (store ack 141, warps end 145-175, refill, IPC 0.44, 25 reads).
+- Fig. 1 updated (2026-11-26, user: "figure 1 is ... outdated, make it ... neat, nothing overlaps,
+  professional"), gen_arch_v3.py: command registers now the RTL map (KERNEL_PC, BASE_A/B/C =
+  a1-a3, N = a4, BLOCK, CTRL.GO, STATUS DONE/BUSY, CYCLES, L1 hits/misses, AXI error + CONFIG,
+  64-word debug window; was "PARAM (a1)"); SIMTiX box gives both clocks (L=8 115.37 MHz, L=16
+  100 MHz); RF columns 0..L-1; FPU "operand reg. + 5 stages"; div/sqrt "one per 8 lanes"
+  (SFU_CORES); new Store merge box (me_store_merge) under the Coalescer; per-unit result-queue
+  icons (RQ, caption updated) instead of the overlapping "result queues" strip; compact \vd
+  dots in all tables (they ran into "15"/"511"); B / 64L / load-done labels moved off wires;
+  L1 note rewritten. Text: host registers (three argument pointers, status/config/debug), one
+  divide unit per eight lanes, Fig. 1 reading guide (I2C reads the 18 board power monitors,
+  both clocks, key). Paper 18 pp.

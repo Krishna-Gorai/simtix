@@ -134,7 +134,7 @@ def stage(x0, y0, x1, y1, title):
 TOPY0, TOPY1 = 9.00, 11.30
 
 box('ddr', 0.00, 10.05, 1.62, 10.85, r'\textbf{DDR4}\\SDRAM', 'memarr')
-box('mon', 0.00, 9.12, 1.62, 9.80, r'Power\\monitors', 'offchip')
+box('mon', 0.00, 9.12, 1.62, 9.80, r'Power monitors\\(18 rails)', 'offchip')
 
 rect(1.92, TOPY0, 8.12, TOPY1, 'psframe')
 text(2.02, TOPY1 - 0.04, r'\textbf{Zynq UltraScale+ processing system}', 'paneltitle', 'north west')
@@ -153,7 +153,7 @@ rect(8.42, TOPY0, 12.82, TOPY1, 'plframe')
 text(8.52, TOPY1 - 0.04, r'\textbf{Programmable logic}', 'paneltitle', 'north west')
 box('sc', 8.58, 10.25, 10.02, 10.85, r'\textbf{AXI Smart-}\\\textbf{Connect}', 'ctrl')
 box('simtix', 10.30, 9.14, 12.66, 10.94,
-    r'\textbf{\large SIMTiX}\\[2pt]\texttt{simt\_ps\_top}\\115.4~MHz', 'acc')
+    r'\textbf{\large SIMTiX}\\[1pt]\texttt{simt\_ps\_top}\\[1pt]$L=8$: 115.37~MHz\\$L=16$: 100~MHz', 'acc')
 arrow([(7.98, 10.55), (8.58, 10.55)])
 arrow([(10.02, 10.55), (10.30, 10.55)])
 arrow([(10.30, 9.59), (7.98, 9.59)], 'bdarr', label='AXI4, 128 bit', side='below')
@@ -191,22 +191,23 @@ text(2.05, 8.50, r'\textbf{SIMTiX accelerator}', 'paneltitle', 'north west')
 
 # ---------------------------------------------------------------- host interface
 stage(0.12, 0.12, 2.75, 7.95, 'Host interface')
-box('axil', 0.25, 6.98, 2.67, 7.52, r'\textbf{AXI4-Lite slave}', 'ctrl')
-table(0.50, 4.22, 2.67, 6.78, 'Command registers', ['register'],
-      [['KERNEL\\_PC'], ['PARAM (a1)'], ['N'], ['BLOCK'], ['CTRL.GO'], ['STATUS.DONE'],
-       ['CYCLES'], ['L1 HITS, MISSES']], hdr=False)
-box('disp', 0.50, 3.25, 2.67, 3.92, r'\textbf{Dispatcher}\\launch, completion', 'ctrl')
-rect(0.25, 0.30, 2.67, 2.92, 'memarr')
-text(1.46, 2.74, r'\textbf{Instruction RAM}', 'tbltitle')
-table(0.55, 0.50, 2.37, 2.55, None, ['', '32 bit'],
-      [['0', ''], ['1', ''], [r'$\vdots$', ''], ['1023', '']], widths=[1, 2.4], hdr=True,
+box('axil', 0.25, 7.02, 2.67, 7.50, r'\textbf{AXI4-Lite slave}', 'ctrl')
+table(0.50, 3.98, 2.67, 6.86, 'Command registers', ['register'],
+      [['KERNEL\\_PC'], ['BASE\\_A, B, C (a1--a3)'], ['N (a4)'], [r'BLOCK ($\log_2$ warps)'],
+       ['CTRL.GO'], ['STATUS: DONE, BUSY'], ['CYCLES'], ['L1 HITS, MISSES'],
+       ['AXI ERROR, CONFIG'], ['DEBUG: 64 words']], hdr=False)
+box('disp', 0.50, 3.10, 2.67, 3.72, r'\textbf{Dispatcher}\\launch, completion', 'ctrl')
+rect(0.25, 0.30, 2.67, 2.82, 'memarr')
+text(1.46, 2.65, r'\textbf{Instruction RAM}', 'tbltitle')
+table(0.55, 0.48, 2.37, 2.46, None, ['', '32 bit'],
+      [['0', ''], ['1', ''], [r'\vd', ''], ['1023', '']], widths=[1, 2.4], hdr=True,
       fill='white')
-arrow([(0.45, 8.58), (0.45, 7.52)])                                     # SmartConnect in
+arrow([(0.45, 8.58), (0.45, 7.50)])                                     # SmartConnect in
 slash(0.45, 8.27, '32')
-arrow([(1.58, 6.98), (1.58, 6.78)])                                     # slave -> regs
-arrow([(0.36, 6.98), (0.36, 2.92)])                                     # slave -> IRAM
+arrow([(1.58, 7.02), (1.58, 6.86)])                                     # slave -> regs
+arrow([(0.36, 7.02), (0.36, 2.82)])                                     # slave -> IRAM
 text(0.24, 5.0, 'kernel', 'vlabel')
-arrow([(1.58, 4.22), (1.58, 3.92)])                                     # regs -> dispatcher
+arrow([(1.58, 3.98), (1.58, 3.72)])                                     # regs -> dispatcher
 
 # ---------------------------------------------------------------- fetch
 stage(3.00, 0.12, 6.40, 7.95, 'Fetch (F)')
@@ -216,7 +217,7 @@ table(3.08, 5.48, 6.00, 6.80, 'Warp table', ['warp', 'state', 'base tid'],
        ['7', 'barrier', '56']], widths=[1, 1.4, 1.4])
 shadow(3.08, 3.30, 5.86, 4.78, 'tbl, fill=white', n=3, d=0.045)
 table(3.08, 3.30, 5.86, 4.78, None, ['PC', 'RPC', 'mask'],
-      [['', '', ''], [r'$\vdots$', r'$\vdots$', r'$\vdots$'], ['', '', '']])
+      [['', '', ''], [r'\vd', r'\vd', r'\vd'], ['', '', '']])
 emit(r'\node[tbltitle, align=center] at (4.47,5.10) {Reconvergence stack\\per warp, depth $L$};')
 for i, t in enumerate(['runnable warps', 'barrier arrivals', 'asleep / waiting']):
     y = 2.78 - i * 0.36
@@ -226,8 +227,8 @@ box('fetch', 3.08, 0.30, 6.00, 0.92, r'\textbf{Fetch}: instruction at the\\PC of
 arrow([(4.54, 6.98), (4.54, 6.78)])                                     # spawner -> warp table
 arrow([(4.54, 1.91), (4.54, 1.72)])                                     # masks -> scheduler
 arrow([(4.54, 1.18), (4.54, 0.92)])                                     # scheduler -> fetch
-arrow([(2.67, 3.58), (2.875, 3.58), (2.875, 7.25), (3.08, 7.25)])      # dispatcher -> spawner
-text(1.66, 4.07, 'GO', 'wlabel', 'west')
+arrow([(2.67, 3.41), (2.875, 3.41), (2.875, 7.25), (3.08, 7.25)])      # dispatcher -> spawner
+text(1.66, 3.85, 'GO', 'wlabel', 'west')
 arrow([(2.67, 0.61), (3.08, 0.61)])                                     # IRAM -> fetch
 slash(2.875, 0.61, '32', vertical=False)
 
@@ -235,18 +236,17 @@ slash(2.875, 0.61, '32', vertical=False)
 stage(6.55, 0.12, 11.30, 7.95, 'Execute (X)')
 regbar(6.475, 0.36, 0.86)                                               # F/X register
 arrow([(6.00, 0.61), (6.70, 0.61)])
-table(6.68, 4.95, 8.28, 7.55, r'\textbf{Integer RF}', ['', 't0', r'\ldots', 't7'],
-      [['r0', '', '', ''], ['r1', '', '', ''], [r'$\vdots$', '', '', ''],
-       ['r31', '', '', '']], widths=[1.2, 1, 1, 1])
-table(6.68, 2.25, 8.28, 4.75, r'\textbf{FP RF}', ['', 't0', r'\ldots', 't7'],
-      [['f0', '', '', ''], ['f1', '', '', ''], [r'$\vdots$', '', '', ''],
-       ['f31', '', '', '']], widths=[1.2, 1, 1, 1])
+table(6.68, 4.95, 8.28, 7.55, r'\textbf{Integer RF}', ['', '0', r'\ldots', '$L{-}1$'],
+      [['r0', '', '', ''], ['r1', '', '', ''], [r'\vd', '', '', ''],
+       ['r31', '', '', '']], widths=[1.0, 0.85, 0.85, 1.45])
+table(6.68, 2.25, 8.28, 4.75, r'\textbf{FP RF}', ['', '0', r'\ldots', '$L{-}1$'],
+      [['f0', '', '', ''], ['f1', '', '', ''], [r'\vd', '', '', ''],
+       ['f31', '', '', '']], widths=[1.0, 0.85, 0.85, 1.45])
 box('dec', 6.68, 0.30, 8.28, 0.92, r'\textbf{Decoder}', 'ctrl')
 arrow([(6.95, 0.92), (6.95, 2.25)])
 text(6.82, 1.40, 'rs1--rs3', 'vlabel')
 box('sb', 7.10, 1.08, 8.06, 2.12, r'\textbf{Score-}\\\textbf{board}\\pending\\registers', 'ctrl')
-arrow([(7.10, 2.06), (6.00, 2.06)])                                     # hazard -> warp sleeps
-text(6.74, 2.02, 'sleep', 'wlabel', 'north')
+arrow([(7.10, 1.98), (6.00, 1.98)])                                     # hazard -> warp sleeps
 arrow([(7.58, 0.92), (7.58, 1.08)])                                     # decoder -> scoreboard
 trap(8.46, 2.35, 8.74, 7.40, 'left', d=0.9)                            # dispatch
 text(8.60, 4.90, 'dispatch', 'vlabel')
@@ -255,26 +255,24 @@ arrow([(8.28, 3.45), (8.46, 3.45)])
 units = [('alu', 6.64, 7.40, r'\textbf{ALU}: branch,\\address, Zba,\\Zbb, Zicond', True),
          ('mul', 5.92, 6.47, r'\textbf{Integer MUL}\\(DSP)', True),
          ('dot', 5.12, 5.67, r'\textbf{INT8 dot}\\(\texttt{pdot8})', True),
-         ('fpu', 4.02, 4.87, r'\textbf{FPU}\\FP32/FP16\\5-stage FMA', True),
+         ('fpu', 4.02, 4.87, r'\textbf{FPU} FP32/FP16\\operand reg.\\+ 5 stages', True),
          ('shf', 3.22, 3.77, r'\textbf{Shuffle}\\crossbar', False),
-         ('sfu', 2.42, 2.97, r'\textbf{Div / sqrt}\\shared', False)]
+         ('sfu', 2.42, 2.97, r'\textbf{Div / sqrt}\\one per 8 lanes', False)]
 RQ = ('mul', 'dot', 'fpu', 'shf')                                        # units with a result queue
 for nm, y0, y1, t, rep in units:
     if rep:
         shadow(8.94, y0, 10.52, y1, 'exebox', n=2, d=0.05)
     box(nm, 8.94, y0, 10.52, y1, t, 'exe')
     arrow([(8.74, (y0 + y1) / 2), (8.94, (y0 + y1) / 2)])
-    if nm in RQ:
-        emit(f'\\draw[line] {c(10.62 if rep else 10.52, (y0 + y1) / 2)} -- {c(10.64, (y0 + y1) / 2)};')
+    ym = (y0 + y1) / 2
+    if nm in RQ:                                                         # a result queue (RQ)
+        emit(f'\\draw[line] {c(10.62 if rep else 10.52, ym)} -- {c(10.65, ym)};')
+        for k in range(3):
+            rect(10.65, ym - 0.21 + k * 0.14, 10.81, ym - 0.07 + k * 0.14, 'tbl, fill=white')
+        emit(f'\\draw[line] {c(10.81, ym)} -- {c(10.86, ym)};')
     else:
-        arrow([(10.52 + (0.10 if rep else 0), (y0 + y1) / 2), (10.86, (y0 + y1) / 2)])
-rect(10.64, 3.22, 10.80, 6.47, 'tbl, fill=white')                       # result queues
-for k in range(1, 12):
-    emit(f'\\draw[tblline] {c(10.64, 3.22 + k * 0.27)} -- {c(10.80, 3.22 + k * 0.27)};')
-emit(r'\node[vlabel, fill=white, inner sep=0.3pt] at (10.72,4.85) {result queues};')
-for y in (6.20, 5.40, 4.45, 3.50):
-    emit(f'\\draw[line] {c(10.80, y)} -- {c(10.86, y)};')
-text(10.72, 3.06, r'$\times 8$', 'wlabel')
+        arrow([(10.52 + (0.10 if rep else 0), ym), (10.86, ym)])
+text(10.73, 3.09, 'RQ', 'wlabel')
 trap(10.86, 2.35, 11.14, 7.40, 'right', d=0.9)                         # result mux
 text(11.00, 4.90, 'results', 'vlabel')
 box('arb', 8.46, 0.30, 11.14, 1.48, r'\textbf{Write arbiter}\\load write-back first;\\'
@@ -287,60 +285,63 @@ text(8.33, 1.74, 'write back', 'vlabel')
 stage(11.45, 0.12, 15.10, 7.95, 'Memory engine')
 table(11.66, 5.95, 14.97, 7.55, 'Contexts (two per warp)',
       ['ctx', 'addresses', 'store data', 'pending'],
-      [['0', '', '', ''], ['1', '', '', ''], [r'$\vdots$', '', '', ''], ['15', '', '', '']],
+      [['0', '', '', ''], ['1', '', '', ''], [r'\vd', '', '', ''], ['15', '', '', '']],
       widths=[0.55, 1.45, 1.45, 1.25])
 arrow([(10.62, 7.28), (10.76, 7.28), (10.76, 7.62), (11.40, 7.62),   # memory instruction:
        (11.40, 6.90), (11.66, 6.90)], 'bus')                            # addresses, store data
 slash(11.08, 7.62, r'$64L$', vertical=False)
 regbar(11.57, 6.66, 7.14)                                               # input register
-box('coal', 11.58, 5.05, 14.97, 5.72,
-    r'\textbf{Coalescer}: one line request per cycle\\(chosen, then formed); 16 tags', 'ctrl')
-arrow([(13.27, 5.95), (13.27, 5.72)])
-box('ldret', 11.58, 3.98, 14.97, 4.72, r'\textbf{Load return}: word extract per lane', 'ctrl')
-rect(11.58, 1.62, 14.97, 3.72, 'hl')
-text(13.27, 3.56, r'\textbf{Line-aggregated AMOs}', 'tbltitle')
-table(11.80, 2.98, 14.75, 3.32, None, ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7'],
+box('coal', 11.58, 5.16, 14.97, 5.80,
+    r'\textbf{Coalescer}: one line request\\per cycle, 16 tags', 'ctrl')
+box('smerge', 11.58, 4.40, 14.97, 5.02,
+    r'\textbf{Store merge}: lane bytes into\\one line, byte enables', 'ctrl')
+arrow([(13.27, 5.95), (13.27, 5.80)])
+arrow([(14.72, 5.02), (14.72, 5.16)])
+box('ldret', 11.58, 3.80, 14.97, 4.26, r'\textbf{Load return}: word extract per lane', 'ctrl')
+rect(11.58, 1.62, 14.97, 3.64, 'hl')
+text(13.27, 3.49, r'\textbf{Line-aggregated AMOs}', 'tbltitle')
+table(11.80, 2.94, 14.75, 3.26, None, ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7'],
       [], hdr=True, fill='white')
-text(13.27, 2.82, 'line buffer (one read per line)', 'cell')
+text(13.27, 2.79, 'line buffer (one read per line)', 'cell')
 box('rnd', 11.80, 1.80, 13.10, 2.58, r'rounds: lanes\\on distinct words', 'exe')
 box('aalu', 13.30, 1.80, 14.75, 2.58, r'AMO ALU: 1 (\emph{ser})\\or $L$ (\emph{par})', 'exe')
 box('scr', 11.58, 0.30, 14.97, 1.40,
     r'\textbf{Scratchpad} (LUTRAM)\\64 words per warp + block-shared region', 'memarr')
-arrow([(11.58, 4.10), (11.375, 4.10), (11.375, 0.62), (11.14, 0.62)], 'bus')  # -> arbiter
+arrow([(11.58, 3.92), (11.375, 3.92), (11.375, 0.62), (11.14, 0.62)], 'bus')  # -> arbiter
 emit(r'\node[vlabel, fill=blue!3, inner sep=0.8pt] at (11.375,2.35) {load data};')
 # resume and branch feedback bus over the stages
 arrow([(11.71, 7.28), (11.71, 8.22), (6.20, 8.22), (6.20, 2.78), (6.00, 2.78)])
 arrow([(10.30, 7.40), (10.30, 8.22)], 'line')
 hbar(10.16, 10.44, 7.76)                                                # stage B register
-text(10.50, 7.76, 'B', 'wlabel', 'west')
+text(10.12, 7.76, 'B', 'wlabel', 'east')
 dot(10.30, 8.22)
 dot(6.20, 4.04)
 arrow([(6.20, 4.04), (5.86 + 0.14, 4.04)])
 text(8.10, 8.22, r'branch (B): retarget $\mid$ push $\mid$ pop', 'buslabel')
-text(11.25, 8.22, r'load done, resume', 'buslabel')
+text(11.82, 8.22, r'load done, resume', 'buslabel', 'west')
 
 # ---------------------------------------------------------------- L1 and AXI
 stage(15.25, 0.12, 17.88, 7.95, 'L1 and AXI4')
 box('axi', 15.38, 6.62, 17.52, 7.52, r'\textbf{AXI4 master}\\read ID = tag\\all writes one ID', 'ctrl')
 arrow([(17.30, 7.52), (17.30, 8.58)], 'bdarr')
 slash(17.30, 8.27, '128')
-arrow([(14.97, 5.38), (15.52, 5.38)], 'bus')                            # request
-regbar(15.40, 5.12, 5.64)
+arrow([(14.97, 5.48), (15.52, 5.48)], 'bus')                            # request
+regbar(15.40, 5.22, 5.74)
 emit(r'\node[vlabel] at (15.40,4.62) {input reg.};')
 table(15.55, 4.48, 17.52, 6.40, r'\textbf{Tags} (LUTRAM)', ['set', 'w0', r'\ldots', 'w3'],
-      [['0', '', '', ''], [r'$\vdots$', '', '', ''], ['511', '', '', '']],
+      [['0', '', '', ''], [r'\vd', '', '', ''], ['511', '', '', '']],
       widths=[1.3, 1, 1, 1])
 shadow(15.72, 3.05, 17.38, 4.20, 'memarrbox', n=3, d=0.045)
-box('data', 15.72, 3.05, 17.38, 4.20, r'\textbf{Data}: 4 ways\\16 KB each,\\block RAM', 'memarr')
+box('data', 15.72, 3.05, 17.38, 4.20, r'\textbf{Data}: 4 ways,\\block RAM', 'memarr')
 table(15.55, 1.58, 17.52, 2.80, r'\textbf{MSHRs}', ['', 'line', 'waiting'],
-      [['0', '', ''], [r'$\vdots$', '', ''], ['15', '', '']], widths=[0.6, 1.3, 1.3])
+      [['0', '', ''], [r'\vd', '', ''], ['15', '', '']], widths=[0.6, 1.3, 1.3])
 box('l1note', 15.38, 0.25, 17.62, 1.40,
-    r'64~KB, 512 sets, write-\\through; a read miss\\waits for a write\\to its line', 'note')
+    r'Write-through, 64~KB\\at $L=8$; a read miss\\waits for a write\\to its line', 'note')
 arrow([(17.52, 2.14), (17.64, 2.14), (17.64, 6.62 + 0.20), (17.52, 6.62 + 0.20)], 'darr')
 text(17.77, 4.40, 'miss, write / fill', 'vlabelr')
-arrow([(15.72, 3.70), (15.17, 3.70), (15.17, 4.35), (14.97, 4.35)], 'bus')    # responses
+arrow([(15.72, 3.70), (15.17, 3.70), (15.17, 4.03), (14.97, 4.03)], 'bus')    # responses
 dot(15.17, 3.70)
-arrow([(15.17, 3.70), (15.17, 3.15), (14.75, 3.15)], 'arr')
+arrow([(15.17, 3.70), (15.17, 3.10), (14.75, 3.10)], 'arr')
 slash(15.46, 3.70, r'$32L$', vertical=False)
 
 TEMPLATE = r"""%% generated by gen_arch_v3.py -- do not edit by hand
@@ -350,6 +351,8 @@ TEMPLATE = r"""%% generated by gen_arch_v3.py -- do not edit by hand
 \usepackage{amsmath,amssymb}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta}
+\usepackage{graphicx}
+\newcommand{\vd}{\raisebox{0.15ex}{\scalebox{0.62}{$\vdots$}}}
 \definecolor{cstage}{HTML}{FFF8E1}
 \definecolor{cctrl}{HTML}{D6E0EC}
 \definecolor{cctrlb}{HTML}{3B5675}

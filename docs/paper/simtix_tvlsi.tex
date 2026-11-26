@@ -168,8 +168,8 @@ AMO including swap, minimum and maximum, and returns the old value of every lane
 \centering
 \includegraphics[width=\textwidth]{simtix_arch_v3.pdf}
 \caption{SIMTiX on the ZCU102 (top) and the accelerator by pipeline stage (bottom). F: fetch;
-X: execute; B: stack update; RF: register file; tid: thread ID; RPC: reconvergence PC;
-MSHR: miss-status holding register.}
+X: execute; B: stack update; RF: register file; RQ: result queue; tid: thread ID; RPC:
+reconvergence PC; MSHR: miss-status holding register.}
 \label{fig:arch}
 \end{figure*}
 
@@ -178,17 +178,22 @@ execute one instruction together, one per \emph{lane}, and a \emph{block} is a g
 $2^b$ warps that can synchronize at a barrier and share a scratchpad. $W$ warps are
 resident at a time; the board design has $W=8$ and $L=8$. Fig.~\ref{fig:arch} shows
 the board system and the accelerator by pipeline stage. Its upper part shows the
-processing system, with the A53 cores, the DDR4 controller and the power monitors, and
-SIMTiX in the programmable logic; its lower part follows an instruction from left to
-right through the host interface, fetch (F), execute (X), the memory engine, and the
-L1 with the AXI4 master, the order of the subsections below.
+processing system, with the A53 cores, the DDR4 controller and the I$^2$C controller
+that reads the board's 18 power monitors, and SIMTiX in the programmable logic, with
+the clocks of the eight- and 16-lane designs. Its lower part follows an instruction
+from left to right through the host interface, fetch (F), execute (X), the memory
+engine, and the L1 with the AXI4 master, the order of the subsections below; the key
+gives the drawing conventions: state as tables, units with one copy per lane as stacks,
+pipeline registers as black bars, and line-wide buses as thick arrows.
 
 \subsection{Host Interface}
 One Cortex-A53 core runs a bare-metal host program and reaches the accelerator over
 AXI4-Lite. The host writes the kernel into a 1,024-word instruction RAM and the launch
-parameters (kernel PC, parameter block, $N$, block size) into command registers, then
-writes GO; the \emph{dispatcher} invalidates the L1, starts the warps and sets DONE
-when the last warp finishes. Kernel data lives in DDR4, which the accelerator reaches
+parameters (kernel PC, three argument pointers, $N$, block size) into command registers,
+then writes GO; the \emph{dispatcher} invalidates the L1, starts the warps and sets DONE
+when the last warp finishes. The host then reads the cycle count and the L1's hits and
+misses from further registers, which also give an AXI4 error flag, the configuration
+(lanes, warps, L1 size) and a window of 64 debug words. Kernel data lives in DDR4, which the accelerator reaches
 through its AXI4 master and the 128-bit port S\_AXI\_HP0 of the processing system
 (PS). This port is not coherent with the A53 caches, so the host cleans its data cache
 before GO and invalidates it after DONE.
@@ -430,8 +435,8 @@ on DSP blocks. FP16 operations use the FP32 datapath; an FMA with an FP16 destin
 rounds to odd at FP32 precision, so that every FP16 result is correctly rounded (the
 supplementary material gives the proof and the 216,973 test vectors). Two units are
 shared by the lanes: a \emph{shuffle crossbar} for warp reductions and scans, and one
-digit-recurrence divide and square-root unit through which the active lanes pass in
-turn (a unit per lane would cost 3.7k LUTs).
+digit-recurrence divide and square-root unit per eight lanes, through which the active
+lanes pass in turn (a unit per lane would cost 3.7k LUTs).
 
 \subsection{Memory Engine}
 A load, store or AMO leaves the execute stage with the addresses and data of all lanes
