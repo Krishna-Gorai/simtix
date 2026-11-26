@@ -215,3 +215,37 @@ User: "rewrite the paper focusing only on the important things". Paper 20 -> 13 
   SpMV and hash join), Vortex OOC (SIMTiX faster than Vortex-4w on all 7, than Vortex-16w on 5,
   not GEMM/SpMV; least energy on all 7; from vortex_apps.csv + vortex_syn.csv).
 - Layout checked: paper 16 pp, figures next to their text (pp. 3-7), no warnings; supplement 10 pp.
+- 2026-11-26 (user: "properly explain the diagrams, specially the ones that you have made now"):
+  the new diagrams got their own walk-through paragraphs (set-up, how to read, cycle-by-cycle
+  events, the point), every number from the traces: Fig. 2 (cycles 2-57 one issue per cycle =
+  each warp's first 7 instructions; 58-100 none, FMAs wait for x and y; a from DDR4 once, 25 AXI
+  reads for 36 loads; warps 0-7 end 145-175; warp 8 -> slot 0 at 146; IPC 0.44), Fig. 3 (bnez
+  cycle 4, push lanes 3-7 RPC 0x110, pop 11; loop pushes, 4 frames at 35, pops 43/45/47, all
+  lanes at 49; 22 slots for 18 instructions, lane utilization 102/144 = 0.71), Fig. 4(a)
+  (held back at 4, 7, 8, 13; warp 1's addi at 5 with its load in flight), Fig. 6 (bgeu F1 X2
+  B3; load of a: ME 6-7, L1 8-9 miss, AR 10, beats 35-36, f0 at 37; y held at 15 (two loads in
+  flight), issues 40; FMA held 42 and 48, issues 75, FPU 76-81, written 82; store 84, ack 116;
+  ecall, DONE 121; 10 instructions in 121 cycles vs 120 in 271 with 12 warps). Paper 16 pp.
+- 2026-11-26 (user: "Fig. 2 ... not professional. Make ... proper cycle waveform diagram ... no
+  limitation on the pages"): Fig. 2 rebuilt and a new full-page Fig. 3 added, both as timing
+  diagrams from the saxpy92 RTL trace (tb_figtrace.sv now also logs Z <c> <slot> <wstate>
+  <sleep> on slot-state changes; all other trace lines unchanged):
+  - wavetikz.py: clock / one-bit / bus (crossing transitions) primitives in TikZ;
+    launch_trace.py: the trace as per-cycle signals (warp in slot, state, fetch, issue, opcode,
+    L1 request + miss/join/hit, AXI4 AR/R/AW/W/B named by line, RF writes load/FPU);
+  - Fig. 2 (gen_launch_fig.py): (a) grid + warp 11's register start values (a0..a4 hex);
+    (b) logic-analyser overview: busy, issue, slot[0..7] buses (shaded asleep/parked),
+    axi.ar/r/aw/b, done, with the Fig. 3 windows marked;
+  - Fig. 3 (gen_launch_wave_fig.py, figure* [p], full page): cycles 0-23, 44-67, 96-119 with
+    clk, spawn, fetch, issue, opcode, 8 slots, l1.req, l1.tag, 5 AXI4 channels, rf.wr.
+  Text rewritten (facts from the trace: a-line one miss + 7 joins, AR at 15; x/y reads every
+  other cycle, max 14 in flight at cycle 75; a returns 40-41, x/y from 72; 25 reads for 36
+  loads). Paper 18 pp (Fig. 3 takes page 5); supplement 10 pp.
+- Waveform text (user: "explain these waveforms properly in the text"): six paragraphs in
+  III-B: set-up and Fig. 2(a); how to read the waveforms (conventions, rows, colours, line
+  names); Fig. 3(a) (spawn 0-7, bgeu 2-9, loads of a 10-17, L1 requests 13-20, miss 14, AR 15,
+  7 joins); Fig. 3(b) (a written to f0 one warp per cycle 42-49, L1 one response per cycle;
+  x/y loads, one miss every other cycle, 14 reads in flight by 75; FMAs held 58-65, warps asleep
+  59-66, no issue 58-100); Fig. 3(c) (y lines one every 3 cycles, f2 written a cycle after the
+  last beat; w0: FMA 101, store held 103, FPU write 108, store 110, parked from 111, L1 113, AW
+  115, W 116-117); Fig. 2(b) (store ack 141, warps end 145-175, refill, IPC 0.44, 25 reads).

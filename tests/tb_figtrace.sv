@@ -22,6 +22,9 @@
 //   H <c> / U <c>                             L1 read hit / miss
 //   L <c> <tag> <addr> <we> / N <c> <tag>     the L1's request to the AXI4 master / reply
 //   AR, R, AW, W, BR <c> ...                  AXI4 handshakes
+//   Z <c> <slot> <wstate> <sleep>             a slot's state changed (wstate: 0 empty, 1 run,
+//                                             2 parked on memory, 3 divide, 4 done, 5 barrier;
+//                                             sleep: asleep on the register scoreboard)
 // =============================================================================
 `timescale 1ns/1ps
 module tb_figtrace
@@ -100,7 +103,9 @@ module tb_figtrace
     int     ft_fd;
     longint cyc;
     logic [NUM_WARPS-1:0] done_q;
-    // warp_pool's enums by value: wstate_e W_DONE = 4, sfu_st_e SFU_IDLE = 0, br_kind_e BK_JUMP = 1
+    logic [4:0]           zq [NUM_WARPS];   // last logged {wstate, sb_wait} of each slot
+    // warp_pool's enums by value: wstate_e W_EMPTY 0, W_RUN 1, W_MEM 2, W_SFU 3, W_DONE 4,
+    // W_BAR 5; sfu_st_e SFU_IDLE = 0; br_kind_e BK_JUMP = 1
     initial ft_fd = $fopen("fig_trace.txt", "w");
 
     always @(posedge clk) begin
@@ -110,6 +115,7 @@ module tb_figtrace
         end else if (dut.u_accel.u_pool.start) begin
             cyc    <= 0;
             done_q <= '0;
+            for (int k = 0; k < NUM_WARPS; k++) zq[k] <= 5'h1F;
             $fdisplay(ft_fd, "G");
         end else if (dut.u_accel.u_pool.running) begin
             cyc <= cyc + 1;
@@ -120,6 +126,11 @@ module tb_figtrace
                 done_q[k] <= (dut.u_accel.u_pool.wstate[k] == 4'd4);
                 if ((dut.u_accel.u_pool.wstate[k] == 4'd4) && !done_q[k])
                     $fdisplay(ft_fd, "D %0d %0d", cyc, k);
+                // slot state: Z <c> <slot> <wstate> <sb_wait>, logged when it changes
+                zq[k] <= {dut.u_accel.u_pool.wstate[k], dut.u_accel.u_pool.sb_wait[k]};
+                if ({dut.u_accel.u_pool.wstate[k], dut.u_accel.u_pool.sb_wait[k]} != zq[k])
+                    $fdisplay(ft_fd, "Z %0d %0d %0d %0d", cyc, k, dut.u_accel.u_pool.wstate[k],
+                              dut.u_accel.u_pool.sb_wait[k]);
             end
             if (dut.u_accel.u_pool.fetch_valid) begin
                 automatic int w = dut.u_accel.u_pool.fetch_w;

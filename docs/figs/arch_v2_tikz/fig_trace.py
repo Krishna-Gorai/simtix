@@ -8,7 +8,7 @@ trace on, checks the kernels' results, and copies both traces to traces/<run>_{f
 
   saxpy1      SAXPY, N = 8 (one warp)           -> gen_pipe_fig.py   (pipeline)
   div         divergence.S, N = 8 (one warp)    -> gen_div_fig.py    (divergence)
-  saxpy92     SAXPY, N = 92 (12 warps, the last  -> gen_launch_fig.py (kernel to hardware)
+  saxpy92     SAXPY, N = 92 (12 warps, the last  -> gen_launch_fig.py (Fig. 2) and gen_launch_wave_fig.py (Fig. 3)
               with four lanes)
   rules4      issue_rules.S, N = 32 (4 warps)    -> check_lat_sched.py (validates lat_sched.py,
                                                   the model of gen_lat_fig.py)
