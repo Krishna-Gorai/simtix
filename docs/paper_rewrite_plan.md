@@ -163,3 +163,55 @@ MLP/SWAT/Mandelbrot not compared; Rodinia/RiVEC results sentences point to Fig. 
 ## Focused rewrite (2026-11-19)
 
 User: "rewrite the paper focusing only on the important things". Paper 20 -> 13 pages; supplement 6 -> 8. Backups: docs/paper/simtix_tvlsi_long_2026-11-19.tex and simtix_tvlsi_supp_long_2026-11-19.tex. Moved to the supplement (docs/paper/supp_moved.tex): benchmark rules and RiVEC/Rodinia changes, FP16 double-rounding proposition, suite 2 + sync lane panels, lane throughput/cycle tables, simulated-application table, timing-closure details. The stale v2 supp_lanes.tex is no longer included. All kept numbers unchanged.
+
+## Operation figures from RTL traces (2026-11-26, user: "pictorially show the operations performed by simtix")
+- New Figs. 2, 3 and 6 of the paper (TikZ, same style as Figs. 4/5/7), each drawn from an RTL
+  trace, nothing hand-timed:
+  - Fig. 2 simtix_launch.pdf (gen_launch_fig.py): SAXPY for N = 92 threads: threads -> 12 warps,
+    the last warp's lanes 4-7 masked, register start values; (b) the 8 slots over the launch,
+    with each warp's issue cycles (120 issues in 271 cycles; warp 10 refills slot 7 first).
+  - Fig. 3 simtix_div.pdf (gen_div_fig.py): kernels/figs/divergence.S on one warp: one-sided if
+    (lanes 3-7 pushed, pop at 0x110) and a per-lane trip-count loop (stack grows to 4 frames,
+    3 pops at the exit, one issue slot each); two stack snapshots.
+  - Fig. 6 simtix_pipe.pdf (gen_pipe_fig.py): one SAXPY warp through F, X, B, memory engine,
+    L1, AXI4/DDR4 (24-cycle model), FPU and register write; axis breaks over memory-only
+    stretches; notes: third load waits (two loads in flight per warp, LD_MAX), FMA sleeps on
+    x/y, the store parks the warp until the write response.
+- Trace flow: docs/figs/arch_v2_tikz/fig_trace.py assembles kernels/figs/{saxpy,divergence}.S
+  and runs tests/tb_figtrace.sv (simt_ps_top, board defines B34 + SIMTIX_ISSUE_TRACE,
+  deterministic axi_mem_model LAT 24) for saxpy1 / div / saxpy92; results checked (PASS);
+  traces copied to docs/figs/arch_v2_tikz/traces/. Paper 16 pages (was 15).
+- FOUND, FIXED the same day (user: "yes correct the proposition and the Fig. 4 model"): the RTL writes an FPU result 7 cycles after issue
+  (wp_resq: queue capture at t+6, write t+7) and a dependent FMA chain on one warp issues every
+  9 cycles (probe: issues at 2, 11, 20; sleep -> wake on write -> F -> X). The paper says
+  "written six cycles after issue", d_w >= 7 and "a chain of dependent FMAs needs seven"
+  (Prop. 1, Sec. III-C) and Fig. 4(a)'s schedule model (lat_sched.py) uses FPU = 6.
+- Fix (2026-11-26): lat_sched.py rewritten as a two-stage (F, X) copy of warp_pool.sv:
+  round-robin fetch of runnable, not-in-flight, awake warps; a held-back X loses its slot and the
+  warp sleeps until ANY of its own results is written (fetchable the next cycle); FPU result
+  written issue+7, register free from the next cycle; ecall waits for all. check_lat_sched.py
+  replays kernels/figs/issue_rules.S on 4 warps against the RTL trace (fig_trace.py rules4):
+  32 issues + 8 held-back X cycles identical. Fig. 4(a) regenerated: 13 issues in 17 cycles,
+  the 4 lost slots (4, 7, 8, 13) are all held-back instructions. Paper: III-C "held back,
+  which costs its issue slot", "written seven cycles after issue", "four of the 17 issue slots
+  are lost", model reproduces the RTL trace; Prop. 1 now defines d_w as the least distance the
+  warp's own instructions allow, d_w >= 8 for dependent FMAs (queue at 6, written in the 7th),
+  "needs eight"; alone a dependent FMA chain issues every nine cycles (held back, refetched after
+  the write). RTL check: with 4 warps the dependent FMA issued at +8 (2 -> 10), alone at +9.
+
+## Figure explanations (2026-11-26, user: "make sure that you explain each figure properly in the text")
+- Every paper figure now has a how-to-read sentence plus its result: Fig. 1 (upper/lower part,
+  left-to-right stages), Fig. 2 (panels, bars, ticks, issue row; trace: 56 issues in cycles 0-59,
+  none in 60-89 while all 8 warps wait on loads, 4 warps left after cycle 176, 120 issues in 271
+  cycles), Fig. 3 (columns = issue slots, rows = lanes, colour = frames, hatch = pop, two stack
+  tables), Fig. 4(a) (top row and warp rows), Fig. 5 (table colours, one box per request; (b) one
+  bar per request on a time axis in units of Lambda), Fig. 6 (rows/boxes, axis breaks, marks 1-3
+  tied to the text), Fig. 7 (state diagram; (b) eight lanes on one line, time axis), Fig. 9 (one
+  marker per machine), Fig. 10 (bars/dots per lane count; bytes read up, written down), Fig. 11
+  (points (a), bars (b)), Fig. 12 (one point per accelerator and benchmark). Fig. 8 was complete.
+- Supplement: Rodinia/RiVEC bars (SIMTiX fastest in the PL on every Rodinia benchmark but nn and
+  on 5 of 7 RiVEC apps, FGPU on blackscholes and lavaMD; A53 faster than SIMTiX on all Rodinia
+  but hotspot3D), time heatmap reading, energy (16 lanes lower on 24 of 27; higher on the two
+  SpMV and hash join), Vortex OOC (SIMTiX faster than Vortex-4w on all 7, than Vortex-16w on 5,
+  not GEMM/SpMV; least energy on all 7; from vortex_apps.csv + vortex_syn.csv).
+- Layout checked: paper 16 pp, figures next to their text (pp. 3-7), no warnings; supplement 10 pp.

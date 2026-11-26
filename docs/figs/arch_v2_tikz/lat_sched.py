@@ -1,57 +1,75 @@
-"""lat_sched.py - the issue rules of SIMTiX's warp scheduler, as a small cycle model for the
+"""lat_sched.py - the issue rules of SIMTiX's warp scheduler, as a cycle model for the
 latency-tolerance figure (gen_lat_fig.py). The rules are those of rtl/accel/warp_pool.sv:
-  - one warp instruction issues (X) per cycle;
-  - the scheduler takes the next runnable warp after the one issued last (round robin);
-  - a warp is not fetched while its previous instruction is in X, so it issues at most every
-    other cycle (`inflight`);
-  - an instruction whose source register is still pending (register scoreboard) does not
-    issue; its warp sleeps until that result is written, and is runnable from the next cycle;
-  - a load does not stop its warp: only an instruction that reads the loaded register waits.
-Latencies: FPU 6 cycles from issue to the result write (FPC_LAT); ALU results are
-written in X; LOAD stands for an L1 hit through the memory engine (schematic value).
+  - fetch (F): each cycle the first warp in round-robin order after the one fetched last that
+    is running, not in flight and not asleep is fetched; its instruction is in X the next
+    cycle. A warp is in flight from its fetch to its X, so it issues at most every other cycle;
+  - X: one instruction per cycle. It issues unless a source or destination register is
+    pending (register scoreboard); then it is held back, the issue slot of that cycle is lost,
+    and its warp sleeps until one of its own pending results is written (any of them), and can
+    be fetched again from the next cycle;
+  - a result is written `lat` cycles after its instruction issued, and its register is free
+    from the next cycle: FPU 7 (FPC_LAT = 6 to the result queue, then the register-file
+    write), ALU 0 (written in X); LOAD stands for an L1 hit through the memory engine (a
+    schematic value). A load does not stop its warp: only an instruction that reads the loaded
+    register waits; an ecall waits for every pending result.
+check_lat_sched.py replays the RTL issue trace of kernels/figs/issue_rules.S (four warps) with
+these rules and requires the same issue and hold-back cycles.
 """
-FPU, LOAD = 6, 9
+FPU, LOAD = 7, 9
+ALL = 'all'                                     # dependency marker: every earlier result
 
-# per warp: list of (mnemonic, latency, index of the instruction whose result it reads)
+# per warp: list of (mnemonic, latency, indices of the instructions whose results it reads)
 PROG = {
-    0: [("fmadd", FPU, None), ("fmadd", FPU, 0), ("fmadd", FPU, 1)],
-    1: [("lw", LOAD, None), ("addi", 0, None), ("fmadd", FPU, 0), ("fsw", 0, 2)],
-    2: [("add", 0, None), ("slli", 0, None), ("add", 0, None), ("sh2add", 0, None), ("add", 0, None)],
-    3: [("fmul", FPU, None), ("fadd", FPU, 0), ("addi", 0, None)],
+    0: [("fmadd", FPU, []), ("fmadd", FPU, [0]), ("fmadd", FPU, [1])],
+    1: [("lw", LOAD, []), ("addi", 0, []), ("fmadd", FPU, [0]), ("fsw", 0, [2])],
+    2: [("add", 0, []), ("slli", 0, []), ("add", 0, []), ("sh2add", 0, []), ("add", 0, [])],
+    3: [("fmul", FPU, []), ("fadd", FPU, [0]), ("addi", 0, [])],
 }
 
 
-def schedule(ncyc=20, nw=4):
+def simulate(prog, ncyc, start):
+    """prog: warp -> [(op, lat, deps)]; start: warp -> first cycle it can be fetched.
+    Returns issue {cycle: (warp, op)}, state {warp: {cycle: 'I' issue | 'H' held back |
+    'S' asleep}}, flight {warp: [(issue cycle, write cycle, op)]}."""
+    nw = len(prog)
     pc = {w: 0 for w in range(nw)}
-    done_at = {w: {} for w in range(nw)}       # instruction index -> cycle its result is written
-    last_issue = {w: -10 for w in range(nw)}
-    issue = {}                                  # cycle -> (warp, mnemonic)
-    state = {w: {} for w in range(nw)}          # warp -> cycle -> 'I' issue / 'S' sleep
-    flight = {w: [] for w in range(nw)}         # warp -> (issue cycle, result-write cycle, unit)
-    last = nw - 1
-    for t in range(ncyc):
-        def ready(w):
-            if pc[w] >= len(PROG[w]) or t - last_issue[w] < 2:
-                return False
-            _, _, dep = PROG[w][pc[w]]
-            return dep is None or (dep in done_at[w] and done_at[w][dep] < t)
-        for w in range(nw):                     # sleeping: blocked on a pending source
-            if pc[w] < len(PROG[w]) and t - last_issue[w] >= 2 and not ready(w):
-                state[w][t] = "S"
-        for k in range(1, nw + 1):
-            w = (last + k) % nw
-            if ready(w):
-                op, lat, _ = PROG[w][pc[w]]
+    wake = dict(start)                          # first cycle the warp can be fetched
+    written = {w: {} for w in range(nw)}        # instruction index -> cycle its result is written
+    issue, state, flight = {}, {w: {} for w in range(nw)}, {w: [] for w in range(nw)}
+    rr, in_x = 0, None
+    for t in range(min(start.values()), ncyc):
+        if in_x is not None:                    # X
+            w = in_x
+            op, lat, deps = prog[w][pc[w]]
+            if deps == ALL:
+                deps = list(written[w])
+            pending = [written[w][d] for d in deps if written[w].get(d, -1) >= t]
+            if not pending:
                 issue[t] = (w, op)
-                state[w][t] = "I"
-                done_at[w][pc[w]] = t + lat
+                state[w][t] = 'I'
                 if lat:
-                    flight[w].append((t, t + lat, "L" if op == "lw" else "F"))
+                    written[w][pc[w]] = t + lat
+                    flight[w].append((t, t + lat, op))
                 pc[w] += 1
-                last_issue[w] = t
-                last = w
+                wake[w] = t + 1
+            else:
+                state[w][t] = 'H'
+                own = min(c for c in written[w].values() if c >= t)
+                wake[w] = own + 1               # asleep until one of its results is written
+                for c in range(t + 1, wake[w]):
+                    state[w][c] = 'S'
+        in_x = None                             # F
+        for k in range(nw):
+            w = (rr + k) % nw
+            if pc[w] < len(prog[w]) and wake[w] <= t:
+                in_x, rr = w, (w + 1) % nw
                 break
     return issue, state, flight
+
+
+def schedule(ncyc=20, nw=4):
+    """The figure's four warps, all resident from the start (warp 0 in X in cycle 0)."""
+    return simulate({w: PROG[w] for w in range(nw)}, ncyc, {w: -1 for w in range(nw)})
 
 
 if __name__ == "__main__":

@@ -177,7 +177,11 @@ A kernel is launched for $N$ threads. A \emph{warp} is a group of $L$ threads th
 execute one instruction together, one per \emph{lane}, and a \emph{block} is a group of
 $2^b$ warps that can synchronize at a barrier and share a scratchpad. $W$ warps are
 resident at a time; the board design has $W=8$ and $L=8$. Fig.~\ref{fig:arch} shows
-the board system and the accelerator by pipeline stage.
+the board system and the accelerator by pipeline stage. Its upper part shows the
+processing system, with the A53 cores, the DDR4 controller and the power monitors, and
+SIMTiX in the programmable logic; its lower part follows an instruction from left to
+right through the host interface, fetch (F), execute (X), the memory engine, and the
+L1 with the AXI4 master, the order of the subsections below.
 
 \subsection{Host Interface}
 One Cortex-A53 core runs a bare-metal host program and reaches the accelerator over
@@ -189,10 +193,29 @@ through its AXI4 master and the 128-bit port S\_AXI\_HP0 of the processing syste
 (PS). This port is not coherent with the A53 caches, so the host cleans its data cache
 before GO and invalidates it after DONE.
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{simtix_launch.pdf}
+\caption{A launch of SAXPY for 92 threads, traced on the RTL.}
+\label{fig:launch}
+\end{figure*}
+
 \subsection{Fetch and Divergence}
 The \emph{spawner} places the $\lceil N/L\rceil$ warps one per cycle into free slots of
 the \emph{warp table}, so a slot is refilled as soon as its warp finishes; a block is
-spawned whole into a group of $2^b$ slots. Each warp has a \emph{reconvergence
+spawned whole into a group of $2^b$ slots. Fig.~\ref{fig:launch} traces a launch on the
+RTL: SAXPY ($y_i=a\,x_i+y_i$) for $N=92$ threads, which form 12 warps. In
+Fig.~\ref{fig:launch}(a), one cell per thread, the spawner masks lanes 4 to 7 of the
+last warp, whose threads would lie past $N$, and each lane starts with its thread ID in
+\texttt{a0} and the launch arguments in \texttt{a1} to \texttt{a4}. In
+Fig.~\ref{fig:launch}(b) each bar is a warp's time in its slot, from its spawn to its
+\texttt{ecall}, each tick an instruction it issues, and the bottom row the issue slot
+that all warps share. Warps 0 to 7 enter the eight slots in cycles 0 to 7, and each
+later warp takes the first slot that empties, so warp 10 enters slot 7 before slots 2
+to 6 are free. The warps issue in turns while they compute their addresses and send
+their loads, in cycles 0 to 59; then all eight wait for their loads at once, and after
+cycle 176 only four warps remain to hide the memory latency, so the launch issues 120
+warp instructions in 271 cycles. Each warp has a \emph{reconvergence
 stack}~\cite{fung,aamodt} whose frames hold a PC, a reconvergence PC (RPC) and an
 active mask. When the lanes of a warp disagree at a branch, a forward branch pushes the
 not-taken lanes with the branch target as RPC, and a backward branch pushes the lanes
@@ -214,8 +237,26 @@ loop that the lanes of $A_0$ leave at $|A_0|$ different iterations reaches the b
 
 The depth is therefore $L$; a smaller depth fails even without nesting, because a
 single loop whose trip count differs per lane can use every frame
-(Section~\ref{sec:evallanes}). A \emph{round-robin scheduler} selects the next runnable
-warp, and the \emph{fetch} block reads the instruction at the PC of its top frame.
+(Section~\ref{sec:evallanes}). Fig.~\ref{fig:div} traces one warp on the RTL through a
+one-sided \texttt{if} and a loop whose trip count differs per lane, the kernel of
+Fig.~\ref{fig:div}(a). In Fig.~\ref{fig:div}(b) each column is one issue slot of the
+warp and each row a lane: a filled cell is an active lane, coloured by the number of
+frames on the stack, a hatched one a lane of a frame that pops, and the two tables give
+the PC, RPC and lanes of every frame after the \texttt{if}'s push and at the loop's
+deepest point. The forward branch
+pushes lanes 3 to 7, which run the body and pop at the branch target. In the loop, each
+backward branch pushes the lanes that stay, and lane $l$ leaves after $(l\bmod 4)+1$
+iterations, so the stack grows to four frames; at the exit the three pushed frames pop
+in turn, one issue slot each, and the warp continues with all eight lanes. A
+\emph{round-robin scheduler} selects the next runnable warp, and the \emph{fetch} block
+reads the instruction at the PC of its top frame.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{simtix_div.pdf}
+\caption{Divergence and reconvergence of one warp, traced on the RTL.}
+\label{fig:div}
+\end{figure*}
 
 \subsection{Issue and Execute}
 The decoder accepts RV32I, the RV32M \texttt{mul}, the RV32A AMOs without
@@ -236,13 +277,18 @@ Fig.~\ref{fig:arch}). All other units are pipelined and accept a warp instructio
 every cycle; a \emph{result queue} holds finished results until the RF write port is
 free. A \emph{register scoreboard} marks, per warp, the registers whose values are
 still in a unit or its queue. An instruction that reads or writes a marked register is
-held back, and its warp sleeps, without taking issue slots from the other warps, until
-one of its results is written. A warp thus continues with independent instructions
-while its results are pending, and these rules bound the issue rate.
+held back, which costs its issue slot, and its warp sleeps, without taking further
+slots, until one of its results is written. A warp thus continues with independent
+instructions while its results are pending, and these rules bound the issue rate.
 Fig.~\ref{fig:lat}(a) shows four warps under these rules, with the FPU result
-written six cycles after issue and a schematic load latency: one warp instruction
-issues per cycle, chosen round robin among the runnable warps, a load does not stop
-its warp, and with four warps three issue slots stay empty.
+written seven cycles after issue and a schematic load latency: one warp instruction
+issues per cycle, from the warps fetched round robin, a load does not stop its warp,
+and four of the 17 issue slots are lost to held-back instructions. Its top row gives
+the warp whose instruction is in X in each cycle; the row of each warp shows its issued
+instructions, the cycles in which an instruction is held back or the warp sleeps, and
+each result from its issue to its write. As a cycle model,
+these rules reproduce the RTL's issue trace of a four-warp test kernel cycle by
+cycle.
 
 \begin{figure*}[t]
 \centering
@@ -252,14 +298,16 @@ its warp, and with four warps three issue slots stay empty.
 \end{figure*}
 
 \begin{proposition}\label{prop:ipc}
-Let $d_w$ be the mean distance, in cycles, between consecutive issues of warp $w$ when
-it runs alone. $W$ warps sharing the issue slot reach
+Let $d_w$ be the least mean distance, in cycles, between consecutive issues of warp $w$
+that its own instructions allow: each issue follows a fetch of the warp, and an
+instruction that reads a result issues after the cycle in which that result is
+written. $W$ warps sharing the issue slot reach
 \begin{equation}
 \mathrm{IPC}\le\min\Bigl(1,\ \sum_{w=1}^{W}\frac{1}{d_w}\Bigr),
 \label{eq:ipc}
 \end{equation}
 where IPC is the warp instructions issued per cycle, $d_w\ge2$ for every warp and
-$d_w\ge7$ in a chain of dependent fused multiply-adds (FMAs). Warps of equal distance
+$d_w\ge8$ in a chain of dependent fused multiply-adds (FMAs). Warps of equal distance
 $d$ need $W\ge d$ to issue in every cycle.
 \end{proposition}
 \begin{IEEEproof}
@@ -267,12 +315,18 @@ There is one issue slot per cycle. Other warps cannot shorten a warp's own
 constraints, the fetch-issue sequence and the waits for its results; they can only
 delay it. So in $T$ cycles warp $w$ issues at most $T/d_w+1$ instructions, and the sum
 over the warps divided by $T$ tends to the bound. A warp fetched in cycle $t$ issues in
-$t+1$ and can be fetched again in $t+2$, so $d_w\ge2$; an FMA result is written six
-cycles after issue, so a dependent FMA chain has $d_w\ge7$.
+$t+1$ and can be fetched again in $t+2$, so $d_w\ge2$; an FMA result reaches the
+result queue six cycles after issue, through an operand register and the five FPU
+stages, and is written in the seventh, so a dependent FMA issues eight cycles after it
+at the earliest.
 \end{IEEEproof}
 
 Two warps thus fill the issue slot with independent integer code, and a chain of
-dependent FMAs needs seven. A deeper pipeline raises every $d_w$ and needs more warps
+dependent FMAs needs eight. The distance $d_w$ is reached only when the other warps
+delay the dependent instruction's fetch until its operand is written. A warp that runs
+alone fetches it too early: the instruction is held back, and the warp is fetched again
+only after the write, so a chain of dependent FMAs alone issues every nine cycles
+(Fig.~\ref{fig:pipe} shows such held-back instructions). A deeper pipeline raises every $d_w$ and needs more warps
 for the same IPC: Vortex, whose FMA takes 16 cycles, reaches its highest IPC of the configurations
 we built with 16 warps (Section~\ref{sec:evalvortex}). Fig.~\ref{fig:lat}(b) gives the IPC after
 each mechanism is added to our earlier design, one at a time, on eight applications
@@ -301,8 +355,9 @@ all, so a warp waiting for memory does not block the others. A load does not sto
 warp: its destination register stays marked in the scoreboard until it completes. Each
 cycle the \emph{coalescer} takes one context in rotating order and sends one line
 request for its lowest pending lane together with every pending lane whose address
-lies in the same line. In Fig.~\ref{fig:mem}(a), the eight lanes of a gather address four
-lines, so the coalescer sends four requests in four cycles. A store merges the bytes of
+lies in the same line. In Fig.~\ref{fig:mem}(a), whose table gives each lane's word and
+line, coloured by line, the eight lanes of a gather address four lines, so the
+coalescer sends four requests in four cycles, one box each. A store merges the bytes of
 these lanes into the line under byte enables. Each request carries one of 16 tags, and responses may return in any
 order. A context finishes when no lane is pending and every response has returned.
 An AMO is a read and a write of one line, and its context holds the request port from
@@ -373,9 +428,30 @@ $\mathbb{E}[g]=1.99$ lines, while a gather into $R=65{,}536$ lines touches 7.999
 such gathers each request brings one useful word, and part (c) bounds the useful words
 per cycle by $16/\Lambda$ for SIMTiX, against $4/\Lambda$ for Ara and $1/\Lambda$ for
 CVA6. Fig.~\ref{fig:mem}(b) shows the eight loads of Fig.~\ref{fig:mem}(a) on each
-machine: CVA6 fetches the four lines one miss at a time, about $4\Lambda$; Ara sends one
+machine, one bar per request from its issue to its data, along a time axis in units of
+the memory latency $\Lambda$: CVA6 fetches the four lines one miss at a time, about $4\Lambda$; Ara sends one
 request per element with at most four in flight, about $2\Lambda$; and SIMTiX sends the
 four line requests together, about $\Lambda$, while its other warps keep issuing.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{simtix_pipe.pdf}
+\caption{One SAXPY warp through the pipeline, traced on the RTL.}
+\label{fig:pipe}
+\end{figure*}
+
+Fig.~\ref{fig:pipe} follows one warp of SAXPY through the pipeline on the RTL, with a
+24-cycle memory model. Each row is one instruction and each box one cycle in a stage,
+from the fetch to the register write; the time axis leaves out three stretches in which
+only memory is busy, and the circled numbers mark the three waits described below. A
+fetch precedes each issue, so the warp issues at most every other cycle, and its branch
+adds the stack update B. Each load spends two cycles in the
+memory engine, where it takes a context and the coalescer forms its one line request,
+and two in the L1, then misses and returns its line after the memory latency. The
+integer instructions issue while the first two loads are in flight; the third load
+waits until one of them returns, because a warp has two contexts (mark 1), and the FMA
+(mark 2) and the store sleep until their operands are written. The store then parks
+the warp until memory acknowledges the write (mark 3).
 
 %==============================================================================
 \section{Line-Aggregated Atomic Memory Operations}\label{sec:amo}
@@ -436,9 +512,12 @@ Fig.~\ref{fig:amo}(a) shows the datapath. The lead lane and $L$ line comparators
 $G$. In each apply cycle the round select picks the lanes of the round, with
 $L(L{-}1)/2$ compares of word offsets; the word multiplexers return each applied lane's
 old word to the RF, the AMO ALUs compute the new words, and the written words collect
-into the byte enables of the one masked write. Fig.~\ref{fig:amo}(b) follows one AMO:
-per lane it needs 16 requests, aggregated two, with eight apply cycles in the serial
-variant and three in the parallel one.
+into the byte enables of the one masked write; the state diagram under the datapath
+gives the context's read, wait, apply and write states. Fig.~\ref{fig:amo}(b) follows
+one AMO whose eight lanes fall in one line, where lanes 0, 1 and 4 share a word and
+lanes 2 and 5 another (the table at its top), along a time axis: per lane it needs 16
+requests, aggregated two, with eight apply cycles in the serial variant and three in
+the parallel one, one per round.
 
 We implemented both variants as a build parameter. The serial variant (\emph{ser})
 has one AMO ALU and applies the lowest remaining lane in each cycle; the parallel
@@ -735,7 +814,7 @@ SIMTiX's, a factor of 0.62, and its width the same, so its time ratio of 2.03 is
 efficiency factor of 3.31.
 
 Fig.~\ref{fig:decomp} gives the efficiency factor on every benchmark of
-Fig.~\ref{fig:lanes_suites} on a log axis; above 1, SIMTiX sustains a larger fraction
+Fig.~\ref{fig:lanes_suites}, one marker per machine on a log axis; above 1, SIMTiX sustains a larger fraction
 of its peak than the other machine. The applications run at their larger board input (Ara gives
 wrong results on the MLP and Smith-Waterman). Against Ara,
 the factor is below 1, from 0.18 (GEMM) to 0.96, on the dense kernels, which stream
@@ -927,7 +1006,10 @@ the active lanes divided by $L$ times the issued warp instructions, so the throu
 is $L$ times the IPC times the lane utilization; a utilization below one comes from
 divergence or from partly filled warps. The \emph{memory bandwidth} is the bytes per
 cycle on the read and write data channels of the 128-bit AXI4 master, at most 16 in
-each direction. The supplementary material adds a second suite of ten kernels, the
+each direction. Each benchmark has one bar per lane count in
+Figs.~\ref{fig:lanes_suites}(a) and~(c) and one dot per lane count in
+Fig.~\ref{fig:lanes_suites}(b), and Fig.~\ref{fig:lanes_suites}(c) draws the bytes read
+above its axis and the bytes written below it. The supplementary material adds a second suite of ten kernels, the
 synchronization kernels and the FP32 and INT8 throughput.
 
 At four, eight and 16 lanes, the geometric-mean throughput (Fig.~\ref{fig:lanes_suites}(a))
@@ -1076,6 +1158,8 @@ power, defined for the 17 benchmarks that compute in FP32. Fig.~\ref{fig:power} 
 the powers of the two SIMTiX designs, Fig.~\ref{fig:ppw} the efficiency of all four
 accelerators, and the supplementary material the energy per run.
 
+Fig.~\ref{fig:power} gives, for every benchmark, the system power of each design as a
+point in (a) and its dynamic power as a bar in (b).
 The 16-lane bitstream raises the idle power from 3.13--3.18~W to 3.39--3.42~W, and the
 system power while it runs from 3.31--4.44~W to 3.69--5.89~W (Fig.~\ref{fig:power}(a)).
 Its dynamic power is 0.30 to 2.49~W (Fig.~\ref{fig:power}(b)), 1.77 times that of the
@@ -1091,7 +1175,8 @@ dynamic power times the time, is 1.12 times that of the eight-lane design: the w
 design spends more energy in its own logic and saves energy by drawing the board's idle
 power for a shorter time.
 
-The FP32 energy efficiency (Fig.~\ref{fig:ppw}, log axis, higher is better) rises from
+The FP32 energy efficiency (Fig.~\ref{fig:ppw}, one point per accelerator and
+benchmark on a log axis, higher is better) rises from
 47.9~MFLOP/s per W at eight
 lanes to 63.1 at 16 in the geometric mean over the 17 FP32 benchmarks, with 224 and
 321~MFLOP/s per W on RiVEC's matmul. Vortex and FGPU draw less dynamic power, 0.12 to

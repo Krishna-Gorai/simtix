@@ -48,6 +48,12 @@ machine, the eight- and 16-lane SIMTiX included, on all twelve applications of
 Table~\ref{P-tab:board}, Rodinia and RiVEC at their largest inputs, the integer
 benchmarks that Fig.~\ref{P-fig:mach_heatmap} of the paper leaves out among them; Ara
 gives wrong results on the MLP and Smith-Waterman.
+In Figs.~\ref{fig:rodinia} and~\ref{fig:rivec} each benchmark has one bar per machine on
+a log axis. Of the five machines in the programmable logic, SIMTiX is the fastest on
+every Rodinia benchmark but nn and on five of the seven RiVEC applications, FGPU leading
+on blackscholes and lavaMD; the A53 is faster than SIMTiX on every Rodinia benchmark
+but hotspot3D. In Fig.~\ref{fig:mach_time} each row is a benchmark and each column a
+machine, and the colour and the number give the time in milliseconds on a log scale.
 Section~\ref{P-sec:decomp} of the paper splits the time ratios into clock, width and
 efficiency.
 
@@ -57,7 +63,9 @@ efficiency.
 Fig.~\ref{fig:energy} gives the energy per run of the eight- and 16-lane SIMTiX on every
 benchmark of Section~\ref{P-sec:evalpower} of the paper at its largest input: the system
 power while the accelerator runs (the sum of the board's 18 monitored rails) times the
-run's measured time.
+run's measured time, one point per design and benchmark on a log axis. The 16-lane
+design uses less energy on 24 of the 27 benchmarks and more only on the two SpMV
+kernels and the hash join, which it hardly speeds up.
 
 \begin{figure*}[t]
 \centering
@@ -71,6 +79,10 @@ Fig.~\ref{fig:vortex} gives, per application, the IPC, the execution time at eac
 design's \Fmax\ and the energy of one run at 100~MHz, from the vectorless power, of
 SIMTiX with four warps and of Vortex with four, eight and 16 warps, from the
 out-of-context builds of Section~\ref{P-sec:evalvortex} and Table~\ref{P-tab:vortex}.
+
+Each application has one bar per design, on a log axis for the time and the energy.
+SIMTiX is faster than Vortex with four warps on all seven applications and than Vortex
+with 16 warps on five, all but GEMM and SpMV, and it uses the least energy on all seven.
 
 \input{supp_figs_vx.tex}
 
