@@ -205,21 +205,13 @@ before GO and invalidates it after DONE.
 \label{fig:launch}
 \end{figure*}
 
-\begin{figure*}[p]
-\centering
-\includegraphics[width=\textwidth]{simtix_launch_wave.pdf}
-\caption{Three windows of the launch of Fig.~\ref{fig:launch}, cycle by cycle, traced on
-the RTL.}
-\label{fig:launchwave}
-\end{figure*}
-
 \subsection{Fetch and Divergence}
 The \emph{spawner} places the $\lceil N/L\rceil$ warps one per cycle into free slots of
 the \emph{warp table}, so a slot is refilled as soon as its warp finishes; a block is
 spawned whole into a group of $2^b$ slots.
 
-Figs.~\ref{fig:launch} and~\ref{fig:launchwave} trace a launch on the RTL of the board
-design: SAXPY ($y_i=a\,x_i+y_i$) for $N=92$ threads, with a 24-cycle memory model. In
+Figs.~\ref{fig:launch} to~\ref{fig:wavec} trace a launch on the RTL of the board design:
+SAXPY ($y_i=a\,x_i+y_i$) for $N=92$ threads, with a 24-cycle memory model. In
 Fig.~\ref{fig:launch}(a), one cell per thread, the 92 threads form 12 warps: lane $l$
 of warp $w$ runs thread $8w+l$, and the spawner masks lanes 4 to 7 of warp 11, whose
 threads 92 to 95 lie past $N$, for the whole launch. The table gives the start values
@@ -236,48 +228,69 @@ slots, each a bus whose value is the warp in the slot from its spawn to its
 scoreboard and orange while it is parked until memory acknowledges its store; the
 handshakes of the AXI4 read-address (\texttt{ar}), read-data (\texttt{r}),
 write-address (\texttt{aw}) and write-response (\texttt{b}) channels; and
-\texttt{done}. Fig.~\ref{fig:launchwave} shows three windows of the launch, one column
-per clock cycle. Its rows are the warp that the spawner places (\texttt{spawn}), that
-fetch takes (\texttt{fetch}) and that X issues (\texttt{issue}), with its opcode; the
-eight slots; the line request that the memory engine sends to the L1
-(\texttt{l1.req}) and the result of its tag lookup (\texttt{l1.tag}), a miss, a join
-of a miss already in flight, or a hit; the five AXI4 channels, with the write data
-(\texttt{w}); and the register-file writes (\texttt{rf.wr}), green for a loaded value
-and yellow for an FPU result. A held-back instruction is hatched. Requests, beats and
-handshakes are named after their line, \texttt{x3} being the line of $x$ that warp 3
-reads, and are blue for reads and orange for writes.
+\texttt{done}. Figs.~\ref{fig:wavea} to~\ref{fig:wavec} show three windows of it, shaded
+and labelled in Fig.~\ref{fig:launch}(b), one column per clock cycle, each with the signals that matter in it: the warp that fetch
+takes (\texttt{fetch}) and that X issues (\texttt{issue}), with its opcode, hatched
+when the instruction is held back; the line request that the memory engine sends to
+the L1 (\texttt{l1.req}) and the result of its tag lookup (\texttt{l1.tag}), a miss or
+a join of a miss already in flight; the AXI4 read address and data (\texttt{axi.ar},
+\texttt{axi.r}); the register-file writes (\texttt{rf.wr}), green for a loaded value
+and yellow for an FPU result; and the warp slots. Requests and beats are named after
+their line, \texttt{x3} being the line of $x$ that warp 3 reads, and are blue for
+reads and orange for writes. The dashed callouts say what the values show.
 
-In Fig.~\ref{fig:launchwave}(a), the spawner places warps 0 to 7 in slots 0 to 7, one
-per cycle in cycles 0 to 7, and each slot holds its warp from the next cycle. Fetch
-takes the warps in turn from cycle 1, and X issues each one a cycle later, so the
-eight warps issue their \texttt{bgeu} in cycles 2 to 9, their load of $a$ in cycles 10
-to 17 and their \texttt{slli} from cycle 18: one warp instruction in every cycle. A
-load reaches the L1 three cycles after it issues, so the eight requests for the line
-of $a$ arrive in cycles 13 to 20. The first misses in cycle 14 and leaves as one AXI4
-read in cycle 15; each of the other seven finds that miss in flight and joins it, so
-one read serves the eight loads.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{simtix_wave_a.pdf}
+\caption{Cycles 9 to 23 of the launch of Fig.~\ref{fig:launch}: the loads of $a$.}
+\label{fig:wavea}
+\end{figure}
 
-In Fig.~\ref{fig:launchwave}(b), the line of $a$, which returned in cycles 40 and 41,
-is written to \texttt{f0} of one warp per cycle, as the L1 answers one request per
-cycle: of warps 2 to 7 in cycles 44 to 49. Meanwhile the warps issue their loads of
-$x$, up to cycle 49, and of $y$, in cycles 50 to 57. These lines differ for every warp
-and miss; the L1 forwards one miss every other cycle, the AXI4 read addresses leave at
-the same pace, and 14 reads are in flight by cycle 75. From cycle 58, each warp's next
-instruction, the FMA, reaches X while its $x$ and $y$ are still on their way: it is
-held back, the issue slot of that cycle is lost, and the warp falls asleep, warp 0 in
-cycle 59 to warp 7 in cycle 66. No instruction issues from cycle 58 to 100.
+The spawner places warps 0 to 7 in slots 0 to 7 in cycles 0 to 7
+(Fig.~\ref{fig:launch}(b)), and each slot holds its warp from the next cycle. Fetch takes
+the warps in turn from cycle 1, and X issues each one a cycle later, so the eight warps
+issue their \texttt{bgeu} in cycles 2 to 9, their load of $a$ in cycles 10 to 17 and
+their \texttt{slli} from cycle 18 (Fig.~\ref{fig:wavea}): one warp instruction in every
+cycle. A load reaches the L1 three cycles after it issues, so the eight requests for
+the line of $a$ arrive in cycles 13 to 20. The first misses in cycle 14 and leaves as
+one AXI4 read in cycle 15; each of the other seven finds that miss in flight and joins
+it, so one read serves the eight loads.
 
-In Fig.~\ref{fig:launchwave}(c), the lines of $y$ return, each as two 128-bit read
-beats, one line every three cycles. One cycle after the last beat of a line, its value
-is written to \texttt{f2} of its warp, which wakes. The line of warp 0 arrives in
-cycles 96 and 97 and is written in cycle 98; warp 0 is fetched in cycle 100 and issues
-its FMA in cycle 101. Its store, fetched next, is held back in cycle 103 until the FPU
-writes the FMA's result to \texttt{f2} in cycle 108, seven cycles after the FMA
-issued. The store issues in cycle 110, and slot 0 turns orange from cycle 111: the warp
-is parked until memory acknowledges the store. Its line request reaches the L1 in
-cycle 113 and, as the L1 writes through, leaves as an AXI4 write, the address in cycle
-115 and the two data beats in cycles 116 and 117. The other warps follow as their lines
-return.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{simtix_wave_b.pdf}
+\caption{Cycles 55 to 69: the loads of $x$ and $y$, and the warps fall asleep.}
+\label{fig:waveb}
+\end{figure}
+
+The line of $a$ returns in cycles 40 and 41 and is written to \texttt{f0} of one warp
+per cycle in cycles 42 to 49, as the L1 answers one request per cycle. Meanwhile the
+warps issue their loads of $x$, up to cycle 49, and of $y$, in cycles 50 to 57. These
+lines differ for every warp and miss (Fig.~\ref{fig:waveb}): the L1 forwards one miss
+every other cycle, the AXI4 read addresses leave at the same pace, and 14 reads are in
+flight by cycle 75. From cycle 58, each warp's next instruction, the FMA, reaches X
+while its $x$ and $y$ are still on their way: it is held back, the issue slot of that
+cycle is lost, and the warp falls asleep, so that \texttt{asleep}, the number of
+sleeping warps, rises from 1 in cycle 59 to 8 in cycle 66. No instruction issues from
+cycle 58 to 100.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{simtix_wave_c.pdf}
+\caption{Cycles 97 to 111: warp 0 wakes, issues its FMA and its store, and is parked.}
+\label{fig:wavec}
+\end{figure}
+
+The lines of $x$ and $y$ return from cycle 72, each as two 128-bit read beats, one
+line every three cycles. One cycle after the last beat of a line, its value is written
+to the register of its warp, which wakes (Fig.~\ref{fig:wavec}). The line of $y$ for
+warp 0 arrives in cycles 96 and 97 and is written to its \texttt{f2} in cycle 98; warp
+0 is fetched in cycle 100 and issues its FMA in cycle 101. Its store, fetched next, is
+held back in cycle 103 until the FPU writes the FMA's result to \texttt{f2} in cycle
+108, seven cycles after the FMA issued. The store issues in cycle 110, and slot 0 turns
+orange from cycle 111: the warp is parked until memory acknowledges the store, whose
+line request reaches the L1 in cycle 113 and, as the L1 writes through, leaves as an
+AXI4 write in cycles 115 to 117. The other warps follow as their lines return.
 
 Fig.~\ref{fig:launch}(b) shows these phases over the whole launch: \texttt{issue} is
 high from cycle 2 to 57, the slots are gray while the warps wait for $x$ and $y$ and
@@ -416,7 +429,7 @@ dependent FMAs needs eight. The distance $d_w$ is reached only when the other wa
 delay the dependent instruction's fetch until its operand is written. A warp that runs
 alone fetches it too early: the instruction is held back, and the warp is fetched again
 only after the write, so a chain of dependent FMAs alone issues every nine cycles
-(Fig.~\ref{fig:pipe} shows such held-back instructions). A deeper pipeline raises every $d_w$ and needs more warps
+(the wake phases $\lambda_3$ and $\lambda_5$ of Fig.~\ref{fig:pipe} take three cycles each). A deeper pipeline raises every $d_w$ and needs more warps
 for the same IPC: Vortex, whose FMA takes 16 cycles, reaches its highest IPC of the configurations
 we built with 16 warps (Section~\ref{sec:evalvortex}). Fig.~\ref{fig:lat}(b) gives the IPC after
 each mechanism is added to our earlier design, one at a time, on eight applications
@@ -447,7 +460,8 @@ cycle the \emph{coalescer} takes one context in rotating order and sends one lin
 request for its lowest pending lane together with every pending lane whose address
 lies in the same line. In Fig.~\ref{fig:mem}(a), whose table gives each lane's word and
 line, coloured by line, the eight lanes of a gather address four lines, so the
-coalescer sends four requests in four cycles, one box each. A store merges the bytes of
+coalescer sends four line requests in four cycles (\texttt{l1.req}), each serving the
+lanes below it (\texttt{lanes}). A store merges the bytes of
 these lanes into the line under byte enables. Each request carries one of 16 tags, and responses may return in any
 order. A context finishes when no lane is pending and every response has returned.
 An AMO is a read and a write of one line, and its context holds the request port from
@@ -485,12 +499,12 @@ it returned. If $v$ hits, the invariant gives a line that includes $u$; if $v$ m
 (R3) delays it until memory has acknowledged $u$.
 \end{IEEEproof}
 
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\includegraphics[width=\textwidth]{simtix_mem.pdf}
+\includegraphics[width=\columnwidth]{simtix_mem.pdf}
 \caption{Memory-level parallelism.}
 \label{fig:mem}
-\end{figure*}
+\end{figure}
 
 Up to 16 line requests, from any warps, are thus in flight at once, while the
 scoreboard lets the warps whose operands are ready keep issuing.
@@ -516,41 +530,64 @@ By (\ref{eq:eg}), a gather into a small table coalesces and one into a large tab
 not: the 16 bins of a histogram occupy $R=2$ lines, so eight lanes touch
 $\mathbb{E}[g]=1.99$ lines, while a gather into $R=65{,}536$ lines touches 7.9996. For
 such gathers each request brings one useful word, and part (c) bounds the useful words
-per cycle by $16/\Lambda$ for SIMTiX, against $4/\Lambda$ for Ara and $1/\Lambda$ for
-CVA6. Fig.~\ref{fig:mem}(b) shows the eight loads of Fig.~\ref{fig:mem}(a) on each
-machine, one bar per request from its issue to its data, along a time axis in units of
-the memory latency $\Lambda$: CVA6 fetches the four lines one miss at a time, about $4\Lambda$; Ara sends one
-request per element with at most four in flight, about $2\Lambda$; and SIMTiX sends the
-four line requests together, about $\Lambda$, while its other warps keep issuing.
+per cycle by $16/\Lambda$ for SIMTiX and Vortex, against $4/\Lambda$ for Ara,
+$2/\Lambda$ for FGPU and $1/\Lambda$ for CVA6. Fig.~\ref{fig:mem}(b) draws the eight
+loads of Fig.~\ref{fig:mem}(a) on each machine as a timing diagram, with one row per
+request in flight and each request a bus value from its issue to its data, on a time
+axis in units of the latency $\Lambda$ of one memory request; a vertical line marks
+when each machine has all eight words. CVA6 has one miss in flight and takes the lanes
+in order, so lines 0, 2, 5 and 11 miss one after another and the other four loads hit,
+about $4\Lambda$. Ara sends one request per element, $e_0$ to $e_7$, with at most four
+in flight, about $2\Lambda$. FGPU's 128-byte lines hold the eight words in three lines,
+but it fills only two lines at a time, so the third waits for a fill to finish, about
+$2\Lambda$. Vortex merges the lanes of each group of four that fall in one 16-byte word
+and sends two requests per cycle to its L1, whose 16 MSHRs start one fill for each of
+the four 64-byte lines and merge the other requests into them, about $\Lambda$. SIMTiX
+sends its four line requests in four cycles, also about $\Lambda$. On the three SIMT
+machines, the other warps keep issuing meanwhile.
 
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\includegraphics[width=\textwidth]{simtix_pipe.pdf}
-\caption{One SAXPY warp through the pipeline, traced on the RTL.}
+\includegraphics[width=\columnwidth]{simtix_phase.pdf}
+\caption{The critical path of one SAXPY warp, phase by phase, traced on the RTL.}
 \label{fig:pipe}
-\end{figure*}
+\end{figure}
 
-Fig.~\ref{fig:pipe} follows one warp of SAXPY, running alone, through the pipeline on
-the RTL, with the 24-cycle memory model of Fig.~\ref{fig:launch}. Each row is one
-instruction and each box one cycle in a stage, from the fetch to the register write;
-the time axis leaves out three stretches in which only memory is busy, and the circled
-numbers mark three waits. The uniform branch \texttt{bgeu} is fetched in cycle 1,
-issues in cycle 2 and updates the stack in stage B in cycle 3. The load of $a$ issues
-in cycle 5, spends cycles 6 and 7 in the memory engine, where it takes a context and
-the coalescer forms its line request, and cycles 8 and 9 in the L1, which misses; the
-AXI4 master sends the read in cycle 10, the 32-byte line returns as two 128-bit beats
-in cycles 35 and 36, and \texttt{f0} is written in cycle 37. Meanwhile the warp issues
-its integer instructions and the load of $x$, every other cycle, as a fetch precedes
-each issue. The load of $y$ is held back in cycle 15, because the warp already has two
-loads in flight, one per context (mark 1); it issues in cycle 40, after the load of
-$a$ completes. The FMA is held back twice (mark 2), in cycle 42 waiting for $x$ and $y$
-and in cycle 48 for $y$; it issues in cycle 75, spends cycles 76 to 81 in the operand
-register and the five FPU stages, and is written in cycle 82. The store, held back
-until then, issues in cycle 84, writes through the L1 to DDR4, and parks the warp until
-memory acknowledges the write in cycle 116 (mark 3); the \texttt{ecall} then ends the
-launch in cycle 121. The warp issues ten instructions in 121 cycles, and the rest is
-memory latency that only other warps can fill: in Fig.~\ref{fig:launch}, twelve warps
-of the same kernel issue 120 instructions in 271 cycles.
+Fig.~\ref{fig:pipe} follows one warp of SAXPY, running alone, along its critical path on
+the RTL, with the 24-cycle memory model of Fig.~\ref{fig:launch}. It shows the clock,
+drawn cycle by cycle except in the middle of the memory phases (dots); \texttt{busy};
+the warp's memory operations in flight; and the phases of the critical path
+(\textit{Opr.}), each with its latency $\lambda_k$ above it and its cycles below. The
+timeline continues on the second row from right to left, as the dotted arrows show.
+The warp issues \texttt{bgeu} and its load of $a$ by cycle 5 ($\lambda_1$). Its loads of
+$a$ and $x$ then occupy both of its contexts, so the load of $y$ waits until the load
+of $a$ has returned ($\lambda_2$) and the warp has woken, been fetched and issued it
+($\lambda_3$). The FMA waits for $y$ in the same way ($\lambda_4$, $\lambda_5$) and
+takes seven cycles ($\lambda_6$); the store issues two cycles after the FMA's result
+($\lambda_7$) and parks the warp until memory acknowledges the write ($\lambda_8$), and
+the \texttt{ecall} ends the launch ($\lambda_9$). A load takes
+\begin{equation}
+\lambda_{\mathrm{ld}} = 3 + 2 + (\Lambda+1) + 1 + 1 = \Lambda + 8
+\label{eq:lld}
+\end{equation}
+cycles from its issue to its register write: three to reach the L1 through a context
+and the coalescer, two for the tag lookup and the miss, $\Lambda+1$ from the AXI4 read
+address to the first 128-bit beat, one for the second beat, and one to return the line
+and write the register. A store takes as many to its write response: three, two, two
+for its address and its two data beats, $\Lambda$, and one. The launch therefore ends
+after
+\begin{equation}
+T = \sum_{k=1}^{9}\lambda_k = 3(\Lambda+8) + 25 = 3\Lambda + 49
+\label{eq:twarp}
+\end{equation}
+cycles: three memory round trips, and 25 cycles of issue, wake-up and the FPU. For
+$\Lambda = 24$ this is the 121 cycles of the trace, and the same kernel traced with
+memory latencies of 48 and 96 cycles ends after 193 and 337 cycles, as
+(\ref{eq:twarp}) predicts, every phase taking the cycles of Fig.~\ref{fig:pipe}. The
+warp issues ten instructions in 121 cycles; the rest is memory latency that only other
+warps can fill: in Figs.~\ref{fig:launch} to~\ref{fig:wavec}, twelve warps of the same
+kernel issue 120 instructions in 271 cycles. The supplementary material follows every
+instruction of this warp through the pipeline stages, cycle by cycle.
 
 %==============================================================================
 \section{Line-Aggregated Atomic Memory Operations}\label{sec:amo}
@@ -602,21 +639,37 @@ commutes: swap, minimum and maximum keep their serial results.
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{simtix_amo.pdf}
-\caption{Line-aggregated AMOs. RD, WAIT, AGG and WR: the read, wait, apply and write states
-of a context.}
+\caption{Line-aggregated AMOs. RD, WAIT, AGG and WR: the read, wait, apply and write
+phases of the locked context.}
 \label{fig:amo}
 \end{figure*}
 
-Fig.~\ref{fig:amo}(a) shows the datapath. The lead lane and $L$ line comparators form
-$G$. In each apply cycle the round select picks the lanes of the round, with
-$L(L{-}1)/2$ compares of word offsets; the word multiplexers return each applied lane's
-old word to the RF, the AMO ALUs compute the new words, and the written words collect
-into the byte enables of the one masked write; the state diagram under the datapath
-gives the context's read, wait, apply and write states. Fig.~\ref{fig:amo}(b) follows
-one AMO whose eight lanes fall in one line, where lanes 0, 1 and 4 share a word and
-lanes 2 and 5 another (the table at its top), along a time axis: per lane it needs 16
-requests, aggregated two, with eight apply cycles in the serial variant and three in
-the parallel one, one per round.
+Fig.~\ref{fig:amo}(a) shows the datapath, with one column per phase of the locked
+context. In the group phase the lead lane $\ell$ and $L$ line comparators form $G$, and
+the read of the line of $\ell$ takes the request port. When the line returns, the line
+buffer takes it and the remaining-lanes mask takes $G$. In each apply cycle the round
+select picks the lanes of the round, with $L(L{-}1)/2$ compares of word offsets, and
+clears them from the remaining lanes. A lane--word crossbar, steered by the word
+offsets, carries the store data of each round lane to its word as the operand $v$ of an
+AMO ALU, and carries the old word $x$ back to the lane, which writes it to the RF; the
+ALU writes $f(x,v)$ into the buffer. The touched words become the byte enables of the
+one masked write. The state diagram under the datapath gives the four phases.
+
+Fig.~\ref{fig:amo}(b) is an example: one \texttt{amoadd.w} of a warp whose eight lanes
+add 1 to words of one line, lanes 0, 1 and 4 to word 3 and lanes 2 and 5 to word 5. The
+parallel variant applies it in three rounds: lanes 0, 2, 3, 6 and 7, then lanes 1 and 5,
+then lane 4. The right table gives the line buffer after each round and the middle
+table the old value each lane receives. Lane 4, the third lane on word 3, receives 2, the
+value that serial execution returns to it.
+
+Fig.~\ref{fig:amo}(c) traces this AMO on the RTL in the three variants, from its issue
+to the cycle its warp resumes. Without aggregation the context sends 16 requests, a read
+and a write per lane. Every read after the first hits in the L1, but the warp resumes
+only after 108 cycles, when memory has answered the eighth write. Aggregated, the
+context sends one read and one write. The serial variant applies the lanes in eight
+cycles and the parallel variant in three, and the warp resumes after 73 and 68 cycles.
+The simulation checks the eight returned values and the final line against serial
+execution.
 
 We implemented both variants as a build parameter. The serial variant (\emph{ser})
 has one AMO ALU and applies the lowest remaining lane in each cycle; the parallel

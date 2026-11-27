@@ -4,130 +4,228 @@
 \renewcommand{\familydefault}{\sfdefault}
 \usepackage{amsmath,amssymb}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,patterns}
-\definecolor{cctrl}{HTML}{D6E0EC}
-\definecolor{cctrlb}{HTML}{3B5675}
-\definecolor{cmem}{HTML}{FBE5D6}
-\definecolor{cmemb}{HTML}{C55A11}
+\usetikzlibrary{arrows.meta}
 \definecolor{cA}{HTML}{CFE2F3}
 \definecolor{cB}{HTML}{FCE5CD}
 \definecolor{cC}{HTML}{D9EAD3}
 \definecolor{cD}{HTML}{EAD1DC}
-\newcommand{\fs}{\fontsize{6.4}{7.4}\selectfont}
-\newcommand{\fss}{\fontsize{5.8}{6.6}\selectfont}
+\definecolor{celem}{HTML}{F2F2F2}
+\newcommand{\fs}{\fontsize{6.2}{7.2}\selectfont}
+\newcommand{\fss}{\fontsize{5.6}{6.4}\selectfont}
+\newcommand{\fv}{\fontsize{5.0}{5.6}\selectfont}
 \begin{document}
 \begin{tikzpicture}[x=1cm, y=1cm,
-  base/.style={align=center, font=\fs, inner sep=1pt, line width=0.5pt},
-  ctrl/.style={base, draw=cctrlb, fill=cctrl},
-  tbl/.style={draw=black, line width=0.45pt},
-  cell/.style={font=\fss, inner sep=0.5pt}, cellh/.style={font=\fss\bfseries, inner sep=0.5pt},
-  panel/.style={draw=black!40, dashed, rounded corners=3pt, fill=black!1, line width=0.5pt},
-  lbl/.style={font=\fs, inner sep=0.5pt},
-  note/.style={font=\fss, inner sep=0.5pt, align=left},
+  wire/.style={draw=black, line width=0.4pt, line join=round},
+  tbl/.style={draw=black!70, line width=0.35pt},
+  gridline/.style={draw=black!22, line width=0.3pt, dashed},
+  name/.style={font=\fss\ttfamily, anchor=east, inner sep=0.5pt},
+  grp/.style={font=\fs\bfseries, anchor=west, inner sep=0.5pt},
+  note/.style={font=\fss, inner sep=0.5pt},
   subcap/.style={font=\fs, inner sep=1pt},
-  bar/.style={draw=cmemb, fill=cmem, line width=0.45pt},
-  arr/.style={-{Latex[length=1.4mm, width=1.0mm]}, line width=0.55pt}]
+  dim/.style={{Latex[length=1.1mm, width=0.8mm]}-{Latex[length=1.1mm, width=0.8mm]}, line width=0.4pt}]
 
-\draw[panel] (-0.100,-0.050) rectangle (6.550,4.300);
-\node[cellh, anchor=east] at (0.970,3.890) {lane};
-\node[cellh, anchor=east] at (0.970,3.550) {word};
-\node[cellh, anchor=east] at (0.970,3.210) {line};
-\draw[tbl, fill=white] (1.050,3.720) rectangle (1.670,4.060);
-\node[cell] at (1.360,3.890) {0};
-\draw[tbl, fill=cA] (1.050,3.380) rectangle (1.670,3.720);
-\node[cell] at (1.360,3.550) {3};
-\draw[tbl, fill=cA] (1.050,3.040) rectangle (1.670,3.380);
-\node[cell] at (1.360,3.210) {0};
-\draw[tbl, fill=white] (1.670,3.720) rectangle (2.290,4.060);
-\node[cell] at (1.980,3.890) {1};
-\draw[tbl, fill=cB] (1.670,3.380) rectangle (2.290,3.720);
-\node[cell] at (1.980,3.550) {17};
-\draw[tbl, fill=cB] (1.670,3.040) rectangle (2.290,3.380);
-\node[cell] at (1.980,3.210) {2};
-\draw[tbl, fill=white] (2.290,3.720) rectangle (2.910,4.060);
-\node[cell] at (2.600,3.890) {2};
-\draw[tbl, fill=cA] (2.290,3.380) rectangle (2.910,3.720);
-\node[cell] at (2.600,3.550) {5};
-\draw[tbl, fill=cA] (2.290,3.040) rectangle (2.910,3.380);
-\node[cell] at (2.600,3.210) {0};
-\draw[tbl, fill=white] (2.910,3.720) rectangle (3.530,4.060);
-\node[cell] at (3.220,3.890) {3};
-\draw[tbl, fill=cC] (2.910,3.380) rectangle (3.530,3.720);
-\node[cell] at (3.220,3.550) {40};
-\draw[tbl, fill=cC] (2.910,3.040) rectangle (3.530,3.380);
-\node[cell] at (3.220,3.210) {5};
-\draw[tbl, fill=white] (3.530,3.720) rectangle (4.150,4.060);
-\node[cell] at (3.840,3.890) {4};
-\draw[tbl, fill=cB] (3.530,3.380) rectangle (4.150,3.720);
-\node[cell] at (3.840,3.550) {18};
-\draw[tbl, fill=cB] (3.530,3.040) rectangle (4.150,3.380);
-\node[cell] at (3.840,3.210) {2};
-\draw[tbl, fill=white] (4.150,3.720) rectangle (4.770,4.060);
-\node[cell] at (4.460,3.890) {5};
-\draw[tbl, fill=cA] (4.150,3.380) rectangle (4.770,3.720);
-\node[cell] at (4.460,3.550) {7};
-\draw[tbl, fill=cA] (4.150,3.040) rectangle (4.770,3.380);
-\node[cell] at (4.460,3.210) {0};
-\draw[tbl, fill=white] (4.770,3.720) rectangle (5.390,4.060);
-\node[cell] at (5.080,3.890) {6};
-\draw[tbl, fill=cC] (4.770,3.380) rectangle (5.390,3.720);
-\node[cell] at (5.080,3.550) {41};
-\draw[tbl, fill=cC] (4.770,3.040) rectangle (5.390,3.380);
-\node[cell] at (5.080,3.210) {5};
-\draw[tbl, fill=white] (5.390,3.720) rectangle (6.010,4.060);
-\node[cell] at (5.700,3.890) {7};
-\draw[tbl, fill=cD] (5.390,3.380) rectangle (6.010,3.720);
-\node[cell] at (5.700,3.550) {90};
-\draw[tbl, fill=cD] (5.390,3.040) rectangle (6.010,3.380);
-\node[cell] at (5.700,3.210) {11};
-\node[note, anchor=north west] at (1.030,2.970) {line $=\lfloor \text{word}/8\rfloor$: 32-byte lines of eight words};
-\node[ctrl, minimum width=6.30cm, minimum height=0.32cm] at (3.225,2.300) {\textbf{Coalescer}:\ \fss one line request per cycle, for the lowest pending lane};
-\draw[arr] (0.810,2.140) -- (0.810,2.000);
-\draw[tbl, fill=cA] (0.075,1.240) rectangle (1.545,2.000);
-\node[cell, align=center] at (0.810,1.620) {cycle 1\\line 0\\lanes 0, 2, 5};
-\draw[arr] (2.420,2.140) -- (2.420,2.000);
-\draw[tbl, fill=cB] (1.685,1.240) rectangle (3.155,2.000);
-\node[cell, align=center] at (2.420,1.620) {cycle 2\\line 2\\lanes 1, 4};
-\draw[arr] (4.030,2.140) -- (4.030,2.000);
-\draw[tbl, fill=cC] (3.295,1.240) rectangle (4.765,2.000);
-\node[cell, align=center] at (4.030,1.620) {cycle 3\\line 5\\lanes 3, 6};
-\draw[arr] (5.640,2.140) -- (5.640,2.000);
-\draw[tbl, fill=cD] (4.905,1.240) rectangle (6.375,2.000);
-\node[cell, align=center] at (5.640,1.620) {cycle 4\\line 11\\lane 7};
-\node[note, anchor=north west, text width=6.35cm] at (0.000,1.140) {Four line requests serve the eight lanes: a gather costs one request per distinct line, $g\le L$, and a unit-stride warp access $g=1$.};
-\node[subcap] at (3.225,-0.350) {(a) One warp's gather through the coalescer};
-\draw[panel] (6.750,-0.050) rectangle (18.150,4.300);
-\node[lbl, anchor=north east, align=right] at (9.050,4.040) {\textbf{CVA6}\\[-0.5pt]\fss one miss in flight};
-\draw[bar] (9.200,3.680) rectangle (11.050,3.780);
-\draw[bar] (11.050,3.680) rectangle (12.900,3.780);
-\draw[bar] (13.020,3.680) rectangle (14.870,3.780);
-\draw[bar] (15.230,3.680) rectangle (17.080,3.780);
-\draw[densely dotted, line width=0.5pt] (17.080,4.040) -- (17.080,3.080);
-\node[lbl, anchor=west] at (17.160,3.730) {$\approx 4\Lambda$};
-\node[lbl, anchor=north east, align=right] at (9.050,2.940) {\textbf{Ara}\\[-0.5pt]\fss one request per element,\\$\le 4$ in flight};
-\draw[bar] (9.200,2.780) rectangle (11.050,2.880);
-\draw[bar] (9.320,2.683) rectangle (11.170,2.782);
-\draw[bar] (9.440,2.585) rectangle (11.290,2.685);
-\draw[bar] (9.560,2.488) rectangle (11.410,2.587);
-\draw[bar] (11.050,2.390) rectangle (12.900,2.490);
-\draw[bar] (11.170,2.293) rectangle (13.020,2.393);
-\draw[bar] (11.290,2.195) rectangle (13.140,2.295);
-\draw[bar] (11.410,2.098) rectangle (13.260,2.197);
-\draw[densely dotted, line width=0.5pt] (13.260,2.940) -- (13.260,1.980);
-\node[lbl, anchor=west] at (13.340,2.630) {$\approx 2\Lambda$};
-\node[lbl, anchor=north east, align=right] at (9.050,1.840) {\textbf{SIMTiX}\\[-0.5pt]\fss one request per line,\\$\le 16$ in flight};
-\draw[bar] (9.200,1.680) rectangle (11.050,1.780);
-\draw[bar] (9.320,1.550) rectangle (11.170,1.650);
-\draw[bar] (9.440,1.420) rectangle (11.290,1.520);
-\draw[bar] (9.560,1.290) rectangle (11.410,1.390);
-\draw[densely dotted, line width=0.5pt] (11.410,1.840) -- (11.410,0.880);
-\node[lbl, anchor=west] at (11.490,1.530) {$\approx \Lambda$};
-\draw[draw=cctrlb, pattern=north east lines, pattern color=cctrlb!55, line width=0.4pt] (9.200,1.080) rectangle (11.410,1.240);
-\node[note, anchor=west] at (11.490,1.160) {meanwhile the other warps keep issuing (register scoreboard)};
-\draw[arr] (9.200,0.420) -- (17.630,0.420);
-\node[note, anchor=north east] at (17.630,0.350) {time (not to scale)};
-\draw[{Latex[length=1.1mm]}-{Latex[length=1.1mm]}, line width=0.45pt] (9.200,0.220) -- (11.050,0.220);
-\node[note, anchor=west] at (11.130,0.220) {$\Lambda$: memory latency};
-\node[subcap] at (12.450,-0.350) {(b) The same eight loads, each machine at its own limit};
+\node[name, font=\fss\bfseries] at (1.200,-0.150) {lane};
+\draw[tbl, fill=black!6] (1.300,-0.300) rectangle (2.206,0.000);
+\node[note] at (1.753,-0.150) {0};
+\draw[tbl, fill=black!6] (2.206,-0.300) rectangle (3.113,0.000);
+\node[note] at (2.659,-0.150) {1};
+\draw[tbl, fill=black!6] (3.113,-0.300) rectangle (4.019,0.000);
+\node[note] at (3.566,-0.150) {2};
+\draw[tbl, fill=black!6] (4.019,-0.300) rectangle (4.925,0.000);
+\node[note] at (4.472,-0.150) {3};
+\draw[tbl, fill=black!6] (4.925,-0.300) rectangle (5.831,0.000);
+\node[note] at (5.378,-0.150) {4};
+\draw[tbl, fill=black!6] (5.831,-0.300) rectangle (6.738,0.000);
+\node[note] at (6.284,-0.150) {5};
+\draw[tbl, fill=black!6] (6.738,-0.300) rectangle (7.644,0.000);
+\node[note] at (7.191,-0.150) {6};
+\draw[tbl, fill=black!6] (7.644,-0.300) rectangle (8.550,0.000);
+\node[note] at (8.097,-0.150) {7};
+\node[name, font=\fss\bfseries] at (1.200,-0.450) {word};
+\draw[tbl, fill=cA] (1.300,-0.600) rectangle (2.206,-0.300);
+\node[note] at (1.753,-0.450) {3};
+\draw[tbl, fill=cB] (2.206,-0.600) rectangle (3.113,-0.300);
+\node[note] at (2.659,-0.450) {17};
+\draw[tbl, fill=cA] (3.113,-0.600) rectangle (4.019,-0.300);
+\node[note] at (3.566,-0.450) {5};
+\draw[tbl, fill=cC] (4.019,-0.600) rectangle (4.925,-0.300);
+\node[note] at (4.472,-0.450) {40};
+\draw[tbl, fill=cB] (4.925,-0.600) rectangle (5.831,-0.300);
+\node[note] at (5.378,-0.450) {18};
+\draw[tbl, fill=cA] (5.831,-0.600) rectangle (6.738,-0.300);
+\node[note] at (6.284,-0.450) {7};
+\draw[tbl, fill=cC] (6.738,-0.600) rectangle (7.644,-0.300);
+\node[note] at (7.191,-0.450) {41};
+\draw[tbl, fill=cD] (7.644,-0.600) rectangle (8.550,-0.300);
+\node[note] at (8.097,-0.450) {90};
+\node[name, font=\fss\bfseries] at (1.200,-0.750) {line};
+\draw[tbl, fill=cA] (1.300,-0.900) rectangle (2.206,-0.600);
+\node[note] at (1.753,-0.750) {0};
+\draw[tbl, fill=cB] (2.206,-0.900) rectangle (3.113,-0.600);
+\node[note] at (2.659,-0.750) {2};
+\draw[tbl, fill=cA] (3.113,-0.900) rectangle (4.019,-0.600);
+\node[note] at (3.566,-0.750) {0};
+\draw[tbl, fill=cC] (4.019,-0.900) rectangle (4.925,-0.600);
+\node[note] at (4.472,-0.750) {5};
+\draw[tbl, fill=cB] (4.925,-0.900) rectangle (5.831,-0.600);
+\node[note] at (5.378,-0.750) {2};
+\draw[tbl, fill=cA] (5.831,-0.900) rectangle (6.738,-0.600);
+\node[note] at (6.284,-0.750) {0};
+\draw[tbl, fill=cC] (6.738,-0.900) rectangle (7.644,-0.600);
+\node[note] at (7.191,-0.750) {5};
+\draw[tbl, fill=cD] (7.644,-0.900) rectangle (8.550,-0.600);
+\node[note] at (8.097,-0.750) {11};
+\node[note, anchor=west] at (1.300,-1.040) {line $=\lfloor\text{word}/8\rfloor$: 32-byte lines of eight words; one colour per line};
+\node[font=\fv, text=black!60] at (2.206,-1.400) {1};
+\node[font=\fv, text=black!60] at (4.019,-1.400) {2};
+\node[font=\fv, text=black!60] at (5.831,-1.400) {3};
+\node[font=\fv, text=black!60] at (7.644,-1.400) {4};
+\node[name, font=\fv, text=black!60] at (1.200,-1.400) {cycle};
+\draw[draw=black!12, line width=0.25pt] (1.300,-1.500) -- (1.300,-2.420);
+\draw[draw=black!12, line width=0.25pt] (3.113,-1.500) -- (3.113,-2.420);
+\draw[draw=black!12, line width=0.25pt] (4.925,-1.500) -- (4.925,-2.420);
+\draw[draw=black!12, line width=0.25pt] (6.738,-1.500) -- (6.738,-2.420);
+\draw[draw=black!12, line width=0.25pt] (8.550,-1.500) -- (8.550,-2.420);
+\node[name] at (1.200,-1.670) {clk};
+\draw[wire] (1.300,-1.770) -- (1.300,-1.570) -- (2.206,-1.570) -- (2.206,-1.770) -- (3.113,-1.770) -- (3.113,-1.570) -- (4.019,-1.570) -- (4.019,-1.770) -- (4.925,-1.770) -- (4.925,-1.570) -- (5.831,-1.570) -- (5.831,-1.770) -- (6.738,-1.770) -- (6.738,-1.570) -- (7.644,-1.570) -- (7.644,-1.770) -- (8.550,-1.770);
+\node[name] at (1.200,-1.970) {l1.req};
+\draw[wire, fill=cA] (1.300,-1.970) -- (1.350,-1.870) -- (3.063,-1.870) -- (3.113,-1.970) -- (3.063,-2.070) -- (1.350,-2.070) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.206,-1.970) {line 0};
+\draw[wire, fill=cB] (3.113,-1.970) -- (3.163,-1.870) -- (4.875,-1.870) -- (4.925,-1.970) -- (4.875,-2.070) -- (3.163,-2.070) -- cycle;
+\node[font=\fv, inner sep=0pt] at (4.019,-1.970) {line 2};
+\draw[wire, fill=cC] (4.925,-1.970) -- (4.975,-1.870) -- (6.688,-1.870) -- (6.738,-1.970) -- (6.688,-2.070) -- (4.975,-2.070) -- cycle;
+\node[font=\fv, inner sep=0pt] at (5.831,-1.970) {line 5};
+\draw[wire, fill=cD] (6.738,-1.970) -- (6.788,-1.870) -- (8.500,-1.870) -- (8.550,-1.970) -- (8.500,-2.070) -- (6.788,-2.070) -- cycle;
+\node[font=\fv, inner sep=0pt] at (7.644,-1.970) {line 11};
+\node[name] at (1.200,-2.270) {lanes};
+\draw[wire, fill=white] (1.300,-2.270) -- (1.350,-2.170) -- (3.063,-2.170) -- (3.113,-2.270) -- (3.063,-2.370) -- (1.350,-2.370) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.206,-2.270) {0, 2, 5};
+\draw[wire, fill=white] (3.113,-2.270) -- (3.163,-2.170) -- (4.875,-2.170) -- (4.925,-2.270) -- (4.875,-2.370) -- (3.163,-2.370) -- cycle;
+\node[font=\fv, inner sep=0pt] at (4.019,-2.270) {1, 4};
+\draw[wire, fill=white] (4.925,-2.270) -- (4.975,-2.170) -- (6.688,-2.170) -- (6.738,-2.270) -- (6.688,-2.370) -- (4.975,-2.370) -- cycle;
+\node[font=\fv, inner sep=0pt] at (5.831,-2.270) {3, 6};
+\draw[wire, fill=white] (6.738,-2.270) -- (6.788,-2.170) -- (8.500,-2.170) -- (8.550,-2.270) -- (8.500,-2.370) -- (6.788,-2.370) -- cycle;
+\node[font=\fv, inner sep=0pt] at (7.644,-2.270) {7};
+\node[note, anchor=west, align=left] at (0.100,-2.740) {Four line requests serve the eight lanes: a gather costs one request per\\distinct line, $g\le L$, and a unit-stride warp access $g=1$.};
+\node[subcap] at (4.325,-3.120) {(a) One warp's gather through the coalescer};
+\node[grp] at (0.100,-3.550) {CVA6};
+\node[note, anchor=west, text=black!70] at (0.790,-3.550) {one miss in flight};
+\node[name] at (1.200,-3.850) {miss};
+\draw[wire, fill=cA] (1.300,-3.850) -- (1.350,-3.750) -- (2.864,-3.750) -- (2.914,-3.850) -- (2.864,-3.950) -- (1.350,-3.950) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.107,-3.850) {line 0};
+\draw[wire, fill=cB] (2.914,-3.850) -- (2.964,-3.750) -- (4.479,-3.750) -- (4.529,-3.850) -- (4.479,-3.950) -- (2.964,-3.950) -- cycle;
+\node[font=\fv, inner sep=0pt] at (3.722,-3.850) {line 2};
+\draw[wire, fill=cC] (4.529,-3.850) -- (4.579,-3.750) -- (6.093,-3.750) -- (6.143,-3.850) -- (6.093,-3.950) -- (4.579,-3.950) -- cycle;
+\node[font=\fv, inner sep=0pt] at (5.336,-3.850) {line 5};
+\draw[wire, fill=cD] (6.143,-3.850) -- (6.193,-3.750) -- (7.708,-3.750) -- (7.758,-3.850) -- (7.708,-3.950) -- (6.193,-3.950) -- cycle;
+\node[font=\fv, inner sep=0pt] at (6.951,-3.850) {line 11};
+\draw[wire] (7.758,-3.850) -- (8.000,-3.850);
+\draw[line width=0.5pt] (7.758,-3.980) -- (7.758,-3.680);
+\node[note, anchor=west, font=\fs, fill=white, inner sep=0.8pt] at (7.798,-3.850) {$\approx 4\Lambda$};
+\node[grp] at (0.100,-4.290) {Ara};
+\node[note, anchor=west, text=black!70] at (0.680,-4.290) {one request per element, $\le 4$ in flight};
+\node[name] at (1.200,-4.590) {req 0};
+\draw[wire, fill=celem] (1.300,-4.590) -- (1.350,-4.490) -- (2.864,-4.490) -- (2.914,-4.590) -- (2.864,-4.690) -- (1.350,-4.690) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.107,-4.590) {e0};
+\draw[wire, fill=celem] (2.914,-4.590) -- (2.964,-4.490) -- (4.479,-4.490) -- (4.529,-4.590) -- (4.479,-4.690) -- (2.964,-4.690) -- cycle;
+\node[font=\fv, inner sep=0pt] at (3.722,-4.590) {e4};
+\draw[wire] (4.529,-4.590) -- (8.000,-4.590);
+\node[name] at (1.200,-4.890) {req 1};
+\draw[wire] (1.300,-4.890) -- (1.381,-4.890);
+\draw[wire, fill=celem] (1.381,-4.890) -- (1.431,-4.790) -- (2.945,-4.790) -- (2.995,-4.890) -- (2.945,-4.990) -- (1.431,-4.990) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.188,-4.890) {e1};
+\draw[wire, fill=celem] (2.995,-4.890) -- (3.045,-4.790) -- (4.560,-4.790) -- (4.610,-4.890) -- (4.560,-4.990) -- (3.045,-4.990) -- cycle;
+\node[font=\fv, inner sep=0pt] at (3.802,-4.890) {e5};
+\draw[wire] (4.610,-4.890) -- (8.000,-4.890);
+\node[name] at (1.200,-5.190) {req 2};
+\draw[wire] (1.300,-5.190) -- (1.461,-5.190);
+\draw[wire, fill=celem] (1.461,-5.190) -- (1.511,-5.090) -- (3.026,-5.090) -- (3.076,-5.190) -- (3.026,-5.290) -- (1.511,-5.290) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.269,-5.190) {e2};
+\draw[wire, fill=celem] (3.076,-5.190) -- (3.126,-5.090) -- (4.640,-5.090) -- (4.690,-5.190) -- (4.640,-5.290) -- (3.126,-5.290) -- cycle;
+\node[font=\fv, inner sep=0pt] at (3.883,-5.190) {e6};
+\draw[wire] (4.690,-5.190) -- (8.000,-5.190);
+\node[name] at (1.200,-5.490) {req 3};
+\draw[wire] (1.300,-5.490) -- (1.542,-5.490);
+\draw[wire, fill=celem] (1.542,-5.490) -- (1.592,-5.390) -- (3.107,-5.390) -- (3.157,-5.490) -- (3.107,-5.590) -- (1.592,-5.590) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.349,-5.490) {e3};
+\draw[wire, fill=celem] (3.157,-5.490) -- (3.207,-5.390) -- (4.721,-5.390) -- (4.771,-5.490) -- (4.721,-5.590) -- (3.207,-5.590) -- cycle;
+\node[font=\fv, inner sep=0pt] at (3.964,-5.490) {e7};
+\draw[wire] (4.771,-5.490) -- (8.000,-5.490);
+\draw[line width=0.5pt] (4.771,-5.620) -- (4.771,-4.420);
+\node[note, anchor=west, font=\fs, fill=white, inner sep=0.8pt] at (4.811,-5.040) {$\approx 2\Lambda$};
+\node[grp] at (0.100,-5.930) {FGPU};
+\node[note, anchor=west, text=black!70] at (0.790,-5.930) {two line fills in flight; 128-byte lines};
+\node[name] at (1.200,-6.230) {fill 0};
+\draw[wire, fill=celem] (1.300,-6.230) -- (1.350,-6.130) -- (2.864,-6.130) -- (2.914,-6.230) -- (2.864,-6.330) -- (1.350,-6.330) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.107,-6.230) {line 0};
+\draw[wire, fill=celem] (2.914,-6.230) -- (2.964,-6.130) -- (4.479,-6.130) -- (4.529,-6.230) -- (4.479,-6.330) -- (2.964,-6.330) -- cycle;
+\node[font=\fv, inner sep=0pt] at (3.722,-6.230) {line 2};
+\draw[wire] (4.529,-6.230) -- (8.000,-6.230);
+\node[name] at (1.200,-6.530) {fill 1};
+\draw[wire] (1.300,-6.530) -- (1.381,-6.530);
+\draw[wire, fill=celem] (1.381,-6.530) -- (1.431,-6.430) -- (2.945,-6.430) -- (2.995,-6.530) -- (2.945,-6.630) -- (1.431,-6.630) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.188,-6.530) {line 1};
+\draw[wire] (2.995,-6.530) -- (8.000,-6.530);
+\draw[line width=0.5pt] (4.529,-6.660) -- (4.529,-6.060);
+\node[note, anchor=west, font=\fs, fill=white, inner sep=0.8pt] at (4.569,-6.380) {$\approx 2\Lambda$};
+\node[grp] at (0.100,-6.970) {Vortex};
+\node[note, anchor=west, text=black!70] at (1.010,-6.970) {16 MSHRs; 64-byte lines};
+\node[name] at (1.200,-7.270) {fill 0};
+\draw[wire, fill=cA] (1.300,-7.270) -- (1.350,-7.170) -- (2.864,-7.170) -- (2.914,-7.270) -- (2.864,-7.370) -- (1.350,-7.370) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.107,-7.270) {line 0};
+\draw[wire] (2.914,-7.270) -- (8.000,-7.270);
+\node[name] at (1.200,-7.570) {fill 1};
+\draw[wire, fill=cB] (1.300,-7.570) -- (1.350,-7.470) -- (2.864,-7.470) -- (2.914,-7.570) -- (2.864,-7.670) -- (1.350,-7.670) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.107,-7.570) {line 1};
+\draw[wire] (2.914,-7.570) -- (8.000,-7.570);
+\node[name] at (1.200,-7.870) {fill 2};
+\draw[wire] (1.300,-7.870) -- (1.461,-7.870);
+\draw[wire, fill=cC] (1.461,-7.870) -- (1.511,-7.770) -- (3.026,-7.770) -- (3.076,-7.870) -- (3.026,-7.970) -- (1.511,-7.970) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.269,-7.870) {line 2};
+\draw[wire] (3.076,-7.870) -- (8.000,-7.870);
+\node[name] at (1.200,-8.170) {fill 3};
+\draw[wire] (1.300,-8.170) -- (1.542,-8.170);
+\draw[wire, fill=cD] (1.542,-8.170) -- (1.592,-8.070) -- (3.107,-8.070) -- (3.157,-8.170) -- (3.107,-8.270) -- (1.592,-8.270) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.349,-8.170) {line 5};
+\draw[wire] (3.157,-8.170) -- (8.000,-8.170);
+\draw[line width=0.5pt] (3.157,-8.300) -- (3.157,-7.100);
+\node[note, anchor=west, font=\fs, fill=white, inner sep=0.8pt] at (3.197,-7.720) {$\approx \Lambda$};
+\node[grp] at (0.100,-8.610) {SIMTiX};
+\node[note, anchor=west, text=black!70] at (1.010,-8.610) {one request per line, $\le 16$ in flight};
+\node[name] at (1.200,-8.910) {req 0};
+\draw[wire, fill=cA] (1.300,-8.910) -- (1.350,-8.810) -- (2.864,-8.810) -- (2.914,-8.910) -- (2.864,-9.010) -- (1.350,-9.010) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.107,-8.910) {line 0};
+\draw[wire] (2.914,-8.910) -- (8.000,-8.910);
+\node[name] at (1.200,-9.210) {req 1};
+\draw[wire] (1.300,-9.210) -- (1.381,-9.210);
+\draw[wire, fill=cB] (1.381,-9.210) -- (1.431,-9.110) -- (2.945,-9.110) -- (2.995,-9.210) -- (2.945,-9.310) -- (1.431,-9.310) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.188,-9.210) {line 2};
+\draw[wire] (2.995,-9.210) -- (8.000,-9.210);
+\node[name] at (1.200,-9.510) {req 2};
+\draw[wire] (1.300,-9.510) -- (1.461,-9.510);
+\draw[wire, fill=cC] (1.461,-9.510) -- (1.511,-9.410) -- (3.026,-9.410) -- (3.076,-9.510) -- (3.026,-9.610) -- (1.511,-9.610) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.269,-9.510) {line 5};
+\draw[wire] (3.076,-9.510) -- (8.000,-9.510);
+\node[name] at (1.200,-9.810) {req 3};
+\draw[wire] (1.300,-9.810) -- (1.542,-9.810);
+\draw[wire, fill=cD] (1.542,-9.810) -- (1.592,-9.710) -- (3.107,-9.710) -- (3.157,-9.810) -- (3.107,-9.910) -- (1.592,-9.910) -- cycle;
+\node[font=\fv, inner sep=0pt] at (2.349,-9.810) {line 11};
+\draw[wire] (3.157,-9.810) -- (8.000,-9.810);
+\draw[line width=0.5pt] (3.157,-9.940) -- (3.157,-8.740);
+\node[note, anchor=west, font=\fs, fill=white, inner sep=0.8pt] at (3.197,-9.360) {$\approx \Lambda$};
+\draw[gridline] (1.300,-10.140) -- (1.300,-3.720);
+\node[note] at (1.300,-10.280) {0};
+\draw[gridline] (2.914,-10.140) -- (2.914,-3.720);
+\node[note] at (2.914,-10.280) {$\Lambda$};
+\draw[gridline] (4.529,-10.140) -- (4.529,-3.720);
+\node[note] at (4.529,-10.280) {$2\Lambda$};
+\draw[gridline] (6.143,-10.140) -- (6.143,-3.720);
+\node[note] at (6.143,-10.280) {$3\Lambda$};
+\draw[gridline] (7.758,-10.140) -- (7.758,-3.720);
+\node[note] at (7.758,-10.280) {$4\Lambda$};
+\draw[-{Latex[length=1.2mm, width=0.9mm]}, line width=0.4pt] (1.300,-10.140) -- (8.000,-10.140);
+\node[note, anchor=east] at (1.200,-10.280) {time};
+\node[note, anchor=west, text=black!60] at (3.883,-10.540) {$\Lambda$: latency of one memory request; a cycle is drawn short};
+\node[subcap] at (4.325,-10.890) {(b) The same eight loads, each machine at its own limit};
 \end{tikzpicture}
 \end{document}

@@ -18,7 +18,7 @@
   lbl/.style={font=\fs, inner sep=0.5pt},
   note/.style={font=\fss, inner sep=0.5pt, align=left},
   code/.style={font=\fss\ttfamily, inner sep=0.5pt, anchor=west},
-  panel/.style={draw=black!40, dashed, rounded corners=3pt, fill=black!1, line width=0.5pt},
+  panel/.style={draw=none, fill=none},
   subcap/.style={font=\fs, inner sep=1pt},
   arr/.style={-{Latex[length=1.2mm, width=0.9mm]}, line width=0.5pt}]
 
@@ -332,7 +332,7 @@
 \node[note] at (17.168,2.580) {1};
 \node[note, anchor=east] at (5.390,2.840) {cycle};
 \node[note, anchor=east] at (5.390,2.580) {frames};
-\node[lbl, anchor=west] at (4.500,5.430) {issue slot};
+\node[lbl, anchor=east] at (5.390,5.280) {issue slot};
 \draw[tbl, fill=dA] (5.450,0.090) rectangle (5.670,0.250);
 \node[note, anchor=west] at (5.700,0.170) {1};
 \draw[tbl, fill=dB] (5.930,0.090) rectangle (6.150,0.250);

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """fig_trace.py - RTL cycle traces for the paper's operation figures.
 
-Assembles kernels/figs/{saxpy,divergence}.S, runs tests/tb_figtrace.sv on the board top
+Assembles kernels/figs/{saxpy,divergence,issue_rules,amo_demo}.S, runs tests/tb_figtrace.sv on the board top
 (simt_ps_top) under xsim in the board configuration (8 lanes, 8 warps, 64 KiB L1, 16
 MSHRs, 16 tags; 24-cycle deterministic AXI4 memory model) with the warp pool's issue
 trace on, checks the kernels' results, and copies both traces to traces/<run>_{fig,issue}.txt:
@@ -12,6 +12,9 @@ trace on, checks the kernels' results, and copies both traces to traces/<run>_{f
               with four lanes)
   rules4      issue_rules.S, N = 32 (4 warps)    -> check_lat_sched.py (validates lat_sched.py,
                                                   the model of gen_lat_fig.py)
+  amo_lane, amo_ser, amo_par                     -> gen_amo_fig.py    (the AMO figure)
+              amo_demo.S, N = 8 (one warp, one amoadd.w on one line) without
+              aggregation (SIMTIX_AMO_AGG=0), serial and parallel (SIMTIX_AMO_PAR=1)
 
 Usage:  python fig_trace.py [run ...]
 """
@@ -31,7 +34,13 @@ TDIR = os.path.join(HERE, 'traces')
 GCC = os.environ.get('RISCV_GCC', r'C:\toolchains\xpack-riscv-none-elf-gcc-15.2.0-1\bin'
                                   r'\riscv-none-elf-gcc.exe')
 RUNS = {'saxpy1': ['KERN=0', 'N=8'], 'div': ['KERN=1', 'N=8'], 'saxpy92': ['KERN=0', 'N=92'],
-        'rules4': ['KERN=2', 'N=32']}
+        'rules4': ['KERN=2', 'N=32'],
+        # the one-warp SAXPY at other memory latencies: they check the latency model
+        # T = 3 Lambda + 49 of gen_phase_fig.py / check_phase_model.py
+        'saxpy1_l48': ['KERN=0', 'N=8', 'MEM_LAT=48'], 'saxpy1_l96': ['KERN=0', 'N=8', 'MEM_LAT=96'],
+        # the AMO example of the AMO figure (gen_amo_fig.py), in the three AMO variants
+        'amo_ser': ['KERN=3', 'N=8'], 'amo_par': ['KERN=3', 'N=8'], 'amo_lane': ['KERN=3', 'N=8']}
+DEFS = {'amo_par': ['SIMTIX_AMO_PAR=1'], 'amo_lane': ['SIMTIX_AMO_AGG=0']}
 
 
 def assemble(name):
@@ -51,14 +60,14 @@ def assemble(name):
 
 
 def main(argv):
-    for k in ('saxpy', 'divergence', 'issue_rules'):
+    for k in ('saxpy', 'divergence', 'issue_rules', 'amo_demo'):
         assemble(k)
     rx.INCDIRS.append('kernels/figs')
     os.makedirs(TDIR, exist_ok=True)
     for run in (argv or list(RUNS)):
         name = 'fig_' + run
         rx.TESTS[name] = ('tb_figtrace', rx.PS + ['tests/tb_figtrace.sv'], [], False, RUNS[run])
-        ok, msg = rx.run_test(name, defines=rx.B34 + ['SIMTIX_ISSUE_TRACE'])
+        ok, msg = rx.run_test(name, defines=rx.B34 + ['SIMTIX_ISSUE_TRACE'] + DEFS.get(run, []))
         print(f"{'PASS' if ok else 'FAIL'}  {run:8s} {msg}", flush=True)
         if not ok:
             return 1

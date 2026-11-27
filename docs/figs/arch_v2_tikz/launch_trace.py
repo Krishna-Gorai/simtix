@@ -16,6 +16,9 @@ SRC = os.path.join(ROOT, "kernels", "figs", "saxpy.S")
 N, L, NSLOT = 92, 8, 8
 BASES = [(0x10002000, 'a'), (0x10001000, 'y'), (0x10000000, 'x')]   # tb_figtrace.sv layout
 WS_RUN, WS_MEM, WS_DONE = 1, 2, 4                                    # warp_pool wstate_e
+# the three windows drawn cycle by cycle (gen_wave_col_fig.py) and marked on the overview
+# (gen_launch_fig.py): first cycle, last cycle, LaTeX label of the window's figure in the paper
+WINDOWS = [(9, 23, "fig:wavea"), (55, 69, "fig:waveb"), (97, 111, "fig:wavec")]
 
 
 def line_name(addr):

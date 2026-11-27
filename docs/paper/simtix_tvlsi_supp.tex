@@ -38,6 +38,37 @@ This document holds figures and measurements that support the paper but did not 
 its page budget. Tables, figures and sections without the prefix S are those of the
 paper.
 
+\section{The Launch and One Warp, Cycle by Cycle}\label{sup:cycles}
+Fig.~\ref{fig:fullwave} shows windows of the launch of Fig.~\ref{P-fig:launch} of the
+paper with all of their signals, one column per clock cycle: the warp that the spawner
+places, that fetch takes and that X issues, with its opcode; the eight warp slots; the
+L1's requests and tag lookups; the five AXI4 channels; and the register-file writes,
+over cycles 0 to 23, 44 to 67 and 96 to 119. Figs.~\ref{P-fig:wavea}
+to~\ref{P-fig:wavec} of the paper show the signals that matter in each window.
+Fig.~\ref{fig:pipechart} follows every instruction of the warp of
+Fig.~\ref{P-fig:pipe} of the paper through the pipeline stages: each row is an
+instruction and each box a cycle in a stage, from the fetch (F) to the register write
+(W), and the time axis leaves out three stretches in which only memory is busy. The
+circled numbers mark the waits of the critical path: the load of $y$ waits because the
+warp has two loads in flight, the FMA waits for $x$ and $y$, and the store holds the
+warp until DDR4 answers the write.
+
+\begin{figure*}[p]
+\centering
+\includegraphics[width=\textwidth]{simtix_launch_wave.pdf}
+\caption{Three windows of the launch of Fig.~\ref{P-fig:launch}, all signals, traced on
+the RTL.}
+\label{fig:fullwave}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{simtix_pipe.pdf}
+\caption{Every instruction of the warp of Fig.~\ref{P-fig:pipe} through the pipeline
+stages, traced on the RTL.}
+\label{fig:pipechart}
+\end{figure*}
+
 \section{Execution Time and Cycles of the Machines}\label{sup:ratios}
 Figs.~\ref{fig:rodinia} and~\ref{fig:rivec} give, for every Rodinia benchmark and
 RiVEC application at its largest input, the execution time of SIMTiX, CVA6, Ara,

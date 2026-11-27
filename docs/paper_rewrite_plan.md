@@ -260,3 +260,63 @@ User: "rewrite the paper focusing only on the important things". Paper 20 -> 13 
   L1 note rewritten. Text: host registers (three argument pointers, status/config/debug), one
   divide unit per eight lanes, Fig. 1 reading guide (I2C reads the 18 board power monitors,
   both clocks, key). Paper 18 pp.
+- Figure polish (2026-11-26, user: "make the other figures also look professional"): audited
+  Figs. 4-13 at 150-170 dpi. Plots (Figs. 9-13) already clean. Diagrams Figs. 4-8: removed the
+  dashed, rounded, gray-filled subfigure frames (panel style now invisible, layout unchanged),
+  matching Figs. 1-3; Fig. 8 "touched words" split over two lines off the store-data wire;
+  Fig. 4 "issue slot" right-aligned with the lane labels. Paper 18 pp, supplement 10 pp.
+- Waveforms in the style of a reference TCAS-I paper (2026-11-27, user: "see how the waveforms
+  have been made and properly fitted ... implement it"; chose the full rework):
+  - new Fig. 9 simtix_phase.pdf (gen_phase_fig.py, one column): the critical path of one SAXPY
+    warp as a phase-level timing diagram (clk with dotted gaps + T_clk, busy logic-1, the warp's
+    memory operations in flight, Opr. phases with lambda_1..lambda_9 and cycles, the second row
+    right to left joined by dotted arrows, T = 3 Lambda + 49 = 121 cycles); replaces the
+    full-width pipeline chart, which moved to the supplement (Fig. S2);
+  - latency model checked on the RTL: phase_model.py + check_phase_model.py, runs saxpy1,
+    saxpy1_l48, saxpy1_l96 (fig_trace.py): phases [5, L+8, 3, L+8, 3, 7, 2, L+8, 5], T = 121,
+    193, 337 = 3 Lambda + 49 exactly; load = 3 + 2 + (Lambda+1) + 1 + 1, store = 3 + 2 + 2 +
+    Lambda + 1; paper eqs. (lld), (twarp);
+  - Figs. 3-5 simtix_wave_{a,b,c}.pdf (gen_wave_col_fig.py, one column each, 15 cycles): the
+    signals that matter in each window + dashed callouts (vertical arrows to cell edges, no
+    label crossed); the full-page window figure moved to the supplement (Fig. S1);
+  - text: conventions + per-window walk-through rewritten for the new figures; Prop. 1 now
+    cites the wake phases lambda_3, lambda_5. Paper 17 pp, supplement 12 pp.
+- Fig. 8 (memory-level parallelism) redrawn (2026-11-27, user: "looking very odd ... make it
+  professional and updated with the text"), gen_mem_fig.py, one column: (a) the lane/word/line
+  table coloured by line + the coalescer as a 4-cycle waveform (clk, l1.req line 0/2/5/11,
+  lanes served); (b) the eight loads as a timing diagram, one row per request in flight, each
+  request a bus value issue->data, time axis in Lambda with a dashed grid: CVA6 one miss row
+  (lines 0, 2, 5, 11 in turn, ~4 Lambda), Ara req 0-3 with e0..e7 (~2 Lambda), SIMTiX req 0-3
+  one per line (~Lambda) + issue high (other warps); end markers per machine. Text updated
+  (l1.req/lanes rows; the (b) description). Figs. 8 and 9 now share the top of p. 7. Paper 17 pp.
+- Fig. 8(b) now has all five machines (2026-11-27, user: "also show it for vortex and fgpu"),
+  each from its RTL/build config: FGPU two line fills in flight (gmem_cntrl_tag N_WR_FIFOS = 2,
+  N_TAG_MANAGERS = 2), 128-byte lines (BURST_WORDS_W = 5) -> lines 0 (lanes 0,1,2,4,5),
+  1 (3,6), 2 (7): ~2 Lambda; Vortex 3.0 (vortex_syn zcu102_1c8w8t): VX_mem_unit coalescer
+  NUM_REQS 8 -> DCACHE_WORD_SIZE 16 B, two groups of four lanes, one merged request per group
+  per cycle (2 per cycle), D-cache 64-B lines, 16 MSHRs, one fill per new line: lines 0,1
+  (cycle 1), 2 (3), 5 (4): ~Lambda. Order CVA6, Ara, FGPU, Vortex, SIMTiX; the SIMTiX-only
+  issue row dropped (all three SIMT machines switch warps; said in the text). Text: Prop. 2(c)
+  bound adds 16/Lambda Vortex and 2/Lambda FGPU; the (b) description covers all five.
+- Fig. 2(b) window labels fixed (2026-11-27, user: "showing Fig. 3(a), 3(b), 3(c) but I can't
+  find them"): the bands still marked the old full-page windows (0-23, 44-67, 96-119). The
+  windows are now defined once (launch_trace.WINDOWS: 9-23, 55-69, 97-111 with their LaTeX
+  labels), used by gen_wave_col_fig.py and gen_launch_fig.py; the overview reads each window's
+  figure number from paper/simtix_tvlsi.aux, so the labels follow the numbering ("Fig. 3, 4,
+  5" now). Text: the windows are "shaded and labelled in Fig. 2(b)". Recompile the paper
+  before regenerating Fig. 2 after figures move.
+- Fig. 10 (AMO) redrawn (2026-11-27, user: outdated; proper conventions, every line connected,
+  nothing overlapping, a professional way to show the example's AMO instruction):
+  (a) datapath in three phase columns (group RD, apply AGG, write WR) with no wire crossings:
+      the word mux + data select became one lane-word crossbar (the RTL's per-lane word routing
+      in both directions: operand v = a_v to the ALU, old word x = a_old to the RF); store data
+      and AMO op run along the bottom; junction dots; context rows abut.
+  (b) new panel, the example: the instruction (amoadd.w t5, t4, (t3)) and its per-lane
+      semantics; a lane table (word, par round, returned t5); the line buffer after each round
+      with the write enables.
+  (c) the example traced on the RTL in the three variants (new fig_trace runs amo_lane / amo_ser
+      / amo_par, KERN 3 = kernels/figs/amo_demo.S; tb_figtrace.sv gained the AM trace event and
+      checks the final line AND every returned value, 16 checks, all pass): per lane 16
+      requests, warp resumes 108 cycles after the issue; ser 2 requests, 8 apply cycles, 73;
+      par 2 requests, 3 rounds, 68. Axis break over cycles 53-76 (the DDR4 line read).
+  Text: three paragraphs, one per panel; caption says "phases". Other traces re-run unchanged.

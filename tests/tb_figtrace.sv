@@ -8,6 +8,8 @@
 //   KERN 0  kernels/figs/saxpy.S       y[i] = a x[i] + y[i]
 //   KERN 1  kernels/figs/divergence.S  C[i] = (i >= 3 ? 2i + 1 : 0) + (i mod 4) + 1
 //   KERN 2  kernels/figs/issue_rules.S FPU chains (timing only: no result to check)
+//   KERN 3  kernels/figs/amo_demo.S    r[i] = C[idx[i]]++ by amoadd.w, idx = 3,3,5,0,3,5,7,1
+//           (the AMO variant is set by +define+SIMTIX_AMO_AGG / SIMTIX_AMO_PAR)
 // and its results are checked. Built with +define+SIMTIX_ISSUE_TRACE, the warp pool
 // writes issue_trace.txt (issues, pops, result writes); this testbench adds
 // fig_trace.txt with the other stages, on the same cycle count (cycles since GO):
@@ -22,6 +24,9 @@
 //   H <c> / U <c>                             L1 read hit / miss
 //   L <c> <tag> <addr> <we> / N <c> <tag>     the L1's request to the AXI4 master / reply
 //   AR, R, AW, W, BR <c> ...                  AXI4 handshakes
+//   AM <c> <phase> <round lanes> <left lanes>  a context inside an AMO read-modify-write:
+//                                             phase 0 read, 1 wait, 2 apply, 3 write;
+//                                             round lanes: those applied this cycle
 //   Z <c> <slot> <wstate> <sleep>             a slot's state changed (wstate: 0 empty, 1 run,
 //                                             2 parked on memory, 3 divide, 4 done, 5 barrier;
 //                                             sleep: asleep on the register scoreboard)
@@ -177,6 +182,11 @@ module tb_figtrace
             if (m_awvalid && m_awready) $fdisplay(ft_fd, "AW %0d %0d %08h", cyc, m_awid, m_awaddr);
             if (m_wvalid && m_wready)   $fdisplay(ft_fd, "W %0d %0d", cyc, m_wlast);
             if (m_bvalid && m_bready)   $fdisplay(ft_fd, "BR %0d %0d", cyc, m_bid);
+            if (|dut.u_accel.u_pool.u_mem.c_locked)
+                $fdisplay(ft_fd, "AM %0d %0d %b %b", cyc,
+                          dut.u_accel.u_pool.u_mem.c_ph[dut.u_accel.u_pool.u_mem.lock_c],
+                          dut.u_accel.u_pool.u_mem.a_step ? dut.u_accel.u_pool.u_mem.a_rnd : '0,
+                          dut.u_accel.u_pool.u_mem.a_left);
         end
     end
 
@@ -208,6 +218,18 @@ module tb_figtrace
         return int'(a[WORDS_LG+1:2]);
     endfunction
 
+    localparam logic [31:0] AMO_WORD [8] = '{3, 3, 5, 0, 3, 5, 7, 1};
+    function automatic logic [31:0] amo_count(input int w);
+        int n = 0;
+        for (int i = 0; i < 8; i++) if (AMO_WORD[i] == w) n++;
+        return n;
+    endfunction
+    function automatic logic [31:0] amo_ret(input int i);       // serial execution's return
+        int n = 0;
+        for (int j = 0; j < i; j++) if (AMO_WORD[j] == AMO_WORD[i]) n++;
+        return n;
+    endfunction
+
     task automatic chk(input string tag, input int i, input logic [31:0] got,
                        input logic [31:0] exp);
         checks++;
@@ -225,6 +247,7 @@ module tb_figtrace
         at = 0;  `include "saxpy.svh"
         at = 64; `include "divergence.svh"
         at = 96; `include "issue_rules.svh"
+        at = 112; `include "amo_demo.svh"
         repeat (4) @(posedge clk);
         rst = 0;
         for (int i = 0; i < 128; i++) axil_wr(16'h1000 + 16'(4*i), mem[i]);
@@ -233,11 +256,15 @@ module tb_figtrace
         for (int i = 0; i < N; i++) begin
             u_ddr.mem[widx(X_DDR + 32'(4*i))] = $shortrealtobits(shortreal'(i + 1));
             u_ddr.mem[widx(Y_DDR + 32'(4*i))] = $shortrealtobits(shortreal'(2 * i));
-            u_ddr.mem[widx(C_DDR + 32'(4*i))] = 32'hDEAD_BEEF;
+            u_ddr.mem[widx(C_DDR + 32'(4*i))] = (KERN == 3) ? 32'd0 : 32'hDEAD_BEEF;
         end
+        if (KERN == 3)                                         // the AMO example's words
+            for (int i = 0; i < 8; i++)
+                u_ddr.mem[widx(X_DDR + 32'(4*i))] = AMO_WORD[i];
         u_ddr.mem[widx(S_DDR)] = $shortrealtobits(shortreal'(2.0));
 
-        axil_wr(16'(REG_KERNEL_PC), (KERN == 0) ? 32'd0 : (KERN == 1) ? 32'd256 : 32'd384);
+        axil_wr(16'(REG_KERNEL_PC), (KERN == 0) ? 32'd0 : (KERN == 1) ? 32'd256 :
+                                    (KERN == 2) ? 32'd384 : 32'd448);
         axil_wr(16'(REG_BASE_A), X_DDR);
         axil_wr(16'(REG_BASE_B), Y_DDR);
         axil_wr(16'(REG_BASE_C), (KERN == 0) ? S_DDR : C_DDR);
@@ -250,7 +277,11 @@ module tb_figtrace
         axil_rd(16'(REG_CYCLES), cyc_total);
 
         for (int i = 0; i < N && KERN != 2; i++)
-            if (KERN == 0)
+            if (KERN == 3) begin
+                chk("C", i, u_ddr.mem[widx(C_DDR + 32'(4*i))], amo_count(i));
+                chk("r", i, u_ddr.mem[widx(Y_DDR + 32'(4*i))], amo_ret(i));
+            end
+            else if (KERN == 0)
                 chk("y", i, u_ddr.mem[widx(Y_DDR + 32'(4*i))],
                     $shortrealtobits(shortreal'(4 * i + 2)));
             else
