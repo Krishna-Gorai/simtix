@@ -24,7 +24,7 @@ from lat_sched import schedule
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "simtix_lat.tex")
 STEPS_CSV = os.path.join(HERE, "..", "..", "v3_steps.csv")
-STEPS = [("v2", ["v2 design (4 warps)"]),
+STEPS = [("v2", ["earlier design (4 warps)"]),
          ("b2s1_pipelined_units", ["+ pipelined units"]),
          ("b2s2_scoreboard", ["+ register scoreboard,", "sleeping warps"]),
          ("b2s3_nonblocking_loads", ["+ non-blocking loads"]),
@@ -82,7 +82,7 @@ def steps_data():
     return out, len(cases)
 
 
-def panel_a(o):
+def panel_a(o, sub=True):
     iss, st, fl = schedule(NCYC + 30, 4)             # past the window: names of held-back ops
     X0, CW, Y0, RH = 1.20, 0.56, 3.55, 0.62          # first cycle x, cell width, issue row y, row pitch
     PX = (-0.10, X0 + NCYC * CW + 0.25)
@@ -148,12 +148,13 @@ def panel_a(o):
         lx += 2.75
         o.append(r"\node[cell, text=red!70!black] at (%s,%s) {--};" % (f(lx + 0.12), f(ly)))
         o.append(r"\node[note, anchor=west] at (%s,%s) {no runnable warp};" % (f(lx + 0.30), f(ly)))
-    o.append(r"\node[subcap] at (%s,%s) {(a) Four warps under the issue rules (FPU result written 7 cycles after issue; load latency schematic)};"
-             % (f((PX[0] + PX[1]) / 2), f(-0.35)))
+    if sub:
+        o.append(r"\node[subcap] at (%s,%s) {(a) Four warps under the issue rules (FPU result written 7 cycles after issue; load latency schematic)};"
+                 % (f((PX[0] + PX[1]) / 2), f(-0.35)))
     return PX[1]
 
 
-def panel_b(o, xstart):
+def panel_b(o, xstart, sub=True):
     data, ncases = steps_data()
     PX = (xstart + 0.20, xstart + 0.20 + 6.75)
     o.append(r"\draw[panel] (%s,%s) rectangle (%s,%s);" % (f(PX[0]), f(-0.05), f(PX[1]), f(4.55)))
@@ -183,7 +184,8 @@ def panel_b(o, xstart):
         o.append(r"\node[cell] at (%s,%s) {%.2f};" % (f(cg), f(y), g))
         o.append(r"\node[cell, text=black!65] at (%s,%s) {%.2f--%.2f};" % (f(cr), f(y), lo, hi))
     # the steps are cumulative, over %d applications at board inputs: stated in the paper's text
-    o.append(r"\node[subcap] at (%s,%s) {(b) IPC after each step};" % (f((PX[0] + PX[1]) / 2), f(-0.35)))
+    if sub:
+        o.append(r"\node[subcap] at (%s,%s) {(b) IPC after each step};" % (f((PX[0] + PX[1]) / 2), f(-0.35)))
 
 
 def main():
@@ -194,6 +196,14 @@ def main():
     o.append(r"\end{document}")
     open(OUT, "w").write("\n".join(o) + "\n")
     print("wrote", OUT)
+    # each panel alone: (a) for the supplement, (b) as the paper's one-column figure
+    for name, draw in (("simtix_lat_a.tex", lambda o: panel_a(o, sub=False)),
+                       ("simtix_lat_b.tex", lambda o: panel_b(o, 0.0, sub=False))):
+        o = [PRE]
+        draw(o)
+        o += [r"\end{tikzpicture}", r"\end{document}"]
+        open(os.path.join(HERE, name), "w").write("\n".join(o) + "\n")
+        print("wrote", name)
 
 
 if __name__ == "__main__":

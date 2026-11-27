@@ -45,7 +45,7 @@ def main():
                         markerfacecolor=col, markeredgecolor="white", markeredgewidth=0.4,
                         zorder=3, label=mname if not xs and suite == "Apps" else None)
             xs.append(x)
-            labels.append(NAME.get(k, k))
+            labels.append(plot_style.bench_label(okey, k, NAME.get(k, k)))
             x += 1
         bounds.append((start, x - 1, title))
         x += 0.8

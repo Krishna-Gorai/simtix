@@ -15,7 +15,9 @@
 \usepackage{array}
 \usepackage{xcolor}
 \usepackage{url}
+\usepackage{xr-hyper}
 \usepackage[hidelinks]{hyperref}
+\externaldocument[S-]{simtix_tvlsi_supp}
 
 \graphicspath{{../figs/}}
 \newtheorem{theorem}{Theorem}
@@ -122,32 +124,22 @@ and efficiency (Sections~\ref{sec:machines}--\ref{sec:decomp}).
 The register-transfer-level (RTL) source, kernels, testbenches, Vortex port and
 scripts are available at \url{https://github.com/Krishna-Gorai/simtix}.
 
-The rest of this paper is organized as follows. Section~\ref{sec:related} reviews
-related work. Section~\ref{sec:arch} describes the architecture of SIMTiX and
-Section~\ref{sec:amo} its line-aggregated AMOs. Section~\ref{sec:impl} presents the
-implementation on the ZCU102. Section~\ref{sec:eval} compares SIMTiX with the four
-other machines on the board and evaluates its AMOs and its scaling to 16 lanes.
-Section~\ref{sec:disc} discusses the limitations, and Section~\ref{sec:concl} concludes
-the paper.
-
 %==============================================================================
 \section{Related Work}\label{sec:related}
 %==============================================================================
 FlexGrip~\cite{flexgrip} executes CUDA binaries on an FPGA, and FGPU~\cite{fgpu} is an
-OpenCL-programmed SIMT processor with a shared data cache, which we also build for our
-board (Section~\ref{sec:machines}). MIAOW~\cite{miaow} implements the AMD Southern
-Islands compute unit in RTL, Nyami~\cite{nyuzi} is a synthesizable GPU model, and
-Simty~\cite{simty} executes RISC-V with a generalized SIMT front end. eGPU~\cite{egpu}
-is a soft GPGPU of 16 scalar processors that reaches global data only through its
-shared memory. Vortex~\cite{vortex} extends
-RISC-V with instructions for warp control, divergence and barriers, and provides a
-multi-core GPGPU with L1 and L2 caches and an OpenCL stack. Ventus~\cite{ventus25}
-builds a GPGPU on the RISC-V vector extension. Like Vortex, SIMTiX runs one scalar
-RV32 thread per lane, but it
-needs no thread-control or divergence instructions: the hardware spawns the warps and
-a reconvergence stack detects divergence from the branch outcomes. The supplementary
-material compares the instruction sets. Of these designs, SIMTiX is closest to Vortex,
-which we therefore build for our board (Section~\ref{sec:machines}).
+OpenCL-programmed SIMT processor with a shared data cache. MIAOW~\cite{miaow} implements
+the AMD Southern Islands compute unit in RTL, Nyami~\cite{nyuzi} is a synthesizable GPU
+model, Simty~\cite{simty} executes RISC-V with a generalized SIMT front end, and
+eGPU~\cite{egpu} is a soft GPGPU of 16 scalar processors that reaches global data only
+through its shared memory. Vortex~\cite{vortex} extends RISC-V with instructions for
+warp control, divergence and barriers, and provides a multi-core GPGPU with L1 and L2
+caches and an OpenCL stack; Ventus~\cite{ventus25} builds a GPGPU on the RISC-V vector
+extension. Like Vortex, SIMTiX runs one scalar RV32 thread per lane, but it needs no
+thread-control or divergence instructions: the hardware spawns the warps and a
+reconvergence stack detects divergence from the branch outcomes (the supplementary
+material compares the instruction sets). We build Vortex, the closest design to
+SIMTiX, and FGPU for our board (Section~\ref{sec:machines}).
 
 GPUs execute global atomics in atomic units at the L2 cache~\cite{fermi}, and in the
 GPU model of~\cite{dab} the atomics of a warp that fall in one cache sector form one
@@ -176,27 +168,31 @@ reconvergence PC; MSHR: miss-status holding register.}
 A kernel is launched for $N$ threads. A \emph{warp} is a group of $L$ threads that
 execute one instruction together, one per \emph{lane}, and a \emph{block} is a group of
 $2^b$ warps that can synchronize at a barrier and share a scratchpad. $W$ warps are
-resident at a time; the board design has $W=8$ and $L=8$. Fig.~\ref{fig:arch} shows
-the board system and the accelerator by pipeline stage. Its upper part shows the
-processing system, with the A53 cores, the DDR4 controller and the I$^2$C controller
-that reads the board's 18 power monitors, and SIMTiX in the programmable logic, with
-the clocks of the eight- and 16-lane designs. Its lower part follows an instruction
-from left to right through the host interface, fetch (F), execute (X), the memory
-engine, and the L1 with the AXI4 master, the order of the subsections below; the key
-gives the drawing conventions: state as tables, units with one copy per lane as stacks,
-pipeline registers as black bars, and line-wide buses as thick arrows.
+resident at a time; the board design has $W=8$ and $L=8$. In the upper part of
+Fig.~\ref{fig:arch}, the four Cortex-A53 cores of the processing system (PS) reach
+SIMTiX, the module \texttt{simt\_ps\_top} in the programmable logic, through the PS
+master port M\_AXI\_HPM0\_FPD and an AXI SmartConnect; SIMTiX reaches DDR4 through the
+128-bit PS slave port S\_AXI\_HP0\_FPD, and an I$^2$C controller reads the board's 18
+power monitors. The lower part follows an instruction through the host interface, fetch
+(F), execute (X), the memory engine and the L1 with the AXI4 master. In the key, dashed boxes are pipeline stages, tables architectural
+state, green bars per-warp status masks, yellow boxes execution units, blue boxes
+control logic, red boxes memory arrays and the orange box the line-aggregated AMOs
+(Section~\ref{sec:amo}); stacks are units with one copy per lane, black bars pipeline
+registers and trapezoids multiplexers, thick arrows are line-wide buses, and a slash
+with a number gives a bus width in bits.
 
 \subsection{Host Interface}
-One Cortex-A53 core runs a bare-metal host program and reaches the accelerator over
-AXI4-Lite. The host writes the kernel into a 1,024-word instruction RAM and the launch
-parameters (kernel PC, three argument pointers, $N$, block size) into command registers,
-then writes GO; the \emph{dispatcher} invalidates the L1, starts the warps and sets DONE
-when the last warp finishes. The host then reads the cycle count and the L1's hits and
-misses from further registers, which also give an AXI4 error flag, the configuration
-(lanes, warps, L1 size) and a window of 64 debug words. Kernel data lives in DDR4, which the accelerator reaches
-through its AXI4 master and the 128-bit port S\_AXI\_HP0 of the processing system
-(PS). This port is not coherent with the A53 caches, so the host cleans its data cache
-before GO and invalidates it after DONE.
+One A53 core runs a bare-metal host program and reaches the accelerator's AXI4-Lite
+slave. It writes the kernel into a 1,024-word instruction RAM and the launch parameters
+into command registers: the kernel PC (KERNEL\_PC), three argument pointers (BASE\_A to
+BASE\_C) and $N$, which every thread finds in \texttt{a1} to \texttt{a4}, and the
+base-2 logarithm of the warps per block (BLOCK); then it writes GO into CTRL. The
+\emph{dispatcher} invalidates the L1 and starts the warps; STATUS shows BUSY until the
+last warp finishes and then DONE. Further registers give the cycle count (CYCLES), the
+L1's hits and misses (L1 HITS, MISSES), an AXI4 error flag (AXI ERROR), the
+configuration (CONFIG) and 64 debug words (DEBUG). The port to DDR4 is not coherent
+with the A53 caches, so the host cleans its data cache before GO and invalidates it
+after DONE.
 
 \begin{figure*}[t]
 \centering
@@ -208,36 +204,45 @@ before GO and invalidates it after DONE.
 \subsection{Fetch and Divergence}
 The \emph{spawner} places the $\lceil N/L\rceil$ warps one per cycle into free slots of
 the \emph{warp table}, so a slot is refilled as soon as its warp finishes; a block is
-spawned whole into a group of $2^b$ slots.
+spawned whole into a group of $2^b$ slots. Each slot holds the state of its warp and
+its base thread ID (base tid), the thread of lane 0. A warp runs (run), sleeps on the
+register scoreboard (asleep), is parked until memory acknowledges its store or AMO
+(store) or until the divide unit has served it, or waits at a barrier (barrier): a warp
+that executes \texttt{bar} waits until every other slot of its block holds a warp at
+the barrier, has finished or is empty. Three status masks of one bit per warp
+summarize the table for the scheduler: the runnable warps, the barrier arrivals, and
+the warps that are asleep or waiting.
 
 Figs.~\ref{fig:launch} to~\ref{fig:wavec} trace a launch on the RTL of the board design:
-SAXPY ($y_i=a\,x_i+y_i$) for $N=92$ threads, with a 24-cycle memory model. In
-Fig.~\ref{fig:launch}(a), one cell per thread, the 92 threads form 12 warps: lane $l$
-of warp $w$ runs thread $8w+l$, and the spawner masks lanes 4 to 7 of warp 11, whose
-threads 92 to 95 lie past $N$, for the whole launch. The table gives the start values
-of the registers of warp 11: the thread ID in \texttt{a0} and the launch arguments,
-the addresses of $x$, $y$ and $a$ and the count $N$, in \texttt{a1} to \texttt{a4}, the
-same in every lane, so the kernel spends no instruction on them.
+SAXPY ($y_i=a\,x_i+y_i$) for $N=92$ threads with a 24-cycle memory model. Thread $i$
+runs ten instructions: \texttt{bgeu}, which ends a thread with $i\ge N$; \texttt{flw},
+the load of $a$; \texttt{slli} and two \texttt{add}s for the addresses of $x_i$ and
+$y_i$; two \texttt{flw}s, their loads; the FMA \texttt{fmadd}; the store \texttt{fsw};
+and \texttt{ecall}. In Fig.~\ref{fig:launch}(a), lane $l$ of warp $w$ runs thread
+$8w+l$, and the spawner masks lanes 4 to 7 of warp 11, whose threads lie past $N$. The
+table gives the start values of the registers of warp 11: the thread ID in \texttt{a0}
+and the launch arguments in \texttt{a1} to \texttt{a4}, the same in every lane, so the
+kernel spends no instruction on them.
 
-The waveforms follow the conventions of a logic analyzer. A one-bit signal is high or
-low; a bus holds a value between two crossings, and a flat line in its middle means
-that it holds none. Fig.~\ref{fig:launch}(b) shows the whole launch: \texttt{busy};
-\texttt{issue}, high in each cycle in which a warp instruction issues; the eight warp
-slots, each a bus whose value is the warp in the slot from its spawn to its
-\texttt{ecall}, white while the warp can run, gray while it sleeps on the register
-scoreboard and orange while it is parked until memory acknowledges its store; the
-handshakes of the AXI4 read-address (\texttt{ar}), read-data (\texttt{r}),
-write-address (\texttt{aw}) and write-response (\texttt{b}) channels; and
-\texttt{done}. Figs.~\ref{fig:wavea} to~\ref{fig:wavec} show three windows of it, shaded
-and labelled in Fig.~\ref{fig:launch}(b), one column per clock cycle, each with the signals that matter in it: the warp that fetch
-takes (\texttt{fetch}) and that X issues (\texttt{issue}), with its opcode, hatched
-when the instruction is held back; the line request that the memory engine sends to
-the L1 (\texttt{l1.req}) and the result of its tag lookup (\texttt{l1.tag}), a miss or
-a join of a miss already in flight; the AXI4 read address and data (\texttt{axi.ar},
-\texttt{axi.r}); the register-file writes (\texttt{rf.wr}), green for a loaded value
-and yellow for an FPU result; and the warp slots. Requests and beats are named after
-their line, \texttt{x3} being the line of $x$ that warp 3 reads, and are blue for
-reads and orange for writes. The dashed callouts say what the values show.
+The waveforms follow the conventions of a logic analyzer: a bus holds a value between
+two crossings, a flat line in its middle means that it holds none, and warp $k$ is
+named \texttt{w}$k$. Fig.~\ref{fig:launch}(b) shows the whole launch: the BUSY flag
+(\texttt{busy}); \texttt{issue}, high in each cycle in which a warp instruction issues;
+the eight warp slots, each holding its warp from spawn to \texttt{ecall}, white while
+it can run, gray while it sleeps on the register scoreboard and orange while it is
+parked until memory acknowledges its store; the handshakes of the AXI4 read-address
+(\texttt{ar}), read-data (\texttt{r}), write-address (\texttt{aw}) and write-response
+(\texttt{b}) channels; and the DONE flag (\texttt{done}). Figs.~\ref{fig:wavea}
+to~\ref{fig:wavec} show the three windows shaded in Fig.~\ref{fig:launch}(b), one
+column per cycle of the clock (\texttt{clk}): the warp that fetch takes
+(\texttt{fetch}) and that X issues (\texttt{issue}) with its instruction
+(\texttt{opcode}), hatched when held back; the memory engine's line request to the L1
+(\texttt{l1.req}) and its tag lookup (\texttt{l1.tag}), a miss or a join of a miss in
+flight; the AXI4 read address and data (\texttt{axi.ar}, \texttt{axi.r}); and the
+register-file writes (\texttt{rf.wr}), green for a loaded value and yellow for an FPU
+result. Requests and beats are named after their line, \texttt{x3} being the line of
+$x$ that warp 3 reads, blue for reads and orange for writes; dashed callouts say what
+the values show.
 
 \begin{figure}[t]
 \centering
@@ -246,15 +251,11 @@ reads and orange for writes. The dashed callouts say what the values show.
 \label{fig:wavea}
 \end{figure}
 
-The spawner places warps 0 to 7 in slots 0 to 7 in cycles 0 to 7
-(Fig.~\ref{fig:launch}(b)), and each slot holds its warp from the next cycle. Fetch takes
-the warps in turn from cycle 1, and X issues each one a cycle later, so the eight warps
-issue their \texttt{bgeu} in cycles 2 to 9, their load of $a$ in cycles 10 to 17 and
-their \texttt{slli} from cycle 18 (Fig.~\ref{fig:wavea}): one warp instruction in every
-cycle. A load reaches the L1 three cycles after it issues, so the eight requests for
-the line of $a$ arrive in cycles 13 to 20. The first misses in cycle 14 and leaves as
-one AXI4 read in cycle 15; each of the other seven finds that miss in flight and joins
-it, so one read serves the eight loads.
+The spawner fills slots 0 to 7 with warps 0 to 7 in cycles 0 to 7. Fetch takes the
+warps in turn from cycle 1 and X issues each a cycle later, one warp instruction per
+cycle: the \texttt{bgeu}s in cycles 2 to 9 and the loads of $a$ in cycles 10 to 17
+(Fig.~\ref{fig:wavea}). Their eight requests reach the L1 in cycles 13 to 20; the
+first misses and leaves as one AXI4 read in cycle 15, and the other seven join it.
 
 \begin{figure}[t]
 \centering
@@ -264,15 +265,11 @@ it, so one read serves the eight loads.
 \end{figure}
 
 The line of $a$ returns in cycles 40 and 41 and is written to \texttt{f0} of one warp
-per cycle in cycles 42 to 49, as the L1 answers one request per cycle. Meanwhile the
-warps issue their loads of $x$, up to cycle 49, and of $y$, in cycles 50 to 57. These
-lines differ for every warp and miss (Fig.~\ref{fig:waveb}): the L1 forwards one miss
-every other cycle, the AXI4 read addresses leave at the same pace, and 14 reads are in
-flight by cycle 75. From cycle 58, each warp's next instruction, the FMA, reaches X
-while its $x$ and $y$ are still on their way: it is held back, the issue slot of that
-cycle is lost, and the warp falls asleep, so that \texttt{asleep}, the number of
-sleeping warps, rises from 1 in cycle 59 to 8 in cycle 66. No instruction issues from
-cycle 58 to 100.
+per cycle. Meanwhile the loads of $x$ and $y$, whose lines differ for every warp, miss
+(Fig.~\ref{fig:waveb}); one AXI4 read leaves every other cycle, and 14 are in flight by
+cycle 75. From cycle 58 each warp's FMA reaches X before its $x$ and $y$: it is held
+back, the issue slot is lost, and the warp falls asleep, so \texttt{asleep}, the number
+of sleeping warps, rises to 8 by cycle 66, and nothing issues until cycle 101.
 
 \begin{figure}[t]
 \centering
@@ -281,26 +278,18 @@ cycle 58 to 100.
 \label{fig:wavec}
 \end{figure}
 
-The lines of $x$ and $y$ return from cycle 72, each as two 128-bit read beats, one
-line every three cycles. One cycle after the last beat of a line, its value is written
-to the register of its warp, which wakes (Fig.~\ref{fig:wavec}). The line of $y$ for
-warp 0 arrives in cycles 96 and 97 and is written to its \texttt{f2} in cycle 98; warp
-0 is fetched in cycle 100 and issues its FMA in cycle 101. Its store, fetched next, is
-held back in cycle 103 until the FPU writes the FMA's result to \texttt{f2} in cycle
-108, seven cycles after the FMA issued. The store issues in cycle 110, and slot 0 turns
-orange from cycle 111: the warp is parked until memory acknowledges the store, whose
-line request reaches the L1 in cycle 113 and, as the L1 writes through, leaves as an
-AXI4 write in cycles 115 to 117. The other warps follow as their lines return.
+The lines of $x$ and $y$ return from cycle 72, one every three cycles as two 128-bit
+beats, and each wakes its warp as it is written (Fig.~\ref{fig:wavec}). Warp 0's $y$ is
+written to \texttt{f2} in cycle 98, and the warp issues its FMA in cycle 101. Its store
+is held back in cycle 103 until the FMA's result is written in cycle 108, seven cycles
+after issue; it issues in cycle 110, and slot 0 turns orange: the warp is parked until
+memory acknowledges the store, which, as the L1 writes through, leaves as an AXI4 write
+in cycles 115 to 117.
 
-Fig.~\ref{fig:launch}(b) shows these phases over the whole launch: \texttt{issue} is
-high from cycle 2 to 57, the slots are gray while the warps wait for $x$ and $y$ and
-orange while their stores are in flight, and warp 0's store is acknowledged in cycle
-141. Warps 0 to 7 end between cycles 145 and 175; each slot that empties takes the
-next warp at once, so warp 8 enters slot 0 in cycle 146 and warp 10 enters slot 7
-before slots 2 to 6 are free. The last four warps go through the same phases with no
-other warps to cover their memory latency, and \texttt{issue} stays mostly low until
-\texttt{done} rises in cycle 271, after 120 warp instructions, an IPC of 0.44. In all,
-25 AXI4 reads serve the 36 loads: one for each line of $x$ and $y$, and one for $a$.
+Over the whole launch (Fig.~\ref{fig:launch}(b)), \texttt{issue} is high from cycle 2
+to 57, and each slot that empties takes the next warp at once. The last four warps have
+no others to cover their memory latency, and \texttt{done} rises in cycle 271, after
+120 warp instructions, an IPC of 0.44; 25 AXI4 reads serve the 36 loads.
 
 Each warp has a \emph{reconvergence
 stack}~\cite{fung,aamodt} whose frames hold a PC, a reconvergence PC (RPC) and an
@@ -327,34 +316,9 @@ single loop whose trip count differs per lane can use every frame
 (Section~\ref{sec:evallanes}). A \emph{round-robin scheduler} selects the next runnable
 warp, and the \emph{fetch} block reads the instruction at the PC of its top frame.
 
-Fig.~\ref{fig:div} traces one warp on the RTL through the kernel of
-Fig.~\ref{fig:div}(a): a one-sided \texttt{if} and a loop whose trip count differs per
-lane. In Fig.~\ref{fig:div}(b) each column is one issue slot of the warp and each row a
-lane: a filled cell is an active lane, coloured by the number of frames on the stack, a
-white cell a masked lane, and a hatched cell a lane of a frame that pops; the two
-tables give the PC, RPC and lanes of every frame at two points. The \texttt{bnez} of
-cycle 4 is taken by lanes 0 to 2, so stage B pushes a frame of lanes 3 to 7 with the
-branch target 0x110 as RPC, and the frame below waits at 0x110 with all eight lanes
-(first table). Lanes 3 to 7 run the body in cycles 7 and 9; in cycle 11 the top frame's
-PC reaches its RPC and the frame pops, which takes the issue slot, and the warp goes on
-with all lanes. In the loop, lane $l$ runs $(l\bmod 4)+1$ iterations. The
-\texttt{bgez} that ends the first iteration keeps lanes 1 to 3 and 5 to 7 in the loop
-and pushes them, while the frame below waits at the exit 0x120; the second and third
-iterations push again, each time without the two lanes that leave, so in cycle 35 the
-stack holds four frames (second table), one per distinct trip count, as
-Theorem~\ref{thm:stack} allows. In the fourth iteration the last two lanes leave
-together, a uniform branch that pushes nothing; the three pushed frames then pop in
-cycles 43, 45 and 47, and in cycle 49 the warp runs with all eight lanes again. Up to
-this point the warp takes 22 issue slots for its 18 instructions, and its lanes are
-active in 102 of the 144 lane slots of these instructions, a lane utilization of 0.71
-(Section~\ref{sec:evallanes}).
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{simtix_div.pdf}
-\caption{Divergence and reconvergence of one warp, traced on the RTL.}
-\label{fig:div}
-\end{figure*}
+The supplementary material traces one warp on the RTL through a one-sided
+\texttt{if} and a loop whose trip count differs per lane, with its stack at every
+issue slot (Fig.~\ref{S-fig:div}).
 
 \subsection{Issue and Execute}
 The decoder accepts RV32I, the RV32M \texttt{mul}, the RV32A AMOs without
@@ -362,43 +326,38 @@ load-reserved and store-conditional, the FP32 and FP16 instructions, a few
 instructions of Zba, Zbb and Zicond that shorten address and selection code, and three
 custom instructions: \texttt{pdot8}, a dot product of four INT8 pairs;
 \texttt{shfl.\{idx,up,down,xor\}}; and \texttt{bar}. The integer and floating-point
-register files (RFs) hold 32 registers per thread in distributed RAM built from lookup
-tables (LUTs), called LUTRAM, one bank
-per lane; moving them from flip-flops, which need a 128-to-1 multiplexer per lane and
-read port, reduced the LUTs of the integer accelerator from 170,868 to 30,088. A
+register files (RFs) hold 32 registers per thread, \texttt{r0} to \texttt{r31} and
+\texttt{f0} to \texttt{f31}, in distributed RAM built from lookup
+tables (LUTs), called LUTRAM, one bank per lane. A
 register not yet written in a launch reads its initial value (the thread ID, the launch
 arguments or zero), so no cycles are spent clearing the RFs.
 
-The \emph{ALU} of each lane executes the integer instructions and computes addresses;
-a branch updates the reconvergence stack one cycle after execution (B in
-Fig.~\ref{fig:arch}). All other units are pipelined and accept a warp instruction
-every cycle; a \emph{result queue} holds finished results until the RF write port is
-free. A \emph{register scoreboard} marks, per warp, the registers whose values are
-still in a unit or its queue. An instruction that reads or writes a marked register is
-held back, which costs its issue slot, and its warp sleeps, without taking further
+The decoder dispatches each instruction through the dispatch multiplexer to its unit,
+and the results multiplexer collects the units' results. The \emph{ALU} of each lane
+executes the integer instructions and computes addresses; a branch updates the
+reconvergence stack one cycle after execution, in stage B of Fig.~\ref{fig:arch}, which
+retargets the PC of the top frame, pushes a frame or pops one. All other units are
+pipelined and accept a warp instruction every cycle; a \emph{result queue} (RQ) holds
+finished results until the RF write port is free. Each lane's RF bank has one write
+port, which the \emph{write arbiter} gives to the memory engine's load write-back
+first; the result queues then hold their results, and an ALU instruction whose write
+loses re-issues in the next cycle. A \emph{register scoreboard} marks, per warp, the
+registers whose values are still in a unit or its queue. An instruction that reads a
+marked register, as a source \texttt{rs1}, \texttt{rs2} or the FMA's third source
+\texttt{rs3}, or writes one is held back, which costs its issue slot, and its warp
+sleeps, without taking further
 slots, until one of its results is written. A warp thus continues with independent
 instructions while its results are pending, and these rules bound the issue rate.
-Fig.~\ref{fig:lat}(a) shows four warps under these rules, with the FPU result
-written seven cycles after issue and a schematic load latency. Its top row gives the
-warp whose instruction is in X in each cycle; the row of each warp shows its issued
-instructions, the cycles in which an instruction is held back or the warp sleeps, and
-each result from its issue to its write. In cycles 0 to 3 each warp issues its first
-instruction. In cycle 4 the second FMA of warp 0 reaches X while the first FMA's result
-is still in the FPU, to be written in cycle 7, so it is held back, its slot is lost,
-and warp 0 sleeps until the write. Warps 3 and 1 lose cycles 7 and 8 in the same way,
-waiting for the FMUL and the load, and warp 0 loses cycle 13 to its third FMA. The
-independent integer instructions of warp 2 and the instructions of woken warps take
-the other slots; a load does not stop its warp, as warp 1 issues its \texttt{addi} in
-cycle 5 while its load is in flight. Four of the 17 issue slots are thus lost, each to
-a held-back instruction. As a cycle model, these rules reproduce the RTL's issue trace
+The supplementary material draws four warps under these rules
+(Fig.~\ref{S-fig:lat4}); as a cycle model, the rules reproduce the RTL's issue trace
 of a four-warp test kernel cycle by cycle.
 
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\includegraphics[width=\textwidth]{simtix_lat.pdf}
-\caption{Latency tolerance in the issue stage.}
+\includegraphics{simtix_lat_b.pdf}
+\caption{IPC as each latency-tolerance mechanism is added.}
 \label{fig:lat}
-\end{figure*}
+\end{figure}
 
 \begin{proposition}\label{prop:ipc}
 Let $d_w$ be the least mean distance, in cycles, between consecutive issues of warp $w$
@@ -430,49 +389,55 @@ delay the dependent instruction's fetch until its operand is written. A warp tha
 alone fetches it too early: the instruction is held back, and the warp is fetched again
 only after the write, so a chain of dependent FMAs alone issues every nine cycles
 (the wake phases $\lambda_3$ and $\lambda_5$ of Fig.~\ref{fig:pipe} take three cycles each). A deeper pipeline raises every $d_w$ and needs more warps
-for the same IPC: Vortex, whose FMA takes 16 cycles, reaches its highest IPC of the configurations
-we built with 16 warps (Section~\ref{sec:evalvortex}). Fig.~\ref{fig:lat}(b) gives the IPC after
+for the same IPC, as Vortex shows (Section~\ref{sec:evalvortex}). Fig.~\ref{fig:lat} gives the IPC after
 each mechanism is added to our earlier design, one at a time, on eight applications
 with the board's inputs and an AXI4 memory model of 24 cycles (geometric mean and
 range over the applications). The instruction count is the same in every step, so
 the IPC measures the latency hidden: it rises from 0.47 to 0.78, and the cycles fall
 by $1.11\times$ with pipelined units, $1.07\times$ more with the scoreboard and sleeping
 warps, $1.08\times$ with non-blocking loads, $1.15\times$ with eight warps instead of
-four and $1.13\times$ with 16 miss-status holding registers and a 64~KiB L1,
+four and $1.13\times$ with 16 miss-status holding registers, 16 tags and a 64~KiB L1,
 $1.68\times$ in all.
 
 Each lane has a pipelined integer multiplier on digital signal processing (DSP)
 blocks, an INT8 dot-product unit
 and a five-stage FP32/FP16 unit (\emph{FPU}) with a $24\times24$ significand multiplier
-on DSP blocks. FP16 operations use the FP32 datapath; an FMA with an FP16 destination
-rounds to odd at FP32 precision, so that every FP16 result is correctly rounded (the
-supplementary material gives the proof and the 216,973 test vectors). Two units are
+on DSP blocks. FP16 operations use the FP32 datapath, and every FP16 result is correctly rounded
+(supplementary material). Two units are
 shared by the lanes: a \emph{shuffle crossbar} for warp reductions and scans, and one
 digit-recurrence divide and square-root unit per eight lanes, through which the active
 lanes pass in turn (a unit per lane would cost 3.7k LUTs).
 
 \subsection{Memory Engine}
 A load, store or AMO leaves the execute stage with the addresses and data of all lanes
-and enters a free \emph{context} of its warp; there are two contexts per warp, 16 in
-all, so a warp waiting for memory does not block the others. A load does not stop its
+and enters a free \emph{context} of its warp, which holds the addresses, the store
+data and the pending lanes; there are two contexts per warp, 16 in all (\texttt{ctx} 0
+to 15 in Fig.~\ref{fig:arch}), so a warp
+waiting for memory does not block the others. A load does not stop its
 warp: its destination register stays marked in the scoreboard until it completes. Each
 cycle the \emph{coalescer} takes one context in rotating order and sends one line
 request for its lowest pending lane together with every pending lane whose address
 lies in the same line. In Fig.~\ref{fig:mem}(a), whose table gives each lane's word and
 line, coloured by line, the eight lanes of a gather address four lines, so the
-coalescer sends four line requests in four cycles (\texttt{l1.req}), each serving the
-lanes below it (\texttt{lanes}). A store merges the bytes of
+coalescer sends four line requests in four cycles of the clock (\texttt{clk}) to the
+L1 (\texttt{l1.req}), each serving the lanes below it (\texttt{lanes}). A store merges the bytes of
 these lanes into the line under byte enables. Each request carries one of 16 tags, and responses may return in any
-order. A context finishes when no lane is pending and every response has returned.
+order. For a load, the load return extracts the word of each served lane from the
+returning line and writes it to the lane's register. A context finishes when no lane
+is pending and every response has returned; a finished store or AMO resumes its parked
+warp.
 An AMO is a read and a write of one line, and its context holds the request port from
 the read to the write (Section~\ref{sec:amo}). Two address apertures go to a LUTRAM
-\emph{scratchpad} instead, private per warp or shared by a block.
+\emph{scratchpad} instead: 64 words private to each warp, and a region shared by a
+block.
 
 \subsection{L1 Data Cache and AXI4 Master}\label{sec:l1}
-The L1 holds 64~KiB in four ways, with the memory engine's line of one word per lane
-(32 bytes at eight lanes). The tags are in LUTRAM and the data in 16 block RAMs; a hit
-answers two cycles after its grant. A miss allocates one of 16 miss-status holding
-registers (\emph{MSHRs}), which later misses to the same line join. The cache writes
+The L1 holds 64~KiB in 512 sets of four ways, with the memory engine's line of one
+word per lane (32 bytes at eight lanes). Line requests enter it through an input
+register. The tags are in LUTRAM and the data in 16 block RAMs; a hit answers two
+cycles after its grant. A miss allocates one of 16 miss-status holding registers
+(\emph{MSHRs}), which holds the line and the tags of the requests waiting for it; later
+misses to the same line join it. The cache writes
 through without allocating on a write miss, so DDR4 holds every result at DONE. The
 \emph{AXI4 master} turns a line request into a burst of $32L/128$ beats, and a read uses
 its request tag as AXI ID. AXI4 orders only the transactions of one ID, and the PS
@@ -506,8 +471,6 @@ it returned. If $v$ hits, the invariant gives a line that includes $u$; if $v$ m
 \label{fig:mem}
 \end{figure}
 
-Up to 16 line requests, from any warps, are thus in flight at once, while the
-scoreboard lets the warps whose operands are ready keep issuing.
 
 \begin{proposition}\label{prop:mlp}
 (a) A memory instruction whose $k$ active lanes access $g$ distinct lines costs $g$
@@ -531,20 +494,18 @@ not: the 16 bins of a histogram occupy $R=2$ lines, so eight lanes touch
 $\mathbb{E}[g]=1.99$ lines, while a gather into $R=65{,}536$ lines touches 7.9996. For
 such gathers each request brings one useful word, and part (c) bounds the useful words
 per cycle by $16/\Lambda$ for SIMTiX and Vortex, against $4/\Lambda$ for Ara,
-$2/\Lambda$ for FGPU and $1/\Lambda$ for CVA6. Fig.~\ref{fig:mem}(b) draws the eight
-loads of Fig.~\ref{fig:mem}(a) on each machine as a timing diagram, with one row per
-request in flight and each request a bus value from its issue to its data, on a time
-axis in units of the latency $\Lambda$ of one memory request; a vertical line marks
-when each machine has all eight words. CVA6 has one miss in flight and takes the lanes
-in order, so lines 0, 2, 5 and 11 miss one after another and the other four loads hit,
-about $4\Lambda$. Ara sends one request per element, $e_0$ to $e_7$, with at most four
-in flight, about $2\Lambda$. FGPU's 128-byte lines hold the eight words in three lines,
-but it fills only two lines at a time, so the third waits for a fill to finish, about
-$2\Lambda$. Vortex merges the lanes of each group of four that fall in one 16-byte word
-and sends two requests per cycle to its L1, whose 16 MSHRs start one fill for each of
-the four 64-byte lines and merge the other requests into them, about $\Lambda$. SIMTiX
-sends its four line requests in four cycles, also about $\Lambda$. On the three SIMT
-machines, the other warps keep issuing meanwhile.
+$2/\Lambda$ for FGPU and $1/\Lambda$ for CVA6. Fig.~\ref{fig:mem}(b) draws the eight loads of
+Fig.~\ref{fig:mem}(a) on each machine as a timing diagram, one row per request that can
+be in flight (\texttt{miss} on CVA6, \texttt{req}~$k$ on Ara and SIMTiX,
+\texttt{fill}~$k$ on FGPU and Vortex), each request a bus value from its issue to its
+data, on a time axis in units of the latency $\Lambda$ of one request (a cycle drawn
+short); a vertical line marks when a machine has all eight words. CVA6 misses on lines
+0, 2, 5 and 11 one after another, about $4\Lambda$. Ara sends one request per element,
+$e_0$ to $e_7$, four at a time, about $2\Lambda$. FGPU's 128-byte lines hold the words
+in three lines, but it fills two at a time, about $2\Lambda$. Vortex merges the lanes
+of each group of four in one 16-byte word, and its 16 MSHRs fill the four 64-byte lines
+at once, about $\Lambda$, like SIMTiX's four line requests. On the SIMT machines, the
+other warps keep issuing meanwhile.
 
 \begin{figure}[t]
 \centering
@@ -553,41 +514,39 @@ machines, the other warps keep issuing meanwhile.
 \label{fig:pipe}
 \end{figure}
 
-Fig.~\ref{fig:pipe} follows one warp of SAXPY, running alone, along its critical path on
-the RTL, with the 24-cycle memory model of Fig.~\ref{fig:launch}. It shows the clock,
-drawn cycle by cycle except in the middle of the memory phases (dots); \texttt{busy};
-the warp's memory operations in flight; and the phases of the critical path
-(\textit{Opr.}), each with its latency $\lambda_k$ above it and its cycles below. The
-timeline continues on the second row from right to left, as the dotted arrows show.
-The warp issues \texttt{bgeu} and its load of $a$ by cycle 5 ($\lambda_1$). Its loads of
-$a$ and $x$ then occupy both of its contexts, so the load of $y$ waits until the load
-of $a$ has returned ($\lambda_2$) and the warp has woken, been fetched and issued it
-($\lambda_3$). The FMA waits for $y$ in the same way ($\lambda_4$, $\lambda_5$) and
-takes seven cycles ($\lambda_6$); the store issues two cycles after the FMA's result
-($\lambda_7$) and parks the warp until memory acknowledges the write ($\lambda_8$), and
-the \texttt{ecall} ends the launch ($\lambda_9$). A load takes
+Fig.~\ref{fig:pipe} follows one warp of SAXPY, running alone with the 24-cycle memory
+model, along its critical path on the RTL. It shows the clock (\textit{clk}, period
+$T_{\mathit{clk}}=8.67$~ns), drawn cycle by cycle except in the middle of the memory
+phases (dots); \textit{busy}, at logic 1 for the whole launch; the warp's memory
+operations \textit{in flight}; and the phases of the critical path (\textit{Opr.}) with
+their latencies $\lambda_k$ above and cycles below: hexagons for the start and the end,
+dashed boxes for memory round trips and ovals for the warp's own execution. The
+timeline continues on the second row from right to left. The warp issues \texttt{bgeu}
+and its load of $a$ by cycle 5 ($\lambda_1$). Its loads of $a$ and $x$ then occupy both
+of its contexts, so the load of $y$ waits until the load of $a$ has returned
+($\lambda_2$) and the warp has woken, been fetched and issued it ($\lambda_3$). The FMA
+waits for $y$ in the same way ($\lambda_4$, $\lambda_5$) and takes seven cycles
+($\lambda_6$); the store issues two cycles after the FMA's result ($\lambda_7$) and
+parks the warp until memory acknowledges the write ($\lambda_8$), and the
+\texttt{ecall} ends the launch ($\lambda_9$). A load takes
 \begin{equation}
 \lambda_{\mathrm{ld}} = 3 + 2 + (\Lambda+1) + 1 + 1 = \Lambda + 8
 \label{eq:lld}
 \end{equation}
 cycles from its issue to its register write: three to reach the L1 through a context
 and the coalescer, two for the tag lookup and the miss, $\Lambda+1$ from the AXI4 read
-address to the first 128-bit beat, one for the second beat, and one to return the line
-and write the register. A store takes as many to its write response: three, two, two
-for its address and its two data beats, $\Lambda$, and one. The launch therefore ends
-after
+address to the first 128-bit beat, one for the second beat, and one to write the
+register; a store takes as many to its write response. The launch therefore ends after
 \begin{equation}
 T = \sum_{k=1}^{9}\lambda_k = 3(\Lambda+8) + 25 = 3\Lambda + 49
 \label{eq:twarp}
 \end{equation}
-cycles: three memory round trips, and 25 cycles of issue, wake-up and the FPU. For
-$\Lambda = 24$ this is the 121 cycles of the trace, and the same kernel traced with
-memory latencies of 48 and 96 cycles ends after 193 and 337 cycles, as
-(\ref{eq:twarp}) predicts, every phase taking the cycles of Fig.~\ref{fig:pipe}. The
-warp issues ten instructions in 121 cycles; the rest is memory latency that only other
-warps can fill: in Figs.~\ref{fig:launch} to~\ref{fig:wavec}, twelve warps of the same
-kernel issue 120 instructions in 271 cycles. The supplementary material follows every
-instruction of this warp through the pipeline stages, cycle by cycle.
+cycles: three memory round trips and 25 cycles of issue, wake-up and the FPU. This is
+the 121 cycles of the trace at $\Lambda=24$, and traces at 48 and 96 cycles end after
+193 and 337 cycles, as (\ref{eq:twarp}) predicts. The warp issues ten instructions in
+121 cycles; the rest is memory latency that only other warps can fill, as twelve warps
+issue 120 instructions in 271 cycles (Fig.~\ref{fig:launch}). The supplementary
+material follows this warp through the pipeline stages, cycle by cycle.
 
 %==============================================================================
 \section{Line-Aggregated Atomic Memory Operations}\label{sec:amo}
@@ -596,17 +555,13 @@ With one read-modify-write per lane, an AMO whose $k$ active lanes fall in one l
 costs $k$ reads and $k$ writes, and behind a write-through L1 every write travels to
 DDR4. We aggregate the lanes by line instead. Let $P$ be the pending lanes of an AMO
 context, $a_i$ the address of lane $i$, and $\ell=\min P$ the lead lane. The engine
-forms the group $G=\{i\in P:\mathrm{line}(a_i)=\mathrm{line}(a_\ell)\}$ and
-\begin{enumerate}
-\item reads the line once into a line buffer;
-\item applies the lanes of $G$ to the buffer in \emph{rounds}: a round applies every
-remaining lane $i\in G$ for which no lower remaining lane of $G$ addresses the same
-word; an applied lane receives the old word, and the buffer word is replaced by the
-AMO's new value;
-\item writes the line back with one request whose byte enables cover the changed
-words; and
-\item removes $G$ from $P$ and repeats while $P$ is not empty.
-\end{enumerate}
+forms the group $G=\{i\in P:\mathrm{line}(a_i)=\mathrm{line}(a_\ell)\}$. It 1) reads
+the line once into a line buffer; 2) applies the lanes of $G$ to the buffer in
+\emph{rounds}, a round applying every remaining lane $i\in G$ for which no lower
+remaining lane of $G$ addresses the same word, so that an applied lane receives the old
+word and the buffer word is replaced by the AMO's new value; 3) writes the line back
+with one request whose byte enables cover the changed words; and 4) removes $G$ from
+$P$ and repeats while $P$ is not empty.
 An RV32A AMO with operand $v_i$ replaces the word $x$ at $a_i$ by $f(x,v_i)$ and returns
 $x$ to lane $i$. Its \emph{serial} execution applies the active lanes one at a time in
 ascending lane order.
@@ -634,7 +589,10 @@ $m_G=\max_w|\{i\in G:\mathrm{word}(a_i)=w\}|$ in the parallel variant.
 \end{corollary}
 
 The aggregation needs no change to the kernel and no assumption that the operation
-commutes: swap, minimum and maximum keep their serial results.
+commutes: swap, minimum and maximum keep their serial results. We implemented two
+variants as a build parameter. The serial variant (\emph{ser}) has one AMO ALU and
+applies the lowest remaining lane in each cycle; the parallel variant (\emph{par}) has
+one ALU per word and applies a whole round per cycle.
 
 \begin{figure*}[t]
 \centering
@@ -644,39 +602,37 @@ phases of the locked context.}
 \label{fig:amo}
 \end{figure*}
 
-Fig.~\ref{fig:amo}(a) shows the datapath, with one column per phase of the locked
-context. In the group phase the lead lane $\ell$ and $L$ line comparators form $G$, and
-the read of the line of $\ell$ takes the request port. When the line returns, the line
-buffer takes it and the remaining-lanes mask takes $G$. In each apply cycle the round
-select picks the lanes of the round, with $L(L{-}1)/2$ compares of word offsets, and
-clears them from the remaining lanes. A lane--word crossbar, steered by the word
-offsets, carries the store data of each round lane to its word as the operand $v$ of an
-AMO ALU, and carries the old word $x$ back to the lane, which writes it to the RF; the
-ALU writes $f(x,v)$ into the buffer. The touched words become the byte enables of the
-one masked write. The state diagram under the datapath gives the four phases.
+Fig.~\ref{fig:amo}(a) shows the datapath, one column per phase of the locked context,
+which holds the pending lanes, the addresses, the store data and the AMO operation (AMO
+op). In the group phase the lead lane $\ell$ and $L$ line comparators form $G$, and the
+read of the line of $\ell$ takes the request port. The returning line fills the line
+buffer, w0 to w7 at eight lanes, and $G$ the remaining-lanes mask. In each apply cycle
+the round select picks the round's lanes with $L(L{-}1)/2$ compares of word offsets and
+clears them; a lane--word crossbar, steered by the offsets, carries each round lane's
+store data to its word as the operand $v$ of an AMO ALU and the old word $x$ back to
+the lane's register, and the ALU writes $f(x,v)$ into the buffer. The touched words
+become the byte enables of the one masked write; the state diagram gives the four
+phases.
 
-Fig.~\ref{fig:amo}(b) is an example: one \texttt{amoadd.w} of a warp whose eight lanes
-add 1 to words of one line, lanes 0, 1 and 4 to word 3 and lanes 2 and 5 to word 5. The
-parallel variant applies it in three rounds: lanes 0, 2, 3, 6 and 7, then lanes 1 and 5,
-then lane 4. The right table gives the line buffer after each round and the middle
-table the old value each lane receives. Lane 4, the third lane on word 3, receives 2, the
-value that serial execution returns to it.
+Fig.~\ref{fig:amo}(b) is an example: one \texttt{amoadd.w t5, t4, (t3)}, with which
+lane $i$ adds its \texttt{t4}, here 1, to the word at its address in \texttt{t3} and
+receives the old value in \texttt{t5}. The lanes address word $w_i$ of an array $C$
+that fills one line, initially zero: lanes 0, 1 and 4 word 3 and lanes 2 and 5 word 5.
+The parallel variant applies it in three rounds, lanes 0, 2, 3, 6 and 7, then 1 and 5,
+then 4; the tables give each lane's round and returned value and the line buffer after
+each round. Lane 4, the third on word 3, receives 2, as in serial execution.
 
 Fig.~\ref{fig:amo}(c) traces this AMO on the RTL in the three variants, from its issue
-to the cycle its warp resumes. Without aggregation the context sends 16 requests, a read
-and a write per lane. Every read after the first hits in the L1, but the warp resumes
-only after 108 cycles, when memory has answered the eighth write. Aggregated, the
-context sends one read and one write. The serial variant applies the lanes in eight
-cycles and the parallel variant in three, and the warp resumes after 73 and 68 cycles.
-The simulation checks the eight returned values and the final line against serial
-execution.
+to the cycle its warp resumes: the context's requests to the L1 (\texttt{req}), the
+lanes applied per cycle (\texttt{apply}) and memory's write responses (\texttt{ack}).
+Without aggregation the context sends 16 requests, and although every read after the
+first hits in the L1, the warp resumes only after 108 cycles, when memory has answered
+the eighth write. Aggregated, it sends one read and one write and applies the lanes in
+eight cycles (serial) or three (parallel), and the warp resumes after 73 and 68 cycles.
+The simulation checks the returned values and the final line against serial execution.
 
-We implemented both variants as a build parameter. The serial variant (\emph{ser})
-has one AMO ALU and applies the lowest remaining lane in each cycle; the parallel
-variant (\emph{par}) has one ALU per word and applies a whole round per cycle. The
-board design without aggregation uses 106,998 LUTs and the serial variant 107,658,
-660 more (0.6\%), both at 115.4~MHz; the parallel variant uses 6,788 LUTs more than the
-serial one. The serial variant is the default. On the board, a contention kernel of
+Aggregation costs 660 LUTs (0.6\%) in the serial variant, the default, and 7,448 in
+the parallel one (Table~\ref{tab:impl}). On the board, a contention kernel of
 colliding \texttt{amoadd}, \texttt{amomax} and \texttt{amoswap} instructions runs with
 262,144 threads under each variant, and the host checks all 786,432 returned values
 and the 524,288 final words against serial execution.
@@ -694,38 +650,39 @@ SmartConnect and the accelerator, implemented in context. Its clock is
 1.5~GHz$/13=115.37$~MHz from the PS. Every frequency we report is that of a routed
 design, \Fmax${}=1/(T-\mathrm{WNS})$ with worst setup slack WNS at clock period $T$.
 
-The floating-point datapath, 2.5 times the area of the integer engine, first limited
-the clock: with a two-stage FMA the eight-lane engine closed at 78~MHz, 58\% of the
-worst path in routing, and a three-stage FMA reached 100.7~MHz. The memory path came
-next: adding the L1 and the AMOs created a single-cycle loop of 30 logic levels from a
-context's pending-lane masks through the L1 tag compare to the warp's reconvergence
-stack, which four changes broke, among them a registered L1 input and a context
-completion from registered state. Above 100~MHz the failing paths fell into four groups, which we cut by
-registering the memory engine's input, chosen request and warp resumption, updating
-the stack in stage B, and retiming the FPU stages. These cuts cost 0.3--3.8\% of the
-applications' cycles, and the board design closes at 115.37~MHz with $+0.406$~ns of
-slack (\Fmax\ 121.0~MHz); its worst path is now inside a lane FPU.
+The floating-point datapath and then the memory path limited the clock. Registering
+the memory engine's input, its chosen request and the warp resumption, updating the
+stack in stage B and retiming the FPU stages cost 0.3--3.8\% of the applications'
+cycles, and the board design closes at 115.37~MHz with $+0.406$~ns of slack (\Fmax
+121.0~MHz), its worst path inside a lane FPU; Section~\ref{S-sup:sim} of the
+supplementary material describes the timing closure.
 
 \begin{table}[t]
-\caption{Eight-Lane Board Designs}
+\caption{Board Designs}
 \label{tab:impl}
 \centering\footnotesize
-\setlength{\tabcolsep}{2.4pt}
-\begin{tabular}{lrrrrrr}
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{@{}lrrrrrr@{}}
 \toprule
-Design & LUT & FF & BRAM & DSP & \Fmax & Power\\
- & & & & & (MHz) & (W)\\
+ & & & & & \Fmax & Power\\
+Design & LUT & FF & BRAM & DSP & (MHz) & (W)\\
 \midrule
-8 lanes, \emph{ser} AMOs   & 107,658 & 50,091 & 16 & 72 & 121.0 & 1.08\\
-8 lanes, no aggregation    & 106,998 & 50,036 & 16 & 72 & 120.2 & 1.16\\
-8 lanes, \emph{par} AMOs   & 114,446 & 50,053 & 16 & 72 & 118.7 & 1.35\\
+\multicolumn{7}{@{}l}{\emph{Eight lanes, by AMO unit}}\\
+No aggregation               & 106,998 & 50,036 & 16 & 72  & 120.2 & 1.16\\
+Serial (\emph{ser}), default & 107,658 & 50,091 & 16 & 72  & 121.0 & 1.08\\
+Parallel (\emph{par})        & 114,446 & 50,053 & 16 & 72  & 118.7 & 1.35\\
+\midrule
+\multicolumn{7}{@{}l}{\emph{Sixteen lanes}}\\
+Serial (\emph{ser})          & 202,660 & 93,351 & 32 & 144 & 100.4 & 1.79\\
 \bottomrule
 \end{tabular}
-
 \end{table}
 
-Table~\ref{tab:impl} lists the board designs, each with the PS and the interconnect;
-BRAM counts the L1's RAMB36 tiles, and power is Vivado's estimate for the
+Table~\ref{tab:impl} lists the board designs, the eight-lane design with each AMO
+unit and the 16-lane design of Section~\ref{sec:lanes16}, each with the PS and the
+interconnect. In this and the later tables, LUT and FF count
+the lookup tables and flip-flops, BRAM the 36-Kb block RAM tiles (RAMB36; in SIMTiX,
+those of the L1) and DSP the DSP blocks, and power is Vivado's estimate for the
 accelerator, to which the PS adds 2.74~W. The default design uses 39\% of the
 device's LUTs and 9\% of its flip-flops.
 
@@ -736,145 +693,89 @@ device's LUTs and 9\% of its flip-flops.
 \begin{table}[t]
 \caption{The Five Machines on the ZCU102}
 \label{tab:machines}
-\centering\scriptsize
-\setlength{\tabcolsep}{3.0pt}
-\begin{tabular}{llllll}
+\centering\footnotesize
+\setlength{\tabcolsep}{2.2pt}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
  & SIMTiX & Vortex & FGPU & Ara & CVA6\\
 \midrule
-Type & SIMT $8\times8$ & SIMT $8\times8$ & SIMT & vector & scalar\\
-ISA & RV32IAF & RV32IMAF & own & RVV 1.0 & RV64GC\\
-Clock (MHz) & 115.37 & 125 & 187.48 & 78.95 & 78.95\\
-Peak $P$ (op/cycle) & 8 & 8 & 8 & 4 & 1\\
-FP32 GFLOP/s & 1.85 & 2.00 & 1.50 & 0.63 & 0.16\\
-Divergence & stack & split/join & stack & masks & branch\\
-L1 D (KiB, line) & 64, 32~B & 16, 64~B & 16, 128~B & none & 8, 32~B\\
-In flight & 16 lines & 16 MSHRs & 2 lines & 4 elem. & 1 miss\\
-Divide, sqrt & 1 shared & per lane & per lane & per lane & 1\\
+Organization             & SIMT & SIMT & SIMT & Vector & Scalar\\
+Warps $\times$ threads   & $8\times8$ & $8\times8$ & $8\times64$ & --- & ---\\
+ISA                      & RV32IAF & RV32IMAF & Custom & RVV 1.0 & RV64GC\\
+Clock (MHz)              & 115.37 & 125 & 187.48 & 78.95 & 78.95\\
+Peak $P$ (op/cycle)      & 8 & 8 & 8 & 4 & 1\\
+Peak FP32 (GFLOP/s)      & 1.85 & 2.00 & 1.50 & 0.63 & 0.16\\
+Divergence               & Stack & Split/join & Stack & Masks & ---\\
+L1 data (KiB)            & 64 & 16 & 16 & --- & 8\\
+Line size (B)            & 32 & 64 & 128 & --- & 32\\
+Requests in flight       & 16 & 16 & 2 & 4 & 1\\
+Divide/sqrt              & Shared & Per lane & Per lane & Per lane & 1\\
 \midrule
-LUT & 107,658 & 85,179 & 43,995 & \multicolumn{2}{c}{182,331}\\
-FF & 50,091 & 85,577 & 58,582 & \multicolumn{2}{c}{63,650}\\
-BRAM / DSP & 16 / 72 & 62 / 48 & 49.5 / 64 & \multicolumn{2}{c}{92.5 / 130}\\
+LUT                      & 107,658 & 85,179 & 43,995 & \multicolumn{2}{c}{182,331}\\
+FF                       & 50,091 & 85,577 & 58,582 & \multicolumn{2}{c}{63,650}\\
+BRAM                     & 16 & 62 & 49.5 & \multicolumn{2}{c}{92.5}\\
+DSP                      & 72 & 48 & 64 & \multicolumn{2}{c}{130}\\
 \bottomrule
 \end{tabular}
-
 \end{table}
 
 We compare SIMTiX with three RISC-V machines of different organization and with a
 second soft GPGPU (Table~\ref{tab:machines}), each a separate bitstream for the ZCU102,
-built with the same Vivado flow and driven by the same A53 host program. CVA6~\cite{cva6} is a
-single-issue, in-order 64-bit core, the scalar processor that an accelerator in the
-logic must outperform. Ara~\cite{ara,ara2} is a vector processor of the RISC-V vector
-extension (RVV~1.0) whose instructions CVA6 issues; CVA6 also runs every benchmark
-without the vector unit, and the two form one design at 78.95~MHz.
-Vortex~\cite{vortex} is a SIMT GPGPU, built with the warp count and width of SIMTiX,
-at 125~MHz. FGPU~\cite{fgpu} is an OpenCL soft GPGPU with its own instruction set; we
-build one compute unit of eight processing elements, with up to eight wavefronts of 64
-work-items, its floating-point units and global atomics, which closes at 187.48~MHz with 1.02~ns of slack. The \emph{peak} $P$
-of a machine is the number of 32-bit operations it can start per cycle, counting an FMA
-as one: eight for SIMTiX, Vortex and FGPU, four for Ara, whose two lanes each operate on
-two FP32 elements of a 64-bit datapath, and one for CVA6. The memory systems differ more
-than the peaks: CVA6 has one miss in flight, FGPU two line fills, Ara sends one request
-per element of a strided or indexed access with at most four in flight, and SIMTiX one
-request per line touched with up to 16 in flight. In Table~\ref{tab:machines},
-$8\times8$ is eight warps of eight threads, GFLOP/s count an FMA as two, the L1s of
-SIMTiX and CVA6 write through and those of Vortex and FGPU write back, and the resources
-are those of the whole board design, one for Ara and CVA6 together.
+built with the same Vivado flow and driven by the same A53 host program. CVA6~\cite{cva6}
+is a single-issue, in-order 64-bit core, the scalar processor that an accelerator must
+outperform. Ara~\cite{ara,ara2} is an RVV~1.0 vector processor whose instructions CVA6
+issues; CVA6 also runs every benchmark without it, and the two form one design.
+Vortex~\cite{vortex} is a SIMT GPGPU built with the warp count and width of SIMTiX.
+FGPU~\cite{fgpu} is an OpenCL soft GPGPU with its own instruction set; we build one
+compute unit of eight processing elements, with up to eight wavefronts of 64
+work-items, its floating-point units and global atomics. The \emph{peak} $P$ of a
+machine is the number of 32-bit operations it can start per cycle, counting an FMA as
+one: eight for SIMTiX, Vortex and FGPU, four for Ara, whose two lanes each operate on two
+FP32 elements of a 64-bit datapath, and one for CVA6. The memory systems differ more
+than the peaks (Fig.~\ref{fig:mem}). In Table~\ref{tab:machines}, $8\times8$ is eight
+warps of eight threads, GFLOP/s count an FMA as two, the L1s of SIMTiX and CVA6 write
+through and those of Vortex and FGPU write back, and the resources are those of the
+whole board design, one for Ara and CVA6 together.
 
 Each benchmark is defined by the sequence of FP32 operations that produces one output,
 and every machine performs these operations in this order in its own parallel form:
 one output per thread on SIMTiX, Vortex and FGPU, per vector element on Ara and per loop
-iteration on CVA6 and the A53. The SIMTiX kernels are hand-written assembly; Vortex
-runs C++ versions of the same algorithms compiled by its LLVM toolchain, and FGPU OpenCL
-C versions compiled by its LLVM back end; Ara runs C with vector intrinsics, and for
-RiVEC~\cite{rivec} the suite's own vector code; CVA6 and the A53 run one C reference
-compiled with GCC. In every run the A53 loads the program and the inputs, computes the
-reference and checks every output. FGPU has no FMA, so it multiplies and adds
-separately, and its outputs that depend on an FMA of the definition are checked within
-$10^{-3}$ of each row's largest reference value. Four limits of FGPU's hardware change
-the code of five benchmarks without changing their outputs: its atomic add serves one
-address per kernel, so k-means sums per-worker partials in a second kernel; byte stores
-write whole words, so the INT8 MLP and CNN store four outputs per work-item; each
-work-item has 16 words of stack, so lavaMD is compiled without hoisting loop invariants;
-and a load that closely follows a store of the same work-item to the same word can
-return the old value, so the radix sort keeps its counts in registers (supplementary
-material). Work that
-Rodinia performs on the CPU runs on the A53 for every machine and is not timed. The
-divide and square-root unit of CVA6, which Ara shares, is not correctly rounded (8.7\%
-of its quotients and 6.9\% of its square roots are one ulp off), so CVA6 and Ara are
-checked within a tolerance on the benchmarks that divide. SIMTiX and Vortex match the
-A53 reference exactly; the largest deviations of the other machines are
-$2.2\times10^{-4}$ of a row's largest value (gaussian on CVA6 and Ara),
-$2.0\times10^{-4}$ (gaussian on FGPU) and $5.7\times10^{-4}$ of $|p|+0.01$ for a price
-$p$ (blackscholes on CVA6 and Ara), all within the limit of $10^{-3}$. The departures from
-Rodinia's default runs and the four changes to RiVEC's code that fix its errors and
-avoid faults of Ara are listed in the supplementary material.
+iteration on CVA6 and the A53. The SIMTiX kernels are hand-written assembly; Vortex runs C++ versions of the same
+algorithms compiled by its LLVM toolchain, and FGPU OpenCL C versions compiled by its
+LLVM back end; Ara runs C with vector intrinsics, and for RiVEC~\cite{rivec} the
+suite's own vector code; CVA6 and the A53 run one C reference compiled with GCC. In
+every run the A53 loads the program and the inputs, computes the reference and checks
+every output; work that Rodinia performs on the CPU runs on the A53 for every machine
+and is not timed. SIMTiX and Vortex match the reference exactly. FGPU has no FMA, and
+the divide and square-root unit of CVA6, which Ara shares, is not correctly rounded,
+so these machines are checked within $10^{-3}$ of each row's largest value on the
+benchmarks that fuse or divide, and all stay within it. Four limits of FGPU's
+hardware change the code of five benchmarks without changing their outputs. The
+supplementary material lists these limits, the departures from Rodinia's default
+runs and the changes to RiVEC's code that fix its errors and avoid faults of Ara.
 
 \subsection{Results on Five Machines}\label{sec:rodinia}\label{sec:rivec}
-\begin{table*}[t]
-\caption{Run Times on the Applications and Rodinia}
-\label{tab:rodinia}
+\begin{table}[t]
+\caption{Each Machine's Time and Cycles Over SIMTiX's (Geometric Means)}
+\label{tab:geomean}
 \centering\footnotesize
-\setlength{\tabcolsep}{3.2pt}
-\begin{tabular}{llrrrrrrrrrrr}
+\setlength{\tabcolsep}{3.4pt}
+\begin{tabular}{@{}lrrrrr@{}}
 \toprule
-Benchmark & Input & SIMTiX & \multicolumn{2}{c}{CVA6} & \multicolumn{2}{c}{Ara}
- & \multicolumn{2}{c}{Vortex} & \multicolumn{2}{c}{FGPU} & \multicolumn{2}{c}{A53}\\
-\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}
- & & (ms) & (ms) & ratio & (ms) & ratio & (ms) & ratio & (ms) & ratio & (ms) & ratio\\
+Benchmarks & CVA6 & Ara & Vortex & FGPU & A53\\
 \midrule
-\multicolumn{13}{l}{\emph{Applications of Table~\ref{tab:board}}}\\
-GEMM-RB    & $256^3$                       & 37.8    & 3,689.7   & 97.7 & 77.4     & 2.05 & 198.2    & 5.25 & 296.5 & 7.85 & 169.6    & 4.49\\
-SpMV-Z     & 65,536 rows                   & 19.3    & 362.3     & 18.7 & 313.2    & 16.2 & 46.2     & 2.39 & 200.3 & 10.4 & 18.3     & 0.95\\
-CNN        & $128^2$, 16-32-32 channels    & 290.7   & 27,266.5  & 93.8 & 1,581.3  & 5.44 & 2,066.4  & 7.11 & 892.0 & 3.07 & 1,191.9  & 4.10\\
-Mandelbrot & $1024^2$, 256 iterations      & 1,019.7 & 11,142.5  & 10.9 & 4,553.5  & 4.47 & 5,324.0  & 5.22 & 858.7 & 0.84 & 846.8    & 0.83\\
+\multicolumn{6}{@{}l}{\emph{Time}}\\
+Rodinia                    & 14.6 & 2.62 & 1.98 & 1.67 & 0.56\\
+RiVEC                      & 20.1 & 3.76 & 3.27 & 2.55 & 0.88\\
+Applications and Rodinia   & 19.9 & 3.32 & 2.63 & 2.20 & 0.85\\
 \midrule
-\multicolumn{13}{l}{\emph{Rodinia}}\\
-pathfinder & 100 rows, 100,000 columns   & 250.5   & 4,428.8   & 17.7 & 421.2    & 1.68 & 960.9    & 3.84 & 650.0 & 2.60 & 97.2     & 0.39\\
-backprop   & 2$^{19}$ inputs, 16 hidden    & 299.2   & 5,729.0   & 19.1 & 3,055.4  & 10.2 & 1,008.8  & 3.37 & 791.4 & 2.64 & 214.2    & 0.72\\
-bfs        & graph65536                    & 36.7    & 299.8     & 8.17 & 794.1    & 21.7 & 126.8    & 3.46 & 138.3 & 3.77 & 21.9     & 0.60\\
-hotspot    & $512^2$, 2 iterations         & 33.6    & 553.1     & 16.5 & 45.3     & 1.35 & 103.0    & 3.07 & 60.4 & 1.80 & 21.0     & 0.63\\
-hotspot    & $1024^2$, 2 iterations        & 134.2   & 2,475.0   & 18.4 & 172.8    & 1.29 & 411.2    & 3.06 & 241.4 & 1.80 & 85.5     & 0.64\\
-nn         & 42,764 records                & 15.3    & 24.4      & 1.59 & 8.9      & 0.58 & 4.8      & 0.31 & 2.1 & 0.14 & 1.0      & 0.07\\
-hotspot3D  & $512^2\times8$, 100 iterations & 9,449.6 & 491,642.8 & 52.0 & 20,528.6 & 2.17 & 21,504.5 & 2.28 & 22,239.8 & 2.35 & 16,522.7 & 1.75\\
-gaussian   & $1024\times1024$              & 4,965.0 & 104,642.3 & 21.1 & 10,176.9 & 2.05 & 6,064.0  & 1.22 & 9,923.2 & 2.00 & 3,916.4  & 0.79\\
-kmeans     & kdd\_cup, $k=5$, 37 iterations & 31,810.0 & 726,014.0 & 22.8 & 56,290.0 & 1.77 & 64,442.3 & 2.03 & 63,549.7 & 2.00 & 28,064.9 & 0.88\\
-\midrule
-\multicolumn{3}{l}{Geometric mean of the ratio, Rodinia, time} & & 14.6 & & 2.62 & & 1.98 & & 1.67 & & 0.56\\
-\multicolumn{3}{l}{Geometric mean of the ratio, Rodinia, clock cycles} & & 9.97 & & 1.79 & & 2.15 & & 2.71 & & ---\\
-\multicolumn{3}{l}{Geometric mean of the ratio, all twelve, time} & & 19.9 & & 3.32 & & 2.63 & & 2.20 & & 0.85\\
-\multicolumn{3}{l}{Geometric mean of the ratio, all twelve, clock cycles} & & 13.6 & & 2.27 & & 2.85 & & 3.57 & & ---\\
+\multicolumn{6}{@{}l}{\emph{Clock cycles}}\\
+Rodinia                    & 9.97 & 1.79 & 2.15 & 2.71 & ---\\
+RiVEC                      & 13.8 & 2.59 & 3.53 & 4.16 & ---\\
+Applications and Rodinia   & 13.6 & 2.27 & 2.85 & 3.57 & ---\\
 \bottomrule
 \end{tabular}
-
-\end{table*}
-
-\begin{table*}[t]
-\caption{Run Times on RiVEC}
-\label{tab:rivec}
-\centering\footnotesize
-\setlength{\tabcolsep}{3.2pt}
-\begin{tabular}{llrrrrrrrrrrr}
-\toprule
-Application & Input & SIMTiX & \multicolumn{2}{c}{CVA6} & \multicolumn{2}{c}{Ara}
- & \multicolumn{2}{c}{Vortex} & \multicolumn{2}{c}{FGPU} & \multicolumn{2}{c}{A53}\\
-\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}
- & & (ms) & (ms) & ratio & (ms) & ratio & (ms) & ratio & (ms) & ratio & (ms) & ratio\\
-\midrule
-axpy         & 2,097,152 elements             & 31.5 & 513.4 & 16.3 & 50.7 & 1.61 & 179.2 & 5.69 & 103.1 & 3.27 & 25.0 & 0.80 \\
-matmul       & $512^3$, RiVEC data            & 300.3 & 65,174.2 & 217 & 14,918.2 & 49.7 & 1,562.4 & 5.20 & 2,840.4 & 9.46 & 2,152.8 & 7.17 \\
-spmv         & poisson3Db, $A^{\mathsf T}x$   & 79.2 & 1,211.9 & 15.3 & 567.1 & 7.16 & 173.6 & 2.19 & 1,152.7 & 14.6 & 52.8 & 0.67 \\
-jacobi-2d    & $256^2$, 2,000 steps           & 10,116.6 & 145,978.7 & 14.4 & 19,324.5 & 1.91 & 36,713.8 & 3.63 & 18,790.4 & 1.86 & 4,461.7 & 0.44 \\
-pathfinder   & $1024\times2048$, 100 runs     & 5,556.7 & 116,179.1 & 20.9 & 8,907.6 & 1.60 & 22,044.9 & 3.97 & 14,464.1 & 2.60 & 2,473.0 & 0.45 \\
-blackscholes & 65,536 options, 100 runs       & 9,328.3 & 45,462.0 & 4.87 & 5,665.7 & 0.61 & 9,095.9 & 0.98 & 3,420.8 & 0.37 & 3,460.8 & 0.37 \\
-lavaMD       & $10^3$ boxes of 96 particles   & 15,868.0 & 268,712.8 & 16.9 & 159,494.0 & 10.1 & 69,823.7 & 4.40 & 13,980.1 & 0.88 & 23,438.5 & 1.48 \\
-\midrule
-\multicolumn{3}{l}{Geometric mean of the ratio, time} & & 20.1 & & 3.76 & & 3.27 & & 2.55 & & 0.88\\
-\multicolumn{3}{l}{Geometric mean of the ratio, clock cycles} & & 13.8 & & 2.59 & & 3.53 & & 4.16 & & ---\\
-\bottomrule
-\end{tabular}
-
-\end{table*}
+\end{table}
 
 \begin{figure*}[t]
 \centering
@@ -883,53 +784,44 @@ lavaMD       & $10^3$ boxes of 96 particles   & 15,868.0 & 268,712.8 & 16.9 & 15
 \label{fig:mach_heatmap}
 \end{figure*}
 
-Tables~\ref{tab:rodinia} and~\ref{tab:rivec} give the times on four applications,
-eight Rodinia benchmarks~\cite{rodinia} and seven RiVEC applications.
+Tables~\ref{S-tab:rodinia} and~\ref{S-tab:rivec} of the supplementary material give the
+times on four applications, eight Rodinia benchmarks~\cite{rodinia} and seven RiVEC
+applications, and Table~\ref{tab:geomean} the geometric means of each machine's time
+and cycles over SIMTiX's, so above 1 favors SIMTiX; FGPU has no cycle counter, so its
+cycles are its time times its clock. For GEMM, the stencil, k-means, scan and SpMV,
+SIMTiX runs its GEMM-RB, Stencil-RB, k-means-U, segmented-scan and SpMV-Z kernels,
+Vortex and FGPU the base kernels, and the A53 the \texttt{-O2} reference.
 Fig.~\ref{fig:mach_heatmap} gives the FP32 throughput of every machine, the 16-lane
 SIMTiX and the A53 included, on the 17 benchmarks that compute in FP32, each at its
-largest input (hotspot at $1024^2$): the FP32 operations, an FMA counted as two,
-divided by the measured time. Every machine performs the same operations; we counted
-them in the simulation of SIMTiX, scaled where the simulation used a smaller input by
-a formula that reproduces the simulated count exactly. In Fig.~\ref{fig:mach_heatmap}
-each row is a machine and each column a benchmark, and the colour and the number give
-MFLOP/s on a log scale. The 16-lane SIMTiX has the highest throughput on 12 of the 17
-benchmarks, up to 1,564~MFLOP/s on RiVEC's matmul, and 306~MFLOP/s in the geometric
-mean, against 190 for the eight-lane design, 207 for the A53, 83 for FGPU, 70 for
-Vortex, 59 for Ara and 9.5 for CVA6. The A53 leads on the two SpMV
-kernels, nn and jacobi-2d, and FGPU on blackscholes. The supplementary material gives
-the time of every benchmark on every machine. A ratio is a machine's time, or
-cycles, divided by those of the eight-lane SIMTiX, so above 1 favors SIMTiX; FGPU has
-no cycle counter, so its cycles are its time times its clock. For GEMM, the stencil,
-k-means, scan and SpMV, SIMTiX runs its GEMM-RB, Stencil-RB, k-means-U, segmented-scan
-and SpMV-Z kernels and Vortex and FGPU the base kernels, and the A53 runs the
-\texttt{-O2} reference. SIMTiX is faster than CVA6 on every
-benchmark: by $14.6\times$ in time on Rodinia and $20.1\times$ on RiVEC (geometric
-means), and by $21.2\times$ on the twelve applications. Against Vortex, which runs the
-same algorithms, the means are $1.98\times$ on Rodinia, $3.27\times$ on RiVEC and
-$4.1\times$ on the applications, and against FGPU, at a 1.6 times higher clock,
-$1.67\times$, $2.55\times$ and $3.4\times$. FGPU is slowest relative to SIMTiX where
-accesses are irregular or reduced per output: SpMV ($10.4\times$ and $14.6\times$), scan
-($17\times$) and RiVEC's matmul ($9.46\times$), which need many requests in flight while
-FGPU allows two line fills. Against Ara they are $2.62\times$, $3.76\times$ and
-$5.8\times$, with a wide spread that follows the access pattern. On kernels that gather,
-read with a stride or reduce per element, Ara is far slower: RiVEC's matmul, whose dot
-products run down a column of $B$, takes Ara $49.7\times$ SIMTiX's time, bfs
-$21.7\times$, lavaMD $10.1\times$ and spmv $7.16\times$. On kernels that stream rows with
-unit stride (hotspot, axpy, pathfinder, jacobi-2d) Ara comes within 1.29 to
-$1.91\times$ in time and needs only 10 to 31\% more cycles, or on hotspot 8 to 12\%
-fewer. Ara's MLP and Smith-Waterman outputs are wrong on the board, so these two are not
-compared.
+largest input: the FP32 operations, an FMA counted as two, counted in the simulation of
+SIMTiX, divided by the measured time; each row is a machine and each column a
+benchmark, and the colour and the number give MFLOP/s on a log scale. The 16-lane
+SIMTiX has the highest throughput on 12 of the 17 benchmarks, up to 1,564~MFLOP/s on
+RiVEC's matmul, and 306~MFLOP/s in the geometric mean, against 190 for the eight-lane
+design, 207 for the A53, 83 for FGPU, 70 for Vortex, 59 for Ara and 9.5 for CVA6; the
+A53 leads on the two SpMV kernels, nn and jacobi-2d, and FGPU on blackscholes.
 
-Per cycle, another machine is faster only where the work is division and square root.
-nn computes one square root per record and blackscholes three divisions and a square
-root per option. SIMTiX passes these lane by lane through its one shared unit, while Ara
-applies its instructions to whole vectors and Vortex and FGPU have a unit per lane, so
-Ara takes 0.58 and 0.61 of SIMTiX's time, Vortex 0.31 and 0.98, and FGPU 0.14 and 0.37.
-The 16-lane design, with a unit per eight lanes, halves SIMTiX's cycles on both
-(Section~\ref{sec:lanes16}). FGPU's higher clock also makes it faster in time on three
-compute-bound kernels with long inner loops in registers, lavaMD, Mandelbrot and
-Smith-Waterman (0.74 to 0.88 of SIMTiX's time), although SIMTiX needs fewer cycles on
-all three.
+SIMTiX is faster than CVA6 on every benchmark, by $14.6\times$ in time on Rodinia,
+$20.1\times$ on RiVEC and $21.2\times$ on the twelve applications (geometric means).
+Against Vortex, which runs the same algorithms, the means are $1.98\times$,
+$3.27\times$ and $4.1\times$, and against FGPU, at a 1.6 times higher clock,
+$1.67\times$, $2.55\times$ and $3.4\times$; FGPU is slowest relative to SIMTiX on
+irregular accesses, SpMV ($10.4\times$ and $14.6\times$), scan ($17\times$) and RiVEC's
+matmul ($9.46\times$), which need more than its two line fills in flight. Against Ara
+the means are $2.62\times$, $3.76\times$ and $5.8\times$, with a spread that follows the
+access pattern: Ara takes $49.7\times$ SIMTiX's time on RiVEC's matmul, whose dot
+products run down a column of $B$, $21.7\times$ on bfs and $10.1\times$ on lavaMD, but
+comes within 1.29 to $1.91\times$ on kernels that stream rows with unit stride (hotspot,
+axpy, pathfinder, jacobi-2d). Ara's MLP and Smith-Waterman outputs are wrong on the
+board and are not compared.
+
+Per cycle, another machine is faster only where the work is division and square root
+(nn, blackscholes): SIMTiX passes these lane by lane through its one shared unit, while
+Ara works on whole vectors and Vortex and FGPU have a unit per lane, so they take 0.14
+to 0.98 of SIMTiX's time; the 16-lane design, with a unit per eight lanes, halves
+SIMTiX's cycles on both. FGPU's higher clock also makes it faster in time on lavaMD,
+Mandelbrot and Smith-Waterman (0.74 to 0.88 of SIMTiX's time), although SIMTiX needs
+fewer cycles.
 
 \subsection{Where the Speedup Comes From}\label{sec:decomp}
 \begin{figure*}[t]
@@ -954,125 +846,82 @@ $\eta_S/\eta_X=(C_X/C_S)(P_X/P_S)$, which therefore follows from the measured cy
 and the peaks of Table~\ref{tab:machines}. Instructions that compute addresses, control
 loops or handle divergence lower $\eta$, as do cycles in which the datapath waits.
 
-Over the 15 Rodinia and RiVEC benchmarks (hotspot at $1024^2$), the geometric means
-split the time ratios as follows. Against CVA6, the time ratio of 16.95 is 1.46 from
-the clock, 8.00 from the width and 1.45 from efficiency. Against Ara, the clock
-contributes 1.46 and the width 2.00, and the efficiency factor is 1.06: per cycle,
-SIMTiX's lead over Ara is its width. Against Vortex, whose clock is 8\% higher and
-whose width is the same, the whole factor of 2.71 is efficiency: Vortex executes more
-warp instructions for the same computation and, with its longer pipeline, reaches a
-lower IPC at eight warps (Section~\ref{sec:evalvortex}). FGPU's clock is 1.62 times
-SIMTiX's, a factor of 0.62, and its width the same, so its time ratio of 2.03 is an
-efficiency factor of 3.31.
+Over the 15 Rodinia and RiVEC benchmarks, the geometric-mean time ratio of 16.95
+against CVA6 is 1.46 from the clock, 8.00 from the width and 1.45 from efficiency.
+Against Ara the clock contributes 1.46 and the width 2.00, and the efficiency factor is
+1.06: per cycle, SIMTiX's lead over Ara is its width. Against Vortex, of 8\% higher
+clock and equal width, the whole factor of 2.71 is efficiency, from more warp
+instructions and a lower IPC at eight warps (Section~\ref{sec:evalvortex}); FGPU's 1.62
+times higher clock turns its time ratio of 2.03 into an efficiency factor of 3.31.
 
 Fig.~\ref{fig:decomp} gives the efficiency factor on every benchmark of
-Fig.~\ref{fig:lanes_suites}, one marker per machine on a log axis; above 1, SIMTiX sustains a larger fraction
-of its peak than the other machine. The applications run at their larger board input (Ara gives
-wrong results on the MLP and Smith-Waterman). Against Ara,
-the factor is below 1, from 0.18 (GEMM) to 0.96, on the dense kernels, which stream
-rows with unit stride, and on those that divide: Ara turns their accesses into bursts
-and keeps more of its four operations per cycle busy than SIMTiX of its eight. It is
-1.3 to 17.0 (matmul) on the rest, among them every kernel that gathers, reads with a
-stride or reduces per element, as the limits on requests in flight of
+Fig.~\ref{fig:lanes_suites}, the applications at their board input, one marker per
+machine on a log axis; above 1, SIMTiX sustains a larger fraction of its peak. Against
+Ara, the factor is below 1, from 0.18 (GEMM) to 0.96, on the dense kernels, whose
+unit-stride rows Ara turns into bursts, and on those that divide; it is 1.3 to 17.0
+(matmul) on the rest, among them every kernel that gathers, reads with a stride or
+reduces per element, as the limits on requests in flight of
 Proposition~\ref{prop:mlp} predict. Part of the factor is code: register blocking
 raises it on GEMM from 0.18 to 0.70. Against Vortex and FGPU, the factor on the
-applications is 3.63 and 5.34 (geometric means), and below 1 only on nn and, for FGPU,
-which has a divide and square-root unit per lane, blackscholes. FGPU's is largest where
-requests in flight matter, 15.4 on matmul and 16 to 24 on the SpMV kernels, as FGPU
-keeps two line fills in flight to SIMTiX's 16. Against CVA6, it is below 1 on nn and
-blackscholes, bound by the shared divide unit; on BFS and Mandelbrot, which diverge
-(Fig.~\ref{fig:lanes_suites}(b)) while CVA6 handles one element at a time; on the base
-k-means; and on the scans, which add each element in three shuffle steps and a second
-pass where CVA6 adds it once.
+applications is 3.63 and 5.34 (geometric means), below 1 only on nn and, for FGPU,
+blackscholes, and largest for FGPU where requests in flight matter, 15.4 on matmul and
+16 to 24 on the SpMV kernels. Against CVA6, it is below 1 on nn and blackscholes, bound
+by the shared divide unit, on BFS and Mandelbrot, which diverge
+(Fig.~\ref{fig:lanes_suites}(b)), on the base k-means and on the scans, which add each
+element in three shuffle steps and a second pass.
 
 \subsection{Applications Against the Cortex-A53}\label{sec:evalboard}
-\begin{table}[t]
-\caption{SIMTiX Against the Cortex-A53 on the Applications}
-\label{tab:board}
-\centering\footnotesize
-\setlength{\tabcolsep}{2.2pt}
-\begin{tabular}{lrrrrrr}
-\toprule
-App. & \multicolumn{2}{c}{A53} & SIMTiX & Speed- & \multicolumn{1}{c}{Power (W)} & Energy\\
-\cmidrule(lr){2-3}
- & (ms) & build & (ms) & up & A53 / SIMTiX & ratio\\
-\midrule
-Hash join       & 195.4   & O3 & 99.3    & 1.97 & 3.13 / 4.12 & 1.50\\
-CNN             & 381.8   & O3 & 290.7   & 1.31 & 3.11 / 4.00 & 1.02\\
-GEMM-RB         & 47.2    & O3 & 37.8    & 1.25 & 3.17 / 4.22 & 0.94\\
-Embedding bag   & 45.4    & O3 & 37.5    & 1.21 & 3.12 / 4.05 & 0.94\\
-BFS             & 194.6   & O3 & 162.9   & 1.19 & 3.13 / 3.88 & 0.96\\
-SpMV-Z          & 18.1    & O3 & 19.4    & 0.94 & 3.17 / 4.08 & 0.73\\
-Mandelbrot      & 845.7   & O3 & 1,019.7 & 0.83 & 3.12 / 4.19 & 0.62\\
-Smith-Waterman  & 922.1   & O2 & 1,613.4 & 0.57 & 3.16 / 3.83 & 0.47\\
-k-means-U       & 34.3    & O3 & 72.2    & 0.47 & 3.11 / 3.86 & 0.38\\
-Stencil-RB      & 8.6     & O3 & 18.9    & 0.45 & 3.20 / 4.26 & 0.34\\
-MLP             & 55.4    & O3 & 189.8   & 0.29 & --- & ---\\
-Segmented scan  & 4.5     & O3 & 35.5    & 0.13 & 3.27 / 3.91 & 0.11\\
-\bottomrule
-\end{tabular}
-
-\end{table}
-
-The host also runs every application on one A53 core, with an ordinary sequential C
-algorithm built with \texttt{-O2} and with \texttt{-O3 -mcpu=cortex-a53}, which
-vectorizes with NEON; we report the faster build. Each application runs at the large
-input listed in the supplementary material. Every output of the accelerator is
-compared exactly with the A53's. For power, the host reads the board's 18 INA226
-monitors over I$^2$C while each phase repeats for 2~s and sums the rails; the energy
-ratio is the A53's energy over SIMTiX's, so above 1 favors SIMTiX.
-
-Table~\ref{tab:board} gives the results. SIMTiX, at 115.4~MHz, a tenth of the A53's 1.2~GHz, is
-faster on five applications. Three gather from random lines of tables far larger than
-the A53's 1~MiB L2 cache: the hash-join probe ($1.97\times$), the embedding bag
-($1.21\times$) and BFS ($1.19\times$); the in-order A53 waits on each miss, while
-SIMTiX keeps 64 threads and 16 misses in flight. The CNN ($1.31\times$) and the
-register-blocked GEMM ($1.25\times$) reuse each loaded operand several times per
-thread. SIMTiX is slower on kernels with little work per element (the scan, the
-stencil, k-means), on scalar dynamic programming (Smith-Waterman) and on the MLP, whose
-contiguous INT8 dot products the A53 vectorizes. The board draws 3.11--3.27~W while the
-A53 computes and 3.62--4.26~W while SIMTiX runs, so SIMTiX uses less total energy only
-on the hash join ($1.50\times$) and about the same on the CNN, BFS, the embedding bag
-and GEMM.
+The host also runs each of the twelve applications on one A53 core, built with
+\texttt{-O2} and with \texttt{-O3 -mcpu=cortex-a53}, which vectorizes with NEON, and we
+report the faster build (Table~\ref{S-tab:board} of the supplementary material).
+SIMTiX, at a tenth of the A53's clock, is faster on five applications: the hash-join
+probe ($1.97\times$), the embedding bag ($1.21\times$) and BFS ($1.19\times$), which
+gather from tables far larger than the A53's 1~MiB L2 cache, where the in-order A53
+waits on each miss while SIMTiX keeps 16 misses in flight, and the CNN ($1.31\times$)
+and the register-blocked GEMM ($1.25\times$), which reuse each loaded operand. It is
+slower on kernels with little work per element, on Smith-Waterman and on the MLP, whose
+INT8 dot products the A53 vectorizes. As the board draws 3.11--3.27~W while the A53
+computes and 3.62--4.26~W while SIMTiX runs, SIMTiX uses less energy only on the hash
+join ($1.50\times$).
 
 \subsection{Line-Aggregated AMOs}\label{sec:evalamo}\label{sec:method}
 \begin{table}[t]
-\caption{Cycles Without (Base) and With Line-Aggregated AMOs}
+\caption{Cycles and Line Requests Without (Base) and With Line-Aggregated AMOs}
 \label{tab:amo}
 \centering\footnotesize
-\begin{tabular}{llrrrr}
+\setlength{\tabcolsep}{3.0pt}
+\begin{tabular}{@{}llrrrrr@{}}
 \toprule
-Kernel & Memory & Base & \emph{ser} & \emph{par} & Requests\\
+ & & \multicolumn{3}{c}{Cycles} & \multicolumn{2}{c}{Line requests}\\
+\cmidrule(lr){3-5}\cmidrule(lr){6-7}
+Kernel & Memory & Base & \emph{ser} & \emph{par} & Base & \emph{ser}, \emph{par}\\
 \midrule
-\multirow{4}{*}{Histogram} & zero latency & 4,004 & 2,234 & 1,452 & \multirow{4}{*}{2,176 / 640}\\
- & 7 cycles     & 11,451 & 4,365 & 3,219 & \\
- & L1           & 6,094  & 3,590 & 3,177 & \\
- & L1 + AXI4    & 6,635  & 3,802 & 3,441 & \\
+\multirow{4}{*}{Histogram} & Zero latency & 4,004  & 2,234 & 1,452 & \multirow{4}{*}{2,176} & \multirow{4}{*}{640}\\
+                           & 7 cycles     & 11,451 & 4,365 & 3,219 & & \\
+                           & L1           & 6,094  & 3,590 & 3,177 & & \\
+                           & L1 + AXI4    & 6,635  & 3,802 & 3,441 & & \\
 \midrule
-\multirow{2}{*}{Contention} & L1        & 1,921 & 1,175 & 1,015 & \multirow{2}{*}{488 / 152}\\
- & L1 + AXI4    & 2,305  & 1,470 & 1,342 & \\
+\multirow{2}{*}{Contention} & L1          & 1,921  & 1,175 & 1,015 & \multirow{2}{*}{488} & \multirow{2}{*}{152}\\
+                           & L1 + AXI4    & 2,305  & 1,470 & 1,342 & & \\
 \midrule
-k-means & L1 + AXI4 & 47,611 & 36,935 & 35,652 & ---\\
-BFS     & L1 + AXI4 & 71,567 & 71,151 & 70,859 & ---\\
+k-means                    & L1 + AXI4    & 47,611 & 36,935 & 35,652 & --- & ---\\
+BFS                        & L1 + AXI4    & 71,567 & 71,151 & 70,859 & --- & ---\\
 \bottomrule
 \end{tabular}
-
 \end{table}
 
-Table~\ref{tab:amo} gives the cycles of AMO-heavy kernels in simulation of the board
-top, driven over AXI4-Lite as the A53 drives it, under four memory configurations,
-from a zero-latency memory to the L1 behind the AXI4 master with an out-of-order
-memory model of 24 cycles. The histogram puts 1,024 values into 16 bins, the
-contention kernel runs 64 threads of colliding \texttt{amoadd}, \texttt{amomax} and
-\texttt{amoswap}, k-means assigns 1,024 points to eight clusters and BFS visits 1,024
-vertices of degree six; the last column gives the memory requests without and with
-aggregation. The histogram's 16 bins occupy two lines, so aggregation
-reduces its requests from 2,176 to 640 and its cycles by $1.79\times$ (\emph{ser}) and
-$2.76\times$ (\emph{par}) at zero latency. The gain is largest with a 7-cycle memory
-($2.62\times$ and $3.56\times$), where every request saved also saves a round trip,
-and smaller behind the L1 ($1.70\times$ and $1.92\times$), where reads hit. k-means,
-which accumulates each point into its cluster with three AMOs, gains $1.29\times$;
-BFS, with one AMO flag per level, less than 1\%.
+Table~\ref{tab:amo} gives the cycles of AMO-heavy kernels on the board top in
+simulation, from a zero-latency memory to the L1 behind the AXI4 master with an
+out-of-order 24-cycle memory: a histogram of 1,024 values in 16 bins, a contention
+kernel of 64 threads of colliding \texttt{amoadd}, \texttt{amomax} and
+\texttt{amoswap}, k-means on 1,024 points and BFS on 1,024 vertices; the last two
+columns give the line requests without aggregation and with it, the same for both
+variants. The histogram's 16 bins occupy two lines, so aggregation cuts its requests
+from 2,176 to 640 and its cycles by $1.79\times$ (\emph{ser}) and $2.76\times$
+(\emph{par}) at zero latency, $2.62\times$ and $3.56\times$ with a 7-cycle memory, where
+each request saved is a round trip, and $1.70\times$ and $1.92\times$ behind the L1,
+where reads hit. k-means, with three AMOs per point, gains $1.29\times$; BFS, with one
+AMO flag per level, less than 1\%.
 
 On the board, with 262,144 threads per kernel, the serial and parallel variants speed
 up the histogram by $2.47\times$ and $3.17\times$ and the contention kernel by
@@ -1083,57 +932,16 @@ takes 1,186,938 cycles on the board, while the plain global histogram with aggre
 AMOs takes 653,913, so privatization no longer pays at this bin count.
 
 \subsection{Out-of-Context Comparison With Vortex}\label{sec:evalvortex}
-\begin{table}[t]
-\caption{SIMTiX and Vortex Out of Context}
-\label{tab:vortex}
-\centering\footnotesize
-\begin{tabular}{lrrrr}
-\toprule
- & SIMTiX & \multicolumn{3}{c}{Vortex, warps of 8 threads}\\
-\cmidrule(lr){3-5}
- & 4 warps & 4 warps & 8 warps & 16 warps\\
-\midrule
-LUT            & 84,443 & 80,119 & 91,831 & 110,158\\
-Flip-flops     & 31,959 & 78,613 & 86,452 & 98,570\\
-BRAM (RAMB36)  & 16 & 46 & 62 & 95.5\\
-DSP            & 72 & 48 & 48 & 48\\
-\Fmax\ (MHz)   & 101.6 & 140.8 & 135.9 & 134.0\\
-Power (W)      & 1.10 & 1.70 & 1.85 & 2.08\\
-\midrule
-\multicolumn{5}{l}{Vortex / SIMTiX, geometric mean over the seven applications}\\
-Warp instructions & --- & 1.72 & 1.72 & 1.73\\
-Cycles         & --- & 2.78 & 1.80 & 1.58\\
-Run time       & --- & 2.01 & 1.34 & 1.20\\
-Energy         & --- & 4.32 & 3.04 & 3.00\\
-\midrule
-\multicolumn{5}{l}{SIMTiX / Vortex, geometric mean}\\
-Performance per LUT  & --- & 1.90 & 1.46 & 1.57\\
-Performance per watt & --- & 4.32 & 3.04 & 3.00\\
-\bottomrule
-\end{tabular}
-
-\end{table}
-
 To compare cost at equal configuration, we built SIMTiX and Vortex~3.0 with four warps
-of eight threads and a 16~KiB L1, out of context with Vortex's own Vivado script at a
-100~MHz constraint, and estimated their power vectorless at a toggle rate of 12.5\%.
-Both run seven applications in simulation (GEMM, SpMV, a Jacobi stencil, k-means, BFS,
-a prefix sum and an INT8 MLP), with the same algorithms and the same order of
-floating-point operations, every output checked bit-exactly; Vortex's kernels are
-compiled by its LLVM at \texttt{-O3}, and its simulator uses the FMA, divide and
-square-root latencies of its IP cores (16, 28 and 28 cycles).
-
-Table~\ref{tab:vortex} gives the results. Vortex executes 1.72 times the warp
-instructions of SIMTiX (geometric mean), because its kernels carry divergence and
-predicate instructions and compiled loop code, and the MLP has no INT8 dot product on
-Vortex. With four warps it also reaches a lower IPC, 0.25 to 0.43 against SIMTiX's 0.43
-to 0.69, because four warps do not fill its longer pipeline (Proposition~\ref{prop:ipc});
-at 16 warps its IPC rises to 0.47--0.66, so most of its remaining cycle deficit comes
-from its instruction count. Vortex closes at 140.8~MHz, 39\% above SIMTiX, and uses
-5\% fewer LUTs but 2.5 times the flip-flops, 2.9 times the block RAM and 55\% more
-power. Per LUT, SIMTiX delivers 1.46 to 1.90 times the performance of Vortex, and per
-watt three to 4.3 times, at every Vortex warp count, with performance taken as the
-inverse of the run time at each design's \Fmax, and at 100~MHz per watt.
+of eight threads and a 16~KiB L1 out of context and ran seven applications in
+simulation, every output checked (Section~\ref{S-sup:vortex} of the supplementary
+material). Vortex executes 1.72 times the warp instructions of SIMTiX (geometric mean),
+as its kernels carry divergence and predicate instructions and compiled loop code. With
+four warps its IPC is 0.25 to 0.43 against SIMTiX's 0.43 to 0.69, because four warps do
+not fill its longer pipeline (Proposition~\ref{prop:ipc}), and 0.47--0.66 at 16 warps.
+Vortex closes at 140.8~MHz, 39\% above SIMTiX, with 5\% fewer LUTs but 2.5 times the
+flip-flops and 2.9 times the block RAM; SIMTiX delivers 1.46 to 1.90 times its
+performance per LUT and three to 4.3 times its performance per watt.
 
 \subsection{Scaling With the Lane Count}\label{sec:evallanes}
 \begin{figure*}[t]
@@ -1145,64 +953,39 @@ and written (down) per cycle.}
 \label{fig:lanes_suites}
 \end{figure*}
 
-The lane count $L$ is a parameter: it sets the warp width, the line of the memory
-engine and the L1 (one word per lane) and the burst length of the AXI4 master. We
-simulated the board configuration at 4, 8 and 16 lanes on the board inputs, with eight
-warps, 16 MSHRs, an
-L1 of 2,048 lines (32, 64 and 128~KiB) and one divide/square-root unit per eight lanes;
-the eight- and 16-lane points are the two board designs. Every output passes its check
-at every lane count. Fig.~\ref{fig:lanes_suites} gives three measures of every
-benchmark. The \emph{throughput} is the lane operations (the active lanes of the issued
-warp instructions) per cycle, at most $L$. The \emph{lane utilization} is
-the active lanes divided by $L$ times the issued warp instructions, so the throughput
-is $L$ times the IPC times the lane utilization; a utilization below one comes from
-divergence or from partly filled warps. The \emph{memory bandwidth} is the bytes per
-cycle on the read and write data channels of the 128-bit AXI4 master, at most 16 in
-each direction. Each benchmark has one bar per lane count in
-Figs.~\ref{fig:lanes_suites}(a) and~(c) and one dot per lane count in
-Fig.~\ref{fig:lanes_suites}(b), and Fig.~\ref{fig:lanes_suites}(c) draws the bytes read
-above its axis and the bytes written below it. The supplementary material adds a second suite of ten kernels, the
-synchronization kernels and the FP32 and INT8 throughput.
+The lane count $L$ sets the warp width, the line of the memory engine and the L1 (one
+word per lane) and the burst length of the AXI4 master. We simulated the board
+configuration at 4, 8 and 16 lanes on the board inputs, with eight warps, 16 MSHRs, an
+L1 of 2,048 lines and one divide/square-root unit per eight lanes, every output
+checked. Fig.~\ref{fig:lanes_suites} gives, per benchmark and lane count, the
+\emph{throughput}, the lane operations (the active lanes of the issued warp
+instructions) per cycle, at most $L$; the \emph{lane utilization}, the active lanes
+over $L$ times the issued warp instructions, below one under divergence or in partly
+filled warps; and the \emph{memory bandwidth}, the bytes per cycle read (up) and written
+(down) on the 128-bit AXI4 master, at most 16 each way. The throughput is $L$ times the
+IPC times the utilization.
 
-At four, eight and 16 lanes, the geometric-mean throughput (Fig.~\ref{fig:lanes_suites}(a))
-is 2.85, 5.32 and 9.52 lane
+At four, eight and 16 lanes, the geometric-mean throughput is 2.85, 5.32 and 9.52 lane
 operations per cycle for the applications, 2.07, 3.55 and 6.44 for Rodinia and 2.62,
-4.37 and 7.54 for RiVEC, and the cycles fall by $1.84\times$ and $3.26\times$,
-$1.71\times$ and $3.11\times$, and $1.67\times$ and $2.88\times$ from four lanes. The
-geometric-mean lane utilization (Fig.~\ref{fig:lanes_suites}(b)) falls only from 0.89
-to 0.83, 0.93 to 0.88 and 0.98 to 0.96, and the mean traffic at 16 lanes
-(Fig.~\ref{fig:lanes_suites}(c)) is 3.5, 6.7 and 5.9 bytes per cycle. The kernels fall into two groups. Dense kernels (GEMM, the CNN, the MLP, the
-stencils, hotspot, backprop, hotspot3D, k-means, matmul, axpy, jacobi-2d) keep a lane
-utilization of 0.99 to 1.00 at every lane count, and their throughput follows the
-peak, 10.1 to 15.5 lane operations per cycle at 16 lanes; the register-blocked GEMM
-reaches 14.86 FP32 operations and the CNN 13.46 INT8 multiply-accumulates per cycle.
-Their traffic follows the throughput: axpy reads 0.80 bytes per lane operation at every
-lane count, so the read channel would bound it at 20 lane operations per cycle. Kernels that gather from large arrays (SpMV, BFS,
-hash join, RiVEC's spmv) reach only 2.3 to 4.5 lane operations per cycle at 16 lanes.
-Their lane utilization falls as the warp widens, for BFS from 0.55 to 0.35 and for
-hash join from 0.71 to 0.47, because a warp runs until its longest row, adjacency list
-or hash chain is done, and a wider warp is more likely to hold a long one. They read
-only 2.9 to 10.1 of the port's 16 bytes per cycle at 16 lanes; what limits them is
-that a warp touches about one line per lane, so doubling the lanes doubles the line
-requests of each warp instruction while the coalescer still sends one per cycle
-(Proposition~\ref{prop:mlp}). nn and blackscholes gain little before the second
-divide unit.
+4.37 and 7.54 for RiVEC, while the mean utilization falls only from 0.89 to 0.83, 0.93
+to 0.88 and 0.98 to 0.96. Dense kernels (GEMM, the CNN, the MLP, the stencils, hotspot,
+backprop, hotspot3D, k-means, matmul, axpy, jacobi-2d) keep a utilization of 0.99 to
+1.00 and reach 10.1 to 15.5 lane operations per cycle at 16 lanes, with traffic that
+follows the throughput. Kernels that gather from large arrays (SpMV, BFS, hash join,
+RiVEC's spmv) reach only 2.3 to 4.5: a warp runs until its longest row, adjacency list
+or hash chain is done, so their utilization falls as the warp widens (BFS from 0.55 to
+0.35), and a warp touches about one line per lane, so doubling the lanes doubles its
+line requests while the coalescer still sends one per cycle
+(Proposition~\ref{prop:mlp}); they use only 2.9 to 10.1 of the port's 16 bytes per
+cycle.
 
-The cost grows faster than the lane count. Each lane's FPU stays at 4.8k LUTs, but the
-memory engine selects the word of every lane from a line of one word per lane and
-places every lane's store data into that line, and both structures grow with $L^2$.
-The 16-lane runs also exposed the stack bound of Theorem~\ref{thm:stack}: in SpMV, a
-warp whose rows had more than eight different lengths overflowed a stack of eight
-frames, and sizing the stack by $L$ removed the failure.
+The cost grows faster than the lane count: each lane's FPU stays at 4.8k LUTs, but the
+memory engine's word selection and store placement grow with $L^2$. The 16-lane runs
+also exposed the stack bound of Theorem~\ref{thm:stack}: in SpMV, a warp whose rows had
+more than eight lengths overflowed a stack of eight frames, which sizing the stack by
+$L$ removed.
 
 \subsection{Sixteen Lanes on the Board}\label{sec:lanes16}
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{simtix_lanes_power.pdf}
-\caption{Power of the eight- and 16-lane SIMTiX on the ZCU102. (a) System power.
-(b) Dynamic power.}
-\label{fig:power}
-\end{figure*}
 
 \begin{figure*}[t]
 \centering
@@ -1211,148 +994,74 @@ frames, and sizing the stack by $L$ removed the failure.
 \label{fig:ppw}
 \end{figure*}
 
-We built the 16-lane design for the ZCU102. It keeps eight warps: in simulation, 16
-lanes with four warps take only $1.25\times$ fewer cycles than the eight-lane design,
-against $1.60\times$ with eight warps, because four warps hide too little memory
-latency. Three changes made it fit the device and use its lanes; each was simulated at
-board size in the exact board configuration before synthesis.
+The 16-lane board design keeps eight warps; with four, it would take only
+$1.25\times$ fewer cycles than the eight-lane design in simulation instead of
+$1.60\times$. Three changes, each simulated at board size before synthesis, made it fit
+the device and use its lanes.
 
-\emph{Store merging.} For a store request, the memory engine forms the data and byte
-enables of the line from the stores of its lanes. The original description wrote each
-lane's byte, halfword or word at its offset, lane by lane, so that a higher lane
-overwrites a lower one; synthesis builds this as $L$ line-wide stages of shifters and
-multiplexers over $32L$ bits. In the 16-lane engine, 37,450 of its 53,653 LUTs (70\%)
-form the store data. The new form replicates each lane's byte or halfword across a
-32-bit word and computes its four byte enables, so no data is shifted; each of the
-$4L$ bytes of the line then selects, with a one-hot AND-OR, the highest lane that
-writes it. A combinational equivalence check with ABC proves the two forms equal at
-four lanes, and random requests ($2\times10^6$ at four and eight lanes, $10^6$ at 16)
-show no difference. The store logic falls to 11,047 LUTs and the engine to 29,159
-($-46\%$), with no change in cycles.
+\emph{Store merging.} The memory engine formed a store's line data lane by lane, a
+higher lane overwriting a lower one, which synthesis builds as $L$ line-wide stages of
+shifters and multiplexers: at 16 lanes, 37,450 of the engine's 53,653 LUTs (70\%). The
+new form replicates each lane's byte or halfword across a word and lets each of the
+$4L$ bytes of the line select, with a one-hot AND-OR, the highest lane that writes it.
+An equivalence check with ABC and $5\times10^6$ random requests find the forms equal;
+the store logic falls to 11,047 LUTs and the engine to 29,159 ($-46\%$), with no change
+in cycles.
 
-\emph{Division and square root.} The 16-lane design has one divide/square-root unit
-per eight lanes, 738 LUTs each, working on the two halves of a warp in parallel.
-Black-Scholes and nn take $2.00\times$ fewer cycles than at eight lanes.
+\emph{Division and square root.} One unit of 738 LUTs per eight lanes serves the two
+halves of a warp in parallel; blackscholes and nn take $2.00\times$ fewer cycles.
 
-\emph{L1 capacity.} A line holds one word per lane, so a 64~KiB L1 holds 2,048 lines at
-eight lanes but 1,024 at 16. The 16-lane L1 of 128~KiB restores 2,048 lines. Its data
-array is 512 bits wide and already occupies 32 RAMB36 tiles at 64~KiB, so the doubled
-depth costs no block RAM, only 256 LUTRAMs and 1,006 flip-flops for the tags and valid
-bits. It gains up to 21\% on gathers that reuse lines.
-
-\begin{table}[t]
-\caption{Eight- and Sixteen-Lane Board Designs}
-\label{tab:lanes16_impl}
-\centering\footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lrr}
-\toprule
- & 8 lanes & 16 lanes\\
-\midrule
-Clock (MHz)               & 115.37 & 100.00\\
-Worst setup slack (ns)    & $+0.406$ & $+0.041$\\
-\Fmax\ (MHz)              & 121.0 & 100.4\\
-LUT                       & 107,658 (39\%) & 202,660 (74\%)\\
-FF                        & 50,091 & 93,351\\
-BRAM (RAMB36) / DSP       & 16 / 72 & 32 / 144\\
-L1 size, line             & 64~KiB, 32~B & 128~KiB, 64~B\\
-Divide/square-root units  & 1 & 2\\
-Accelerator power (W) & 1.08 & 1.79\\
-\bottomrule
-\end{tabular}
-
-\end{table}
+\emph{L1 capacity.} A 64~KiB L1 holds 2,048 lines at eight lanes but 1,024 at 16. The
+16-lane L1 of 128~KiB restores 2,048 lines at no block-RAM cost, as its 512-bit data
+array already occupies 32 RAMB36 tiles, for 256 LUTRAMs and 1,006 flip-flops, and
+gains up to 21\% on gathers that reuse lines.
 
 \input{tab_lanes16_board.tex}
 
-
-
 The 16-lane design closes at 100~MHz, 13\% below the eight-lane clock, with 74\% of the
-LUTs in use (Table~\ref{tab:lanes16_impl}); its routed netlist passes the board-top
-tests with the cycle counts of the RTL. Both designs have eight warps, 16 MSHRs, 16
-tags and serial line-aggregated AMOs; their power in Table~\ref{tab:lanes16_impl} is
-Vivado's estimate for the accelerator, to which the PS adds 2.74~W, and their measured
-power and FP32 energy efficiency are in Figs.~\ref{fig:power} and~\ref{fig:ppw}
-(Section~\ref{sec:evalpower}). Table~\ref{tab:lanes16_board} gives the board results
-for the host programs and inputs of the eight-lane design, 82 runs in all (the
-synchronization kernels, the applications and a second suite of ten kernels at two
-input sizes each, Rodinia and RiVEC), every output checked, against the A53's
-\texttt{-O2} reference; the supplementary material lists every run. The
-16-lane design is $1.45\times$ faster than the eight-lane design (geometric mean) and
-faster on 75 of the 82 runs. The dense kernels
-take 1.91 to $2.08\times$ fewer cycles, which is 1.65 to $1.80\times$ less time at the
-lower clock; the gather kernels take 1.21 to $1.46\times$ fewer cycles. Against the
-Cortex-A53, the geometric mean rises from $0.56\times$ to $0.82\times$, and SIMTiX is
-faster in 34 runs instead of 20, among them RiVEC's matmul ($12.5\times$), GEMM-RB
-($7.7\times$), the CNN ($7.1\times$) and the MLP ($7.0\times$).
+LUTs in use and $+0.041$~ns of slack (Table~\ref{tab:impl}), and its routed netlist
+passes the board-top tests with the cycle counts of the RTL. Table~\ref{tab:lanes16_board}
+gives its 82 board runs, with the host programs and inputs of the eight-lane design and
+every output checked: per suite, the speedup of 16 over eight lanes and the runs on
+which 16 lanes are faster, and SIMTiX's speedup over the A53's \texttt{-O2} reference
+at $L=8$ and $L=16$ with the runs on which SIMTiX is faster. The suites are the
+synchronization kernels, the applications and a second suite of ten kernels, at two
+input sizes each, Rodinia and RiVEC. The 16-lane design is $1.45\times$ faster (geometric
+mean) and faster on 75 of the 82 runs; the dense kernels take 1.91 to $2.08\times$ fewer
+cycles, 1.65 to $1.80\times$ less time, and the gather kernels 1.21 to $1.46\times$
+fewer cycles. Against the A53, the geometric mean rises from $0.56\times$ to
+$0.82\times$, and SIMTiX is faster in 34 runs instead of 20, among them RiVEC's matmul
+($12.5\times$), GEMM-RB ($7.7\times$), the CNN ($7.1\times$) and the MLP ($7.0\times$).
 
-The board-size simulation predicted these results. For the 35 simulated cases that the
-board runs with the same iterations, the measured cycles differ from the simulated
-ones by 1.9\% at eight lanes and 3.8\% at 16 in the median; over all 42 cases, the ratio of the two designs'
-cycles differs from the simulated ratio by 1.0\% in the median. Seven runs are slower at 16 lanes, with
-0.65 to $0.94\times$ the speed: radix sort at both sizes and the large inputs of five gather
-kernels.
-Each line transfer moves 64 bytes at 16 lanes against 32 at eight, so a scattered
-access moves twice the bytes for the same useful word, and the large inputs no longer
-fit the L1.
+The board-size simulation predicted these results: for the 35 cases that the board runs
+with the same iterations, the measured cycles differ from the simulated ones by 1.9\%
+at eight lanes and 3.8\% at 16 in the median. Seven runs are slower at 16 lanes (0.65
+to $0.94\times$), radix sort at both sizes and the large inputs of five gather kernels:
+a line transfer moves 64 bytes at 16 lanes against 32 at eight, so a scattered access
+moves twice the bytes for the same word, and the large inputs no longer fit the L1.
 
 \subsection{Power and Energy}\label{sec:evalpower}
-We measured the power of both board designs, and of Vortex and FGPU, on all 27 benchmarks of
-Figs.~\ref{fig:mach_heatmap} and~\ref{fig:lanes_suites} at their largest inputs, as in
-Section~\ref{sec:evalboard}: an idle phase in which the A53 polls the accelerator's status
-register, then the benchmark's run repeated for 2~s, with the 18 monitors sampled
-throughout. The \emph{system power} is the sum of the rails while the accelerator runs;
-the \emph{dynamic power} is the system power less the idle power with the same bitstream
-loaded, and so includes the activity the accelerator causes in the PS and the DDR4. The
-energy per run is the system power times the run's measured time, and the FP32 energy
-efficiency is the FP32 throughput of Fig.~\ref{fig:mach_heatmap} divided by the system
-power, defined for the 17 benchmarks that compute in FP32. Fig.~\ref{fig:power} gives
-the powers of the two SIMTiX designs, Fig.~\ref{fig:ppw} the efficiency of all four
-accelerators, and the supplementary material the energy per run.
-
-Fig.~\ref{fig:power} gives, for every benchmark, the system power of each design as a
-point in (a) and its dynamic power as a bar in (b).
-The 16-lane bitstream raises the idle power from 3.13--3.18~W to 3.39--3.42~W, and the
-system power while it runs from 3.31--4.44~W to 3.69--5.89~W (Fig.~\ref{fig:power}(a)).
-Its dynamic power is 0.30 to 2.49~W (Fig.~\ref{fig:power}(b)), 1.77 times that of the
-eight-lane design (0.15 to 1.28~W) in the geometric mean: twice as many lanes switch, at
-a 13\% lower clock. Both draw the most on the dense kernels, up to 2.49~W on lavaMD, and
-the least where the lanes wait on the A53 or are idle under divergence (k-means, nn).
-The idle power is 58 to 96\% of the system power, so the system power rises only 1.21
-times, while the 16-lane design finishes 1.58 times sooner on these inputs (geometric
-means). It therefore uses less energy per run on 24 of the 27 benchmarks, 0.77 of the
-eight-lane design's in the geometric mean (0.64 to 1.15), and more only on the two SpMV
-kernels and the hash join, which it hardly speeds up. The dynamic energy alone, the
-dynamic power times the time, is 1.12 times that of the eight-lane design: the wider
-design spends more energy in its own logic and saves energy by drawing the board's idle
-power for a shorter time.
+We measured the power of both SIMTiX designs, of Vortex and of FGPU on all 27
+benchmarks of Figs.~\ref{fig:mach_heatmap} and~\ref{fig:lanes_suites} at their largest
+inputs, with the board's 18 INA226 monitors read over I$^2$C during an idle phase and
+during the benchmark's run repeated for 2~s. The \emph{system power} is the sum of the
+rails while the accelerator runs, the \emph{dynamic power} the system power less the
+idle power with the same bitstream, and the FP32 energy efficiency the FP32 throughput
+of Fig.~\ref{fig:mach_heatmap} over the system power. The 16-lane design draws
+3.69--5.89~W against 3.31--4.44~W at eight lanes, of which idle power is 58 to 96\%,
+and finishes 1.58 times sooner, so it uses less energy on 24 of the 27 benchmarks, 0.77
+of the eight-lane design's in the geometric mean (Section~\ref{S-sup:energy} of the
+supplementary material).
 
 The FP32 energy efficiency (Fig.~\ref{fig:ppw}, one point per accelerator and
-benchmark on a log axis, higher is better) rises from
-47.9~MFLOP/s per W at eight
-lanes to 63.1 at 16 in the geometric mean over the 17 FP32 benchmarks, with 224 and
-321~MFLOP/s per W on RiVEC's matmul. Vortex and FGPU draw less dynamic power, 0.12 to
-0.62~W and 0.10 to 0.52~W, but take longer, and reach 19.5 and 23.1~MFLOP/s per W: the
-16-lane SIMTiX is 3.2 and 2.7 times as efficient in the geometric mean, the eight-lane
-design 2.5 and 2.1 times. The 16-lane SIMTiX is the most efficient of the four on 13 of
-the 17 benchmarks and the eight-lane design on the two SpMV kernels; FGPU leads on nn
-and blackscholes, which divide and take square roots, with one such unit per lane.
-
-%==============================================================================
-\section{Limitations}\label{sec:disc}
-%==============================================================================
-SIMTiX trades frequency for IPC: its two-stage pipeline reads the LUTRAM RFs and
-decodes in the issue cycle, and Vortex's deeper pipeline closes at a higher frequency
-but needs more warps. Division and square root pass lane by lane through a shared unit
-(one per eight lanes at 16 lanes), and divergent code leaves lanes idle. A line of one
-word per lane makes scattered accesses costlier as lanes are added. One A53 core at 1.2~GHz remains faster
-than the eight-lane SIMTiX on 12 of the 15 Rodinia and RiVEC benchmarks. SIMTiX has no
-compiler: its kernels are hand-written assembly while Vortex's and FGPU's are compiled by
-LLVM, so the efficiency factor of Section~\ref{sec:decomp} includes code quality as well
-as the architecture. Power was measured on the board for SIMTiX, Vortex, FGPU and the
-A53, but not for CVA6 and Ara, as
-system power, of which the board's idle power is the larger part; all machines were
-evaluated as single cores.
+benchmark on a log axis) rises from 47.9~MFLOP/s per W at eight lanes to 63.1 at 16 in
+the geometric mean over the 17 FP32 benchmarks, with 224 and 321 on RiVEC's matmul.
+Vortex and FGPU draw less dynamic power, 0.12 to 0.62~W and 0.10 to 0.52~W, but take
+longer and reach 19.5 and 23.1~MFLOP/s per W, so the 16-lane SIMTiX is 3.2 and 2.7
+times as efficient and the eight-lane design 2.5 and 2.1 times. The 16-lane SIMTiX is
+the most efficient of the four on 13 of the 17 benchmarks and the eight-lane design on
+the two SpMV kernels; FGPU leads on nn and blackscholes, which divide and take square
+roots.
 
 %==============================================================================
 \section{Conclusion}\label{sec:concl}
@@ -1360,25 +1069,15 @@ evaluated as single cores.
 SIMTiX is a SIMT accelerator for FPGA systems-on-chip that hides latency with few
 warps: pipelined units, a register scoreboard with sleeping warps, non-blocking loads
 and a memory engine with up to 16 line requests in flight together gain $1.68\times$
-without changing an instruction. Line-aggregated AMOs serve all lanes of an atomic that
-share a line with one read and one write while preserving the results of serial
-execution, for 660 LUTs. The eight-lane board design uses 107,658 LUTs and closes at
-115.4~MHz. On 15 Rodinia and RiVEC benchmarks on the same ZCU102, SIMTiX is
-$16.9\times$, $3.1\times$, $2.5\times$ and $2.0\times$ faster than CVA6, Ara, Vortex and
-FGPU; it leads Ara through its width and, on irregular accesses, its memory-level
-parallelism, and leads Vortex and FGPU, the latter at a 1.6 times higher clock, through
-efficiency alone. A 16-lane version with a restructured store
-merge closes at 100~MHz and is $1.45\times$ faster, as its simulation predicted. A
-divide pipelined through the FMA units and a line size independent of the lane count
-are the next steps.
-
-%==============================================================================
-\section*{Acknowledgment}
-%==============================================================================
-The authors used a large language model (Anthropic Claude) to assist with build
-and analysis scripting and with editing this manuscript. The design, the
-experiments and their interpretation are the authors' own, and the authors checked
-every reported result.
+without changing an instruction, and line-aggregated AMOs serve all lanes of an atomic
+that share a line with one read and one write, with the results of serial execution,
+for 660 LUTs. On 15 Rodinia and RiVEC benchmarks on the same ZCU102, the eight-lane
+design at 115.4~MHz is $16.9\times$, $3.1\times$, $2.5\times$ and $2.0\times$ faster
+than CVA6, Ara, Vortex and FGPU: it leads Ara through its width and, on irregular
+accesses, its memory-level parallelism, and Vortex and FGPU through efficiency alone. A
+16-lane version with a restructured store merge closes at 100~MHz and is $1.45\times$
+faster, as its simulation predicted. A divide pipelined through the FMA units and a
+line size independent of the lane count are the next steps.
 
 %==============================================================================
 \begin{thebibliography}{99}

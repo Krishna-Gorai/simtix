@@ -7,7 +7,10 @@ at 1024):
   (a) the execution time of SIMTiX, CVA6, Ara, Vortex, FGPU and the Cortex-A53 (log scale);
   (b) the clock cycles of SIMTiX, CVA6, Ara, Vortex and FGPU (FGPU has no cycle counter:
       its cycles are its time times its clock of 187.48 MHz).
-Produces docs/figs/rodinia_time.pdf and docs/figs/rivec_time.pdf (and .png).
+Produces docs/figs/rodinia_time.pdf and docs/figs/rivec_time.pdf (and .png), and the same plots
+with the 16-lane SIMTiX in place of the A53, docs/figs/{rodinia,rivec}_time_l16.pdf: its time
+and cycles come from docs/lanes16_board_results.csv (sim/compare_board_l16.py, board runs of
+the 16-lane bitstream at 100 MHz), whose eight-lane values are checked equal to the ones used.
 Usage:  python docs/plot_machines_time.py
 """
 import csv
@@ -34,6 +37,21 @@ SUITES = {
 MACH = [("SIMTiX", "simtix", "#104281", ""), ("CVA6", "cva6", "#86b6ef", ""),
         ("Ara", "ara", "#eb6834", "////"), ("Vortex", "vortex", "#1baf7a", "\\\\\\\\"),
         ("FGPU", "fgpu", "#8e44ad", "xxxx"), ("A53", "a53_O2", "#eda100", "....")]
+# the 16-lane SIMTiX in place of the A53 (gold, the 16-lane colour of the paper's power plots)
+MACH16 = [("SIMTiX, 16 lanes", "simtix16", "#eda100", ""), ("SIMTiX, 8 lanes", "simtix", "#104281", ""),
+          ("CVA6", "cva6", "#86b6ef", ""), ("Ara", "ara", "#eb6834", "////"),
+          ("Vortex", "vortex", "#1baf7a", "\\\\"), ("FGPU", "fgpu", "#8e44ad", "xxxx")]
+
+
+def lanes16(suite):
+    """{(kernel, N): (us, cycles)} of the 16-lane board runs, and the eight-lane values"""
+    out, eight = {}, {}
+    for r in csv.DictReader(open(os.path.join(HERE, "lanes16_board_results.csv"))):
+        if r["suite"] == suite:
+            key = (r["kernel"], int(r["N"]))
+            out[key] = (float(r["us_16L_100MHz"]), int(r["cycles_16L"]))
+            eight[key] = (float(r["us_8L_115MHz"]), int(r["cycles_8L"]))
+    return out, eight
 
 
 def series(r, col, cycles):
@@ -44,13 +62,20 @@ def series(r, col, cycles):
     return int(r[f"{col}_cycles"]) / 1e6
 
 
-def figure(suite):
+def figure(suite, mach=MACH, tag=""):
     csvname, xlab, bench, names = SUITES[suite]
     rows = {(r["app"], int(r["size"])): r for r in csv.DictReader(open(os.path.join(HERE, csvname)))}
     sel = [rows[b] for b in bench]
+    if any(c == "simtix16" for _, c, _, _ in mach):
+        l16, eight = lanes16(suite)
+        for b, r in zip(bench, sel):
+            us8, cyc8 = eight[b]
+            assert abs(us8 - float(r["simtix_us"])) < 0.1 and cyc8 == int(r["simtix_cycles"]), b
+            r["simtix16_us"], r["simtix16_cycles"] = l16[b]
     fig, axes = plt.subplots(1, 2, figsize=(7.16, 2.4))
     for k, ax in enumerate(axes):
-        machs = MACH if k == 0 else MACH[:5]
+        # cycles: every machine with a clock count (the A53 has none)
+        machs = mach if k == 0 else [m for m in mach if m[1] != "a53_O2"]
         w = 0.84 / len(machs)
         for i, (m, col, colour, hat) in enumerate(machs):
             v = [series(r, col, k == 1) for r in sel]
@@ -77,7 +102,7 @@ def figure(suite):
     fig.legend(h, l, loc="upper center", ncol=6, bbox_to_anchor=(0.5, 1.07), handlelength=1.6,
                handleheight=0.9, columnspacing=1.6)
     fig.tight_layout(w_pad=1.5)
-    out = os.path.join(HERE, "figs", f"{suite}_time.pdf")
+    out = os.path.join(HERE, "figs", f"{suite}_time{tag}.pdf")
     fig.savefig(out)
     fig.savefig(out.replace(".pdf", ".png"), dpi=200)
     plt.close(fig)
@@ -88,6 +113,7 @@ def main():
     plot_style.apply()
     for s in SUITES:
         figure(s)
+        figure(s, MACH16, "_l16")
 
 
 if __name__ == "__main__":

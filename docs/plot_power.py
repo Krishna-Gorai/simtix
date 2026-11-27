@@ -113,7 +113,7 @@ def collect():
                     idle = pw[(m, s)].get((f'{k}@cva6', n, 'idle'))
                 tm = times[m] / 1000.0 if times.get(m) else None
                 v[m] = (tm, P, idle)
-            out.append((s, k, pms.NAME.get(k, k), n, v))
+            out.append((s, k, plot_style.bench_label(s, k, pms.NAME.get(k, k)), n, v))
     return out
 
 

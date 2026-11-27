@@ -69,28 +69,222 @@ stages, traced on the RTL.}
 \label{fig:pipechart}
 \end{figure*}
 
+\section{Divergence of One Warp}\label{sup:div}
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{simtix_div.pdf}
+\caption{Divergence and reconvergence of one warp, traced on the RTL.}
+\label{fig:div}
+\end{figure*}
+
+Fig.~\ref{fig:div} traces one warp on the RTL through the kernel of
+Fig.~\ref{fig:div}(a), given in C and as the RV32 instructions at their PCs: a
+one-sided \texttt{if} and a loop whose trip count differs per lane. In
+Fig.~\ref{fig:div}(b) each column is one issue slot of the warp and each row a
+lane: a filled cell is an active lane, coloured by the number of frames on the stack, a
+white cell a masked lane, and a hatched cell a lane of a frame that pops. The row above
+the grid names the instruction of each slot, and the rows below give its cycle, the
+number of frames and the pushes. The two tables give the PC, RPC and lanes of every
+frame at two points, with the top frame marked and -- for the bottom frame, which has
+no RPC. The \texttt{bnez} of
+cycle 4 is taken by lanes 0 to 2, so stage B pushes a frame of lanes 3 to 7 with the
+branch target 0x110 as RPC, and the frame below waits at 0x110 with all eight lanes
+(first table). Lanes 3 to 7 run the body in cycles 7 and 9; in cycle 11 the top frame's
+PC reaches its RPC and the frame pops, which takes the issue slot, and the warp goes on
+with all lanes. In the loop, lane $l$ runs $(l\bmod 4)+1$ iterations. The
+\texttt{bgez} that ends the first iteration keeps lanes 1 to 3 and 5 to 7 in the loop
+and pushes them, while the frame below waits at the exit 0x120; the second and third
+iterations push again, each time without the two lanes that leave, so in cycle 35 the
+stack holds four frames (second table), one per distinct trip count, as
+Theorem~\ref{P-thm:stack} allows. In the fourth iteration the last two lanes leave
+together, a uniform branch that pushes nothing; the three pushed frames then pop in
+cycles 43, 45 and 47, and in cycle 49 the warp runs with all eight lanes again. Up to
+this point the warp takes 22 issue slots for its 18 instructions, and its lanes are
+active in 102 of the 144 lane slots of these instructions, a lane utilization of 0.71
+(Section~\ref{P-sec:evallanes}).
+
+\section{Four Warps Under the Issue Rules}\label{sup:lat4}
+\begin{figure*}[t]
+\centering
+\includegraphics{simtix_lat_a.pdf}
+\caption{Four warps under the issue rules (FPU result written seven cycles after issue;
+load latency schematic).}
+\label{fig:lat4}
+\end{figure*}
+
+Fig.~\ref{fig:lat4} shows four warps under the issue rules of Section~\ref{P-sec:arch} of the paper, with the FPU result written
+seven cycles after issue and a schematic load latency: warp 0 runs dependent FMAs
+(\texttt{fmadd}); warp 1 a load (\texttt{lw}), an \texttt{addi} and two FMAs; warp 2
+integer code (\texttt{add}, \texttt{slli} and the Zba shift-and-add \texttt{sh2add});
+and warp 3 a multiply (\texttt{fmul}), two adds (\texttt{fadd}) and an \texttt{addi}.
+The top row (\texttt{issue}) gives the warp in X in each cycle, and each warp's row its
+issues, held-back cycles, sleep and results in flight. In cycle 4 warp 0's second FMA
+finds the first one's result still in the FPU, so it is held back, its slot is lost
+and warp 0 sleeps until the write in cycle 7; warps 3 and 1 lose cycles 7 and 8 in the
+same way, while the integer instructions of warp 2 and of woken warps take the other
+slots, and warp 1 issues its \texttt{addi} while its load is in flight. Four of the 17
+slots are lost. As a cycle model, these rules reproduce the RTL's issue trace of a
+four-warp test kernel cycle by cycle.
+
 \section{Execution Time and Cycles of the Machines}\label{sup:ratios}
+\begin{table*}[t]
+\caption{Run Times on the Applications and Rodinia}
+\label{tab:rodinia}
+\centering\footnotesize
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}llrrrrrrrrrrr@{}}
+\toprule
+ & & SIMTiX & \multicolumn{2}{c}{CVA6} & \multicolumn{2}{c}{Ara} & \multicolumn{2}{c}{Vortex}
+ & \multicolumn{2}{c}{FGPU} & \multicolumn{2}{c}{Cortex-A53}\\
+\cmidrule(lr){3-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}
+Benchmark & Input & Time (ms) & Time (ms) & Ratio & Time (ms) & Ratio & Time (ms) & Ratio
+ & Time (ms) & Ratio & Time (ms) & Ratio\\
+\midrule
+\multicolumn{13}{@{}l}{\emph{Applications of Table~\ref{tab:board}}}\\
+GEMM-RB    & $256^3$                       & 37.8    & 3,689.7   & 97.7 & 77.4     & 2.05 & 198.2    & 5.25 & 296.5 & 7.85 & 169.6    & 4.49\\
+SpMV-Z     & 65,536 rows                   & 19.3    & 362.3     & 18.7 & 313.2    & 16.2 & 46.2     & 2.39 & 200.3 & 10.4 & 18.3     & 0.95\\
+CNN        & $128^2$, 16-32-32 channels    & 290.7   & 27,266.5  & 93.8 & 1,581.3  & 5.44 & 2,066.4  & 7.11 & 892.0 & 3.07 & 1,191.9  & 4.10\\
+Mandelbrot & $1024^2$, 256 iterations      & 1,019.7 & 11,142.5  & 10.9 & 4,553.5  & 4.47 & 5,324.0  & 5.22 & 858.7 & 0.84 & 846.8    & 0.83\\
+\midrule
+\multicolumn{13}{@{}l}{\emph{Rodinia}}\\
+pathfinder & 100 rows, 100,000 columns   & 250.5   & 4,428.8   & 17.7 & 421.2    & 1.68 & 960.9    & 3.84 & 650.0 & 2.60 & 97.2     & 0.39\\
+backprop   & 2$^{19}$ inputs, 16 hidden    & 299.2   & 5,729.0   & 19.1 & 3,055.4  & 10.2 & 1,008.8  & 3.37 & 791.4 & 2.64 & 214.2    & 0.72\\
+bfs        & graph65536                    & 36.7    & 299.8     & 8.17 & 794.1    & 21.7 & 126.8    & 3.46 & 138.3 & 3.77 & 21.9     & 0.60\\
+hotspot    & $512^2$, 2 iterations         & 33.6    & 553.1     & 16.5 & 45.3     & 1.35 & 103.0    & 3.07 & 60.4 & 1.80 & 21.0     & 0.63\\
+hotspot    & $1024^2$, 2 iterations        & 134.2   & 2,475.0   & 18.4 & 172.8    & 1.29 & 411.2    & 3.06 & 241.4 & 1.80 & 85.5     & 0.64\\
+nn         & 42,764 records                & 15.3    & 24.4      & 1.59 & 8.9      & 0.58 & 4.8      & 0.31 & 2.1 & 0.14 & 1.0      & 0.07\\
+hotspot3D  & $512^2\times8$, 100 iterations & 9,449.6 & 491,642.8 & 52.0 & 20,528.6 & 2.17 & 21,504.5 & 2.28 & 22,239.8 & 2.35 & 16,522.7 & 1.75\\
+gaussian   & $1024\times1024$              & 4,965.0 & 104,642.3 & 21.1 & 10,176.9 & 2.05 & 6,064.0  & 1.22 & 9,923.2 & 2.00 & 3,916.4  & 0.79\\
+kmeans     & kdd\_cup, $k=5$, 37 iterations & 31,810.0 & 726,014.0 & 22.8 & 56,290.0 & 1.77 & 64,442.3 & 2.03 & 63,549.7 & 2.00 & 28,064.9 & 0.88\\
+\midrule
+\multicolumn{13}{@{}l}{\emph{Geometric mean of the ratio}}\\
+\multicolumn{3}{@{}l}{Rodinia, time} & & 14.6 & & 2.62 & & 1.98 & & 1.67 & & 0.56\\
+\multicolumn{3}{@{}l}{Rodinia, clock cycles} & & 9.97 & & 1.79 & & 2.15 & & 2.71 & & ---\\
+\multicolumn{3}{@{}l}{All twelve, time} & & 19.9 & & 3.32 & & 2.63 & & 2.20 & & 0.85\\
+\multicolumn{3}{@{}l}{All twelve, clock cycles} & & 13.6 & & 2.27 & & 2.85 & & 3.57 & & ---\\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
+\begin{table*}[t]
+\caption{Run Times on RiVEC}
+\label{tab:rivec}
+\centering\footnotesize
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}llrrrrrrrrrrr@{}}
+\toprule
+ & & SIMTiX & \multicolumn{2}{c}{CVA6} & \multicolumn{2}{c}{Ara} & \multicolumn{2}{c}{Vortex}
+ & \multicolumn{2}{c}{FGPU} & \multicolumn{2}{c}{Cortex-A53}\\
+\cmidrule(lr){3-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}
+Application & Input & Time (ms) & Time (ms) & Ratio & Time (ms) & Ratio & Time (ms) & Ratio
+ & Time (ms) & Ratio & Time (ms) & Ratio\\
+\midrule
+axpy         & 2,097,152 elements             & 31.5 & 513.4 & 16.3 & 50.7 & 1.61 & 179.2 & 5.69 & 103.1 & 3.27 & 25.0 & 0.80 \\
+matmul       & $512^3$, RiVEC data            & 300.3 & 65,174.2 & 217 & 14,918.2 & 49.7 & 1,562.4 & 5.20 & 2,840.4 & 9.46 & 2,152.8 & 7.17 \\
+spmv         & poisson3Db, $A^{\mathsf T}x$   & 79.2 & 1,211.9 & 15.3 & 567.1 & 7.16 & 173.6 & 2.19 & 1,152.7 & 14.6 & 52.8 & 0.67 \\
+jacobi-2d    & $256^2$, 2,000 steps           & 10,116.6 & 145,978.7 & 14.4 & 19,324.5 & 1.91 & 36,713.8 & 3.63 & 18,790.4 & 1.86 & 4,461.7 & 0.44 \\
+pathfinder   & $1024\times2048$, 100 runs     & 5,556.7 & 116,179.1 & 20.9 & 8,907.6 & 1.60 & 22,044.9 & 3.97 & 14,464.1 & 2.60 & 2,473.0 & 0.45 \\
+blackscholes & 65,536 options, 100 runs       & 9,328.3 & 45,462.0 & 4.87 & 5,665.7 & 0.61 & 9,095.9 & 0.98 & 3,420.8 & 0.37 & 3,460.8 & 0.37 \\
+lavaMD       & $10^3$ boxes of 96 particles   & 15,868.0 & 268,712.8 & 16.9 & 159,494.0 & 10.1 & 69,823.7 & 4.40 & 13,980.1 & 0.88 & 23,438.5 & 1.48 \\
+\midrule
+\multicolumn{13}{@{}l}{\emph{Geometric mean of the ratio}}\\
+\multicolumn{3}{@{}l}{Time} & & 20.1 & & 3.76 & & 3.27 & & 2.55 & & 0.88\\
+\multicolumn{3}{@{}l}{Clock cycles} & & 13.8 & & 2.59 & & 3.53 & & 4.16 & & ---\\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
 Figs.~\ref{fig:rodinia} and~\ref{fig:rivec} give, for every Rodinia benchmark and
-RiVEC application at its largest input, the execution time of SIMTiX, CVA6, Ara,
-Vortex, FGPU and the A53, each at its own clock, and the clock cycles of the first
-five, from Tables~\ref{P-tab:rodinia} and~\ref{P-tab:rivec}; FGPU's cycles are its
-time times its clock. Fig.~\ref{fig:mach_time} gives the execution time of every
+RiVEC application at its largest input, the execution time and the clock cycles of
+SIMTiX with 16 and with eight lanes, CVA6, Ara, Vortex and FGPU, each at its own clock:
+the eight-lane and the other machines' values from Tables~\ref{tab:rodinia}
+and~\ref{tab:rivec}, the 16-lane values from the board runs of
+Section~\ref{sup:lanes16} at 100~MHz; FGPU's cycles are its time times its clock. Fig.~\ref{fig:mach_time} gives the execution time of every
 machine, the eight- and 16-lane SIMTiX included, on all twelve applications of
-Table~\ref{P-tab:board}, Rodinia and RiVEC at their largest inputs, the integer
+Table~\ref{tab:board}, Rodinia and RiVEC at their largest inputs, the integer
 benchmarks that Fig.~\ref{P-fig:mach_heatmap} of the paper leaves out among them; Ara
 gives wrong results on the MLP and Smith-Waterman.
 In Figs.~\ref{fig:rodinia} and~\ref{fig:rivec} each benchmark has one bar per machine on
-a log axis. Of the five machines in the programmable logic, SIMTiX is the fastest on
-every Rodinia benchmark but nn and on five of the seven RiVEC applications, FGPU leading
-on blackscholes and lavaMD; the A53 is faster than SIMTiX on every Rodinia benchmark
-but hotspot3D. In Fig.~\ref{fig:mach_time} each row is a benchmark and each column a
+a log axis. The 16-lane SIMTiX is the fastest of the six designs on 12 of the 15
+benchmarks, and the eight-lane design on RiVEC's spmv, a gather that the 16-lane line of
+64 bytes slows (Section~\ref{P-sec:lanes16} of the paper). FGPU, with a divide and
+square-root unit per lane, leads on nn and blackscholes; on lavaMD, where it is faster
+than the eight-lane design, the 16-lane design takes 0.65 of its time. The A53, which
+Tables~\ref{tab:rodinia} and~\ref{tab:rivec} and Fig.~\ref{fig:mach_time} include, is
+faster than the eight-lane SIMTiX on every Rodinia benchmark but hotspot3D. In Fig.~\ref{fig:mach_time} each row is a benchmark and each column a
 machine, and the colour and the number give the time in milliseconds on a log scale.
 Section~\ref{P-sec:decomp} of the paper splits the time ratios into clock, width and
 efficiency.
 
 \input{supp_figs_rd.tex}
 
-\section{Energy per Run}\label{sup:energy}
+\section{Applications Against the Cortex-A53}\label{sup:a53}
+Table~\ref{tab:board} gives the time of each of the twelve applications on one A53 core
+and on SIMTiX, the board power while each computes, and the A53's time and energy
+over SIMTiX's, so above 1 favors SIMTiX (Section~\ref{P-sec:evalboard} of the paper).
+The A53 runs an ordinary sequential C algorithm built with \texttt{-O2} and with
+\texttt{-O3 -mcpu=cortex-a53}, which vectorizes with NEON; the faster build is
+\texttt{-O3} for every application but Smith-Waterman, for which it is \texttt{-O2}.
+Each application runs at the large input listed in Section~\ref{sup:sim}, and every
+output of the accelerator is compared exactly with the A53's. For power, the host reads
+the board's 18 INA226 monitors over I$^2$C while each phase repeats for 2~s and sums
+the rails. One A53 pass of the MLP takes 730~ms, and the rails are sampled only between
+passes; the A53's power on it is within the noise of its few samples, so the table
+gives no power or energy for the MLP.
+
+\begin{table}[t]
+\caption{SIMTiX Against the Cortex-A53 on the Applications}
+\label{tab:board}
+\centering\footnotesize
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+ & \multicolumn{2}{c}{Time (ms)} & \multicolumn{2}{c}{Power (W)} & \multicolumn{2}{c}{A53 / SIMTiX}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Application & A53 & SIMTiX & A53 & SIMTiX & Time & Energy\\
+\midrule
+Hash join       &   195.4 &    99.3 & 3.13 & 4.12 & 1.97 & 1.50\\
+CNN             &   381.8 &   290.7 & 3.11 & 4.00 & 1.31 & 1.02\\
+GEMM-RB         &    47.2 &    37.8 & 3.17 & 4.22 & 1.25 & 0.94\\
+Embedding bag   &    45.4 &    37.5 & 3.12 & 4.05 & 1.21 & 0.94\\
+BFS             &   194.6 &   162.9 & 3.13 & 3.88 & 1.19 & 0.96\\
+SpMV-Z          &    18.1 &    19.4 & 3.17 & 4.08 & 0.94 & 0.73\\
+Mandelbrot      &   845.7 & 1,019.7 & 3.12 & 4.19 & 0.83 & 0.62\\
+Smith-Waterman  &   922.1 & 1,613.4 & 3.16 & 3.83 & 0.57 & 0.47\\
+k-means-U       &    34.3 &    72.2 & 3.11 & 3.86 & 0.47 & 0.38\\
+Stencil-RB      &     8.6 &    18.9 & 3.20 & 4.26 & 0.45 & 0.34\\
+MLP             &    55.4 &   189.8 &  --- &  --- & 0.29 & ---\\
+Segmented scan  &     4.5 &    35.5 & 3.27 & 3.91 & 0.13 & 0.11\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Power and Energy per Run}\label{sup:energy}
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{simtix_lanes_power.pdf}
+\caption{Power of the eight- and 16-lane SIMTiX on the ZCU102. (a) System power.
+(b) Dynamic power.}
+\label{fig:power}
+\end{figure*}
+
+Fig.~\ref{fig:power} gives, for every benchmark, the system power of each design as a
+point in (a) and its dynamic power as a bar in (b).
+The 16-lane bitstream raises the idle power from 3.13--3.18~W to 3.39--3.42~W, and the
+system power while it runs from 3.31--4.44~W to 3.69--5.89~W (Fig.~\ref{fig:power}(a)).
+Its dynamic power is 0.30 to 2.49~W (Fig.~\ref{fig:power}(b)), 1.77 times that of the
+eight-lane design (0.15 to 1.28~W) in the geometric mean: twice as many lanes switch, at
+a 13\% lower clock. Both draw the most on the dense kernels, up to 2.49~W on lavaMD, and
+the least where the lanes wait on the A53 or are idle under divergence (k-means, nn).
+The idle power is 58 to 96\% of the system power, so the system power rises only 1.21
+times, while the 16-lane design finishes 1.58 times sooner on these inputs (geometric
+means). It therefore uses less energy per run on 24 of the 27 benchmarks, 0.77 of the
+eight-lane design's in the geometric mean (0.64 to 1.15), and more only on the two SpMV
+kernels and the hash join, which it hardly speeds up. The dynamic energy alone, the
+dynamic power times the time, is 1.12 times that of the eight-lane design: the wider
+design spends more energy in its own logic and saves energy by drawing the board's idle
+power for a shorter time.
+
 Fig.~\ref{fig:energy} gives the energy per run of the eight- and 16-lane SIMTiX on every
 benchmark of Section~\ref{P-sec:evalpower} of the paper at its largest input: the system
 power while the accelerator runs (the sum of the board's 18 monitored rails) times the
@@ -106,10 +300,62 @@ kernels and the hash join, which it hardly speeds up.
 \end{figure*}
 
 \section{Out-of-Context Comparison With Vortex}\label{sup:vortex}
+\begin{table}[t]
+\caption{SIMTiX and Vortex Out of Context}
+\label{tab:vortex}
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+ & SIMTiX & \multicolumn{3}{c}{Vortex}\\
+\cmidrule(lr){2-2}\cmidrule(lr){3-5}
+ & 4 warps & 4 warps & 8 warps & 16 warps\\
+\midrule
+LUT            & 84,443 & 80,119 & 91,831 & 110,158\\
+FF             & 31,959 & 78,613 & 86,452 & 98,570\\
+BRAM           & 16     & 46     & 62     & 95.5\\
+DSP            & 72     & 48     & 48     & 48\\
+\Fmax\ (MHz)   & 101.6  & 140.8  & 135.9  & 134.0\\
+Power (W)      & 1.10   & 1.70   & 1.85   & 2.08\\
+\midrule
+\multicolumn{5}{@{}l}{\emph{Vortex / SIMTiX, geometric mean over the seven applications}}\\
+Warp instructions & --- & 1.72 & 1.72 & 1.73\\
+Cycles         & --- & 2.78 & 1.80 & 1.58\\
+Run time       & --- & 2.01 & 1.34 & 1.20\\
+Energy         & --- & 4.32 & 3.04 & 3.00\\
+\midrule
+\multicolumn{5}{@{}l}{\emph{SIMTiX / Vortex, geometric mean}}\\
+Performance per LUT  & --- & 1.90 & 1.46 & 1.57\\
+Performance per watt & --- & 4.32 & 3.04 & 3.00\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+To compare cost at equal configuration, we built SIMTiX and Vortex~3.0 with four warps
+of eight threads and a 16~KiB L1, out of context with Vortex's own Vivado script at a
+100~MHz constraint, and estimated their power vectorless at a toggle rate of 12.5\%.
+Both run seven applications in simulation (GEMM, SpMV, a Jacobi stencil, k-means, BFS,
+a prefix sum and an INT8 MLP), with the same algorithms and the same order of
+floating-point operations, every output checked bit-exactly; Vortex's kernels are
+compiled by its LLVM at \texttt{-O3}, and its simulator uses the FMA, divide and
+square-root latencies of its IP cores (16, 28 and 28 cycles).
+
+Table~\ref{tab:vortex} gives the results. Vortex executes 1.72 times the warp
+instructions of SIMTiX (geometric mean), because its kernels carry divergence and
+predicate instructions and compiled loop code, and the MLP has no INT8 dot product on
+Vortex. With four warps it also reaches a lower IPC, 0.25 to 0.43 against SIMTiX's 0.43
+to 0.69, because four warps do not fill its longer pipeline (Proposition~\ref{P-prop:ipc});
+at 16 warps its IPC rises to 0.47--0.66, so most of its remaining cycle deficit comes
+from its instruction count. Vortex closes at 140.8~MHz, 39\% above SIMTiX, and uses
+5\% fewer LUTs but 2.5 times the flip-flops, 2.9 times the block RAM and 55\% more
+power. Per LUT, SIMTiX delivers 1.46 to 1.90 times the performance of Vortex, and per
+watt three to 4.3 times, at every Vortex warp count, with performance taken as the
+inverse of the run time at each design's \Fmax, and at 100~MHz per watt.
+
 Fig.~\ref{fig:vortex} gives, per application, the IPC, the execution time at each
 design's \Fmax\ and the energy of one run at 100~MHz, from the vectorless power, of
 SIMTiX with four warps and of Vortex with four, eight and 16 warps, from the
-out-of-context builds of Section~\ref{P-sec:evalvortex} and Table~\ref{P-tab:vortex}.
+out-of-context builds of Section~\ref{P-sec:evalvortex} of the paper and Table~\ref{tab:vortex}.
 
 Each application has one bar per design, on a log axis for the time and the energy.
 SIMTiX is faster than Vortex with four warps on all seven applications and than Vortex

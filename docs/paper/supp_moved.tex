@@ -241,7 +241,7 @@ sums, level-synchronous breadth-first search with one launch per level and an
 block-shared memory and a barrier, and a two-layer INT8 multilayer perceptron with
 \texttt{pdot8}, requantization and a rectified linear unit.
 
-On the board (Table~\ref{P-tab:board} of the paper) the twelve applications run at
+On the board (Table~\ref{tab:board}) the twelve applications run at
 large inputs: hash join with $2^{22}$ slots and $2^{20}$ probes; CNN on $128^2$ with
 16-32-32 channels; GEMM $256^3$; embedding bag with $2^{18}$ rows of 32 floats and 4,096
 bags of 32; BFS on $2^{18}$ vertices; SpMV with 65,536 rows; Mandelbrot $1024^2$ with 256

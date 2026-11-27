@@ -58,3 +58,27 @@ def apply():
         "savefig.bbox": "tight",
         "savefig.pad_inches": 0.02,
     })
+
+
+# Benchmark names as the paper's tables print them: the applications by their full names,
+# the Rodinia and RiVEC benchmarks by their suites' own (lower-case) names. A kernel key can
+# occur in several suites (kmeans, bfs, spmv, pathfinder), so the label depends on the suite.
+APP_NAME = {
+    'gemm': 'GEMM', 'gemmrb': 'GEMM-RB', 'stencil': 'Stencil', 'stencilrb': 'Stencil-RB',
+    'conv8': 'CNN', 'mlp': 'MLP', 'embag': 'Embedding bag', 'kmeans': 'k-means',
+    'kmeansu': 'k-means-U', 'mandel': 'Mandelbrot', 'swat': 'Smith-Waterman', 'scan': 'Scan',
+    'scanseg': 'Segmented scan', 'spmv': 'SpMV', 'spmvz': 'SpMV-Z', 'bfs': 'BFS',
+    'hashj': 'Hash join'}
+RODINIA_NAME = {
+    'hotspot': 'hotspot', 'hotspot3d': 'hotspot3D', 'backprop': 'backprop', 'kmeans': 'kmeans',
+    'nn': 'nn', 'gaussian': 'gaussian', 'pathfinder': 'pathfinder', 'bfs': 'bfs'}
+RIVEC_NAME = {
+    'matmul': 'matmul', 'axpy': 'axpy', 'jacobi': 'jacobi-2d', 'blackscholes': 'blackscholes',
+    'lavamd': 'lavaMD', 'pathfinder': 'pathfinder', 'spmv': 'spmv'}
+
+
+def bench_label(suite, key, default=None):
+    """the name of benchmark `key` of `suite` in the paper's tables"""
+    s = str(suite).lower()
+    table = RODINIA_NAME if s.startswith('rod') else RIVEC_NAME if s.startswith('riv') else APP_NAME
+    return table.get(key, default if default is not None else key)

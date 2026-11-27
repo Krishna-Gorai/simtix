@@ -63,7 +63,7 @@ def table():
                     vals[m] = (t[m] / t8, t[m] / t16, note.get(m))
                 else:
                     vals[m] = (None, None, note.get(m))
-            out.append((s, pms.NAME.get(k, k), vals))
+            out.append((s, plot_style.bench_label(s, k, pms.NAME.get(k, k)), vals))
         gm = {}
         for m, _, _, _ in MACH:
             v8 = [r[2][m][0] for r in out if r[0] == s and r[2][m][0]]
@@ -189,7 +189,7 @@ def heatmap_time():
             v = {'s8': t8, 's16': t16, 'a53': a53.get((s, k, n))}
             for m, _, _, _ in MACH:
                 v[m] = t.get(m)
-            tab.append((s, pms.NAME.get(k, k), {c: (x / 1000.0 if x else None) for c, x in v.items()}))
+            tab.append((s, plot_style.bench_label(s, k, pms.NAME.get(k, k)), {c: (x / 1000.0 if x else None) for c, x in v.items()}))
     allv = [x for _, _, v in tab for x in v.values() if x]
     lo = 10 ** math.floor(math.log10(min(allv)))
     hi = 10 ** math.ceil(math.log10(max(allv)))
@@ -286,7 +286,8 @@ def heatmap_throughput():
     for s_, lab, key, n, nfun in pmt.bench_list():
         N = nfun()
         t = times[(s_, key, n)]
-        cols.append((s_, TP_LAB.get(lab, lab), N, {r: (N / t[r] if t.get(r) else None)
+        cols.append((s_, plot_style.bench_label(s_, key, TP_LAB.get(lab, lab)), N,
+                     {r: (N / t[r] if t.get(r) else None)
                                                    for r, _ in TP_ROWS}))
         keys.append((key, n))
     with open(os.path.join(HERE, 'machines_throughput.csv'), 'w', newline='\n') as f:

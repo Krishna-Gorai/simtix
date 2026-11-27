@@ -76,7 +76,7 @@ def collect(suite):
             if suite == 'sync':
                 lab = f'{NAME.get(k, k)} {SIZE[int(case.rsplit("_", 1)[1])]}'
             else:
-                lab = NAME.get(k, k)
+                lab = plot_style.bench_label(suite, k, NAME.get(k, k))
             met = {}
             for L in LANES:
                 cyc, ins, act, rd, wr = m[L]

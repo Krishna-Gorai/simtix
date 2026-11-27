@@ -328,15 +328,15 @@ slash(17.30, 8.27, '128')
 arrow([(14.97, 5.48), (15.52, 5.48)], 'bus')                            # request
 regbar(15.40, 5.22, 5.74)
 emit(r'\node[vlabel] at (15.40,4.62) {input reg.};')
-table(15.55, 4.48, 17.52, 6.40, r'\textbf{Tags} (LUTRAM)', ['set', 'w0', r'\ldots', 'w3'],
+table(15.55, 4.48, 17.52, 6.40, r'\textbf{Tags} (LUTRAM)', ['set', 'way 0', r'\ldots', 'way 3'],
       [['0', '', '', ''], [r'\vd', '', '', ''], ['511', '', '', '']],
-      widths=[1.3, 1, 1, 1])
+      widths=[1.0, 1.35, 0.7, 1.35])
 shadow(15.72, 3.05, 17.38, 4.20, 'memarrbox', n=3, d=0.045)
 box('data', 15.72, 3.05, 17.38, 4.20, r'\textbf{Data}: 4 ways,\\block RAM', 'memarr')
 table(15.55, 1.58, 17.52, 2.80, r'\textbf{MSHRs}', ['', 'line', 'waiting'],
       [['0', '', ''], [r'\vd', '', ''], ['15', '', '']], widths=[0.6, 1.3, 1.3])
 box('l1note', 15.38, 0.25, 17.62, 1.40,
-    r'Write-through, 64~KB\\at $L=8$; a read miss\\waits for a write\\to its line', 'note')
+    r'Write-through, 64~KiB\\at $L=8$; a read miss\\waits for a write\\to its line', 'note')
 arrow([(17.52, 2.14), (17.64, 2.14), (17.64, 6.62 + 0.20), (17.52, 6.62 + 0.20)], 'darr')
 text(17.77, 4.40, 'miss, write / fill', 'vlabelr')
 arrow([(15.72, 3.70), (15.17, 3.70), (15.17, 4.03), (14.97, 4.03)], 'bus')    # responses
